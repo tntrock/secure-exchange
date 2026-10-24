@@ -20,6 +20,7 @@ type Deps struct {
 	Audit          *audit.Log
 	TrustedProxies []netip.Prefix
 	SessionTTL     time.Duration
+	Uploads        http.Handler // tus endpoint (internal/upload), mounted under /api/uploads/
 }
 
 type server struct {
@@ -49,6 +50,9 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("GET /api/me", s.requireUser(s.me))
 	mux.Handle("POST /api/me/totp/setup", s.requireUser(s.totpSetup))
 	mux.Handle("POST /api/me/totp/enable", s.requireUser(s.totpEnable))
+	if s.Uploads != nil {
+		mux.Handle("/api/uploads/", s.requireUser(s.Uploads.ServeHTTP))
+	}
 	return mux
 }
 

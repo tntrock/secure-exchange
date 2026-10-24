@@ -46,7 +46,10 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e := &env{users: auth.NewUsers(pool, kr), audit: audit.New(pool), pool: pool}
-	e.ts = httptest.NewTLSServer(NewServer(Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour}))
+	e.ts = httptest.NewTLSServer(NewServer(Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour,
+		Uploads: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, auth.UserFrom(r.Context()).ID.String())
+		})}))
 	t.Cleanup(e.ts.Close)
 	e.c = e.ts.Client()
 	e.c.Jar, _ = cookiejar.New(nil)
@@ -312,5 +315,17 @@ func TestAuditFieldsTruncated(t *testing.T) {
 	var n int
 	if err := e.pool.QueryRow(ctx, `SELECT max(octet_length(user_agent)) FROM sessions`).Scan(&n); err != nil || n == 0 || n > 512 {
 		t.Fatal("session user_agent bytes", n, err)
+	}
+}
+
+func TestUploadsRequireUser(t *testing.T) {
+	e := newEnv(t)
+	u := e.user(t, "a@x.com")
+	if resp, _ := e.do(t, "HEAD", "/api/uploads/x", nil); resp.StatusCode != 401 {
+		t.Fatal("anonymous upload access", resp.StatusCode)
+	}
+	e.login(t, "a@x.com", pw)
+	if resp, body := e.do(t, "GET", "/api/uploads/x", nil); resp.StatusCode != 200 || string(body) != u.ID.String() {
+		t.Fatal(resp.StatusCode, string(body))
 	}
 }

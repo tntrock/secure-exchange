@@ -13,10 +13,12 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
+	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/db"
 	"github.com/tntrock/secure-exchange/internal/httpapi"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
+	"github.com/tntrock/secure-exchange/internal/upload"
 )
 
 func main() {
@@ -54,9 +56,19 @@ func serve() error {
 	if err := users.EnsureInitialAdmin(ctx, cfg.InitAdminEmail, cfg.InitAdminPassword); err != nil {
 		return fmt.Errorf("initial admin: %w", err)
 	}
+	store, err := blob.New(cfg)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(cfg.StagingDir, 0o700); err != nil {
+		return fmt.Errorf("staging dir: %w", err)
+	}
+	auditLog := audit.New(pool)
+	go upload.RunJanitor(ctx, pool, cfg.StagingDir, 24*time.Hour)
 	handler := httpapi.NewServer(httpapi.Deps{
-		Users: users, Sessions: auth.NewSessions(pool), Audit: audit.New(pool),
+		Users: users, Sessions: auth.NewSessions(pool), Audit: auditLog,
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL,
+		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies),
 	})
 	srv := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 

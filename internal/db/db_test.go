@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
@@ -37,5 +38,17 @@ func TestAuditLogImmutable(t *testing.T) {
 	}
 	if n != 1 || action != "login" {
 		t.Fatalf("row changed: n=%d action=%q", n, action)
+	}
+}
+
+func TestParallelTestDB(t *testing.T) {
+	for i := 0; i < 6; i++ {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			t.Parallel()
+			pool := testdb.New(t)
+			if _, err := pool.Exec(context.Background(), "SELECT 1 FROM users"); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

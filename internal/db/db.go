@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"io/fs"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -43,11 +44,15 @@ func OpenConfig(ctx context.Context, cfg *pgxpool.Config) (*pgxpool.Pool, error)
 func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	sqlDB := stdlib.OpenDBFromPool(pool)
 	defer sqlDB.Close()
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("postgres"); err != nil {
+	fsys, err := fs.Sub(migrations, "migrations")
+	if err != nil {
 		return err
 	}
-	if err := goose.UpContext(ctx, sqlDB, "migrations"); err != nil {
+	p, err := goose.NewProvider(goose.DialectPostgres, sqlDB, fsys)
+	if err != nil {
+		return fmt.Errorf("db: migrate: %w", err)
+	}
+	if _, err := p.Up(ctx); err != nil {
 		return fmt.Errorf("db: migrate: %w", err)
 	}
 	return nil

@@ -135,6 +135,9 @@ func parseIPs(in []string) ([]netip.Prefix, error) {
 			a = a.Unmap()
 			p = netip.PrefixFrom(a, a.BitLen())
 		}
+		if p.Addr().Is4In6() && p.Bits() >= 96 { // ::ffff:a.b.c.d/n is the v4 prefix /n-96
+			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+		}
 		out = append(out, p.Masked()) // cidr columns reject host bits
 	}
 	return out, nil

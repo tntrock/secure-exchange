@@ -21,6 +21,7 @@ import (
 const (
 	otpTTL      = 10 * time.Minute
 	otpAttempts = 5
+	otpsPerHour = 10
 	sessionTTL  = time.Hour
 )
 
@@ -85,7 +86,10 @@ func (s *Service) Landing(ctx context.Context, token string, ip netip.Addr) (*Sh
 	if err != nil {
 		return nil, err
 	}
-	return sh, s.check(sh, ip)
+	if err := s.check(sh, ip); err != nil {
+		return nil, err
+	}
+	return sh, nil
 }
 
 // RequestCode mails a fresh code if email is an active recipient; otherwise it does nothing.
@@ -107,6 +111,14 @@ func (s *Service) RequestCode(ctx context.Context, token, email string, ip netip
 	}
 	if err != nil {
 		return err
+	}
+	// backstop against guessing by requesting code after code; the HTTP rate limit is the main guard
+	var recent int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM share_otps WHERE recipient_id = $1 AND created_at > now() - interval '1 hour'`, rid).Scan(&recent); err != nil {
+		return err
+	}
+	if recent >= otpsPerHour {
+		return nil
 	}
 	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
 	if err != nil {
@@ -181,8 +193,15 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 		return "", nil, err
 	}
 	err = tx.QueryRow(ctx, `UPDATE shares SET view_count = view_count + 1 WHERE id = $1 AND (max_views IS NULL OR view_count < max_views)
-		RETURNING view_count`, sh.ID).Scan(&sh.ViewCount)
+		AND revoked_at IS NULL AND expires_at > $2 RETURNING view_count`, sh.ID, s.now()).Scan(&sh.ViewCount)
 	if errors.Is(err, pgx.ErrNoRows) {
+		var gone bool
+		if err := tx.QueryRow(ctx, `SELECT revoked_at IS NOT NULL OR expires_at <= $2 FROM shares WHERE id = $1`, sh.ID, s.now()).Scan(&gone); err != nil {
+			return "", nil, err
+		}
+		if gone {
+			return "", nil, ErrGone
+		}
 		return "", nil, ErrViewLimit
 	}
 	if err != nil {
@@ -256,14 +275,17 @@ func (s *Service) Authorize(ctx context.Context, sessionToken string, ip netip.A
 
 // RecordDownload notes a recipient's first download of a file and tells the owner once per file.
 func (s *Service) RecordDownload(ctx context.Context, a *Access, fileID uuid.UUID) error {
-	name, found := "", false
-	for _, f := range a.Share.Files {
-		if f.ID == fileID {
-			name, found = f.Name, true
+	var file *ShareFile
+	for i := range a.Share.Files {
+		if a.Share.Files[i].ID == fileID {
+			file = &a.Share.Files[i]
 		}
 	}
-	if !found {
+	if file == nil {
 		return ErrNotFound
+	}
+	if file.Deleted {
+		return nil
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -275,7 +297,7 @@ func (s *Service) RecordDownload(ctx context.Context, a *Access, fileID uuid.UUI
 		return err
 	}
 	if tag.RowsAffected() == 1 {
-		subject, body := mail.NotifyDownload(a.Recipient.Email, name, s.shareURL(a.Share))
+		subject, body := mail.NotifyDownload(a.Recipient.Email, file.Name, s.shareURL(a.Share))
 		if err := s.outbox.Enqueue(ctx, tx, mail.Message{To: a.Share.OwnerEmail, Subject: subject, Body: body}); err != nil {
 			return err
 		}

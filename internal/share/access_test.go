@@ -386,3 +386,122 @@ func TestIPAllowed(t *testing.T) {
 		t.Fatal("outside must deny")
 	}
 }
+
+// TestVerifyRevokedBetweenLandingAndVerify holds the otp row lock so VerifyCode passes its
+// Landing check and blocks; the share is then revoked/expired before the lock is released.
+func TestVerifyRevokedBetweenLandingAndVerify(t *testing.T) {
+	cases := map[string]string{
+		"revoked": `UPDATE shares SET revoked_at = now() WHERE id = $1`,
+		"expired": `UPDATE shares SET expires_at = $2 WHERE id = $1`,
+	}
+	for name, q := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := setup(t)
+			sh, tok := e.newShare(t, nil, "bob@x.com")
+			code := e.code(t, tok, "bob@x.com")
+			ctx := context.Background()
+			lock, err := e.pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Rollback(ctx)
+			var pid int
+			if err := lock.QueryRow(ctx, `SELECT pg_backend_pid() FROM share_otps FOR UPDATE`).Scan(&pid); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				_, _, err := e.svc.VerifyCode(ctx, tok, "bob@x.com", code, ip1, "")
+				done <- err
+			}()
+			deadline := time.Now().Add(5 * time.Second)
+			for count(t, e, `SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))`, pid) == 0 {
+				if time.Now().After(deadline) {
+					t.Fatal("VerifyCode never blocked on the otp lock")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			args := []any{sh.ID}
+			if name == "expired" {
+				args = append(args, e.now.Add(-time.Second))
+			}
+			if _, err := lock.Exec(ctx, q, args...); err != nil {
+				t.Fatal(err)
+			}
+			if err := lock.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-done; !errors.Is(err, ErrGone) {
+				t.Fatalf("got %v want ErrGone", err)
+			}
+			if n := count(t, e, `SELECT view_count FROM shares WHERE id=$1`, sh.ID); n != 0 {
+				t.Fatalf("view_count %d", n)
+			}
+			if n := count(t, e, `SELECT count(*) FROM share_sessions`); n != 0 {
+				t.Fatalf("sessions %d", n)
+			}
+			if n := mailsTo(t, e, "owner@x.com", "opened"); n != 0 {
+				t.Fatalf("first-open mails %d", n)
+			}
+		})
+	}
+}
+
+func TestLandingNilOnError(t *testing.T) {
+	e := setup(t)
+	sh, tok := e.newShare(t, func(in *CreateInput) { in.IPAllow = []string{"10.0.0.0/8"} }, "bob@x.com")
+	if got, err := e.svc.Landing(context.Background(), tok, ip1); !errors.Is(err, ErrIPDenied) || got != nil {
+		t.Fatalf("ip: %v %+v", err, got)
+	}
+	e.now = sh.ExpiresAt
+	if got, err := e.svc.Landing(context.Background(), tok, netip.MustParseAddr("10.1.2.3")); !errors.Is(err, ErrGone) || got != nil {
+		t.Fatalf("gone: %v %+v", err, got)
+	}
+}
+
+func TestRequestCodeHourlyBackstop(t *testing.T) {
+	e := setup(t)
+	_, tok := e.newShare(t, nil, "bob@x.com")
+	for i := 0; i < 10; i++ {
+		e.code(t, tok, "bob@x.com")
+	}
+	mails := len(mailtest.Messages(t, e.pool, e.keys))
+	if err := e.svc.RequestCode(context.Background(), tok, "bob@x.com", ip1); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, e, `SELECT count(*) FROM share_otps`); n != 10 {
+		t.Fatalf("otps %d", n)
+	}
+	if n := len(mailtest.Messages(t, e.pool, e.keys)); n != mails {
+		t.Fatalf("mails %d want %d", n, mails)
+	}
+	if n := count(t, e, `SELECT count(*) FROM share_otps WHERE used_at IS NULL`); n != 1 {
+		t.Fatalf("latest code should stay valid, unused %d", n)
+	}
+}
+
+func TestRecordDownloadDeletedFile(t *testing.T) {
+	e := setup(t)
+	_, tok := e.newShare(t, nil, "bob@x.com")
+	_, a, err := e.svc.VerifyCode(context.Background(), tok, "bob@x.com", e.code(t, tok, "bob@x.com"), ip1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Share.Files[0].Deleted = true
+	if err := e.svc.RecordDownload(context.Background(), a, a.Share.Files[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, e, `SELECT count(*) FROM share_downloads`); n != 0 {
+		t.Fatalf("downloads %d", n)
+	}
+	if n := mailsTo(t, e, "owner@x.com", "downloaded"); n != 0 {
+		t.Fatalf("mails %d", n)
+	}
+}
+
+func TestParseIPsMappedPrefix(t *testing.T) {
+	got, err := parseIPs([]string{"::ffff:10.0.0.0/104"})
+	if err != nil || len(got) != 1 || got[0].String() != "10.0.0.0/8" || !ipAllowed(got, netip.MustParseAddr("10.1.2.3")) {
+		t.Fatalf("%v %v", got, err)
+	}
+}

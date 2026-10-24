@@ -1,0 +1,49 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: sx
+          POSTGRES_PASSWORD: sx
+          POSTGRES_DB: sx
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sx" --health-interval 5s --health-retries 10
+    env:
+      SX_TEST_DATABASE_URL: postgres://sx:sx@localhost:5432/sx?sslmode=disable
+      SX_TEST_S3_ENDPOINT: localhost:59000
+    steps:
+      - uses: actions/checkout@v7
+      # A service container cannot take a command, so run minio by hand.
+      - name: Start minio
+        run: |
+          docker run -d --name minio -p 59000:9000 \
+            -e MINIO_ROOT_USER=sxminio -e MINIO_ROOT_PASSWORD=sxminio123 \
+            cgr.dev/chainguard/minio server /data
+          curl --retry 30 --retry-delay 1 --retry-all-errors -fsS http://localhost:59000/minio/health/ready
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web tests and build
+        working-directory: web
+        run: npm ci && npx vitest run && npm run build
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build .

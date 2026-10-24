@@ -1,0 +1,21 @@
+{
+  "app": { "title": "Secure Exchange", "logout": "Log out", "language": "Language", "loading": "Loading…", "error": "Something went wrong, please try again" },
+  "login": {
+    "title": "Log in", "email": "Email", "password": "Password", "submit": "Log in",
+    "totpTitle": "Two-factor authentication", "totpCode": "Code (6 digits)", "totpSubmit": "Verify",
+    "invalid": "Invalid email or password", "invalidCode": "Invalid code", "rateLimited": "Too many attempts, try again later"
+  },
+  "totp": {
+    "title": "Set up two-factor authentication", "scan": "Scan the QR code with an authenticator app, then enter the 6-digit code.",
+    "qrAlt": "Two-factor authentication QR code", "start": "Start setup", "code": "Code", "enable": "Enable", "enabled": "Two-factor authentication is enabled", "failed": "Invalid code or setup failed"
+  },
+  "files": {
+    "title": "My files", "empty": "No files yet", "name": "Name", "size": "Size", "created": "Uploaded",
+    "sha256": "SHA-256", "download": "Download", "delete": "Delete", "confirmDelete": "Delete \"{{name}}\"?",
+    "settings": "Two-factor settings"
+  },
+  "upload": {
+    "drop": "Drop files here, or click to choose", "pause": "Pause", "resume": "Resume", "cancel": "Cancel",
+    "done": "Upload complete", "failed": "Upload failed"
+  }
+}

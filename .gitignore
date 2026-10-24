@@ -1,0 +1,12 @@
+.superpowers/
+/secure-exchange
+/secure-exchange.exe
+/data/
+*.test
+*.out
+node_modules/
+
+web/node_modules/
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
+web/*.tsbuildinfo

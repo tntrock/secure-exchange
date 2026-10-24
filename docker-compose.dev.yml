@@ -1,0 +1,19 @@
+name: secure-exchange-dev
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: sx
+      POSTGRES_PASSWORD: sx
+      POSTGRES_DB: sx
+    ports:
+      - "55432:5432"
+  minio:
+    image: cgr.dev/chainguard/minio
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: sxminio
+      MINIO_ROOT_PASSWORD: sxminio123
+    ports:
+      - "59000:9000"

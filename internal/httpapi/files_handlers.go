@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -59,6 +60,7 @@ type fileRow struct {
 	id         uuid.UUID
 	name, key  string
 	size       int64
+	sum        []byte
 	wrappedDEK []byte
 	keyID      int
 }
@@ -71,9 +73,9 @@ func (s *server) ownFile(w http.ResponseWriter, r *http.Request) (*fileRow, bool
 		return nil, false
 	}
 	f := fileRow{id: id}
-	err = s.Pool.QueryRow(r.Context(), `SELECT name, size, wrapped_dek, key_id, storage_key FROM files
+	err = s.Pool.QueryRow(r.Context(), `SELECT name, size, sha256, wrapped_dek, key_id, storage_key FROM files
 		WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL`, id, auth.UserFrom(r.Context()).ID).
-		Scan(&f.name, &f.size, &f.wrappedDEK, &f.keyID, &f.key)
+		Scan(&f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 		return nil, false
@@ -100,15 +102,20 @@ func (s *server) downloadFile(w http.ResponseWriter, r *http.Request) {
 		return s.Store.OpenRange(ctx, f.key, off, n)
 	}, dek, f.id, f.size) // R7: size from the DB
 	defer rs.Close()
-	if rng := r.Header.Get("Range"); r.Method == http.MethodGet && (rng == "" || strings.HasPrefix(rng, "bytes=0-")) {
-		s.record(r, audit.Event{ActorID: auth.UserFrom(r.Context()).ID.String(), Action: audit.ActDownload,
-			TargetType: "file", TargetID: f.id.String(), Result: "ok"})
-	}
 	h := w.Header()
+	h.Set("ETag", `"`+hex.EncodeToString(f.sum)+`"`)
 	h.Set("Content-Type", "application/octet-stream")
 	h.Set("Content-Disposition", contentDisposition(f.name))
 	h.Set("Cache-Control", "private, no-store")
-	http.ServeContent(w, r, "", time.Time{}, rs)
+	sw := &statusWriter{ResponseWriter: w}
+	http.ServeContent(sw, r, "", time.Time{}, rs)
+	if r.Method == http.MethodGet && (sw.status == http.StatusOK || sw.status == http.StatusPartialContent) {
+		// audited by what was actually served, not by what the client asked for (R15)
+		r = r.WithContext(context.WithoutCancel(r.Context()))
+		s.record(r, audit.Event{ActorID: auth.UserFrom(r.Context()).ID.String(), Action: audit.ActDownload,
+			TargetType: "file", TargetID: f.id.String(), Result: "ok",
+			Detail: map[string]any{"status": sw.status, "range": h.Get("Content-Range")}})
+	}
 }
 
 func (s *server) deleteFile(w http.ResponseWriter, r *http.Request) {
@@ -156,4 +163,24 @@ func contentDisposition(name string) string {
 		}
 	}
 	return `attachment; filename="` + fallback + `"; filename*=UTF-8''` + enc.String()
+}
+
+// statusWriter records the status code ServeContent chose.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
 }

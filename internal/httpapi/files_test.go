@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+
 	"encoding/json"
 	"io"
 	"mime"
@@ -109,29 +110,35 @@ func TestDownloadRanges(t *testing.T) {
 		resp.Header.Get("Cache-Control") != "private, no-store" {
 		t.Fatal(resp.StatusCode, resp.Header)
 	}
-	// audit: full download + bytes=0-0 only
+	// audit: every 200/206 served (4 ranges + full), not the 416
 	ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 50})
-	if len(ents) != 2 {
-		t.Fatalf("want 2 download audits, got %d", len(ents))
+	if len(ents) != 5 {
+		t.Fatalf("want 5 download audits, got %d", len(ents))
 	}
 }
 
 func TestDownloadFilenameHeader(t *testing.T) {
 	e := newEnv(t)
 	u := e.user(t, "a@x.com")
-	id := e.putFile(t, u.ID, "報價單 \"v2\"/../"+string(rune(92))+string(rune(1))+".pdf", []byte("x"))
 	e.login(t, "a@x.com", pw)
+	name := "報價單 \"v2\"/../" + string(rune(92)) + string(rune(1)) + ".pdf"
+	id := e.putFile(t, u.ID, name, []byte("x"))
 	resp, _ := e.get(t, "/api/files/"+id.String()+"/content")
+	want := `attachment; filename="___ _v2_...pdf"; filename*=UTF-8''%E5%A0%B1%E5%83%B9%E5%96%AE%20%22v2%22...pdf`
+	if cd := resp.Header.Get("Content-Disposition"); cd != want {
+		t.Fatalf("%q want %q", cd, want)
+	}
+	_, params, err := mime.ParseMediaType(resp.Header.Get("Content-Disposition"))
+	if err != nil || params["filename"] != "報價單 \"v2\"...pdf" {
+		t.Fatalf("%q %v", params["filename"], err)
+	}
+
+	id = e.putFile(t, u.ID, "a"+string(rune(13))+string(rune(10))+"Set-Cookie: x=1.txt", []byte("x"))
+	resp, _ = e.get(t, "/api/files/"+id.String()+"/content")
 	cd := resp.Header.Get("Content-Disposition")
-	typ, params, err := mime.ParseMediaType(cd)
-	if err != nil || typ != "attachment" || params["filename"] != params["filename*"] && !strings.HasPrefix(cd, `attachment; filename="`) {
-		t.Fatal(cd, err)
-	}
-	if want := "報價單 \"v2\"...pdf"; params["filename"] != want {
-		t.Fatalf("%q want %q (%s)", params["filename"], want, cd)
-	}
-	if !strings.Contains(cd, `filename="___ "v2"`) && !strings.Contains(cd, "filename*=UTF-8''%E5%A0%B1") {
-		t.Fatal(cd)
+	_, params, err = mime.ParseMediaType(cd)
+	if strings.ContainsAny(cd, "\r\n") || err != nil || params["filename"] != "aSet-Cookie: x=1.txt" || resp.Header.Get("Set-Cookie") != "" {
+		t.Fatalf("%q %q %v", cd, params["filename"], err)
 	}
 }
 
@@ -178,5 +185,45 @@ func TestOtherUserFile404(t *testing.T) {
 	e.login(t, "a@x.com", pw)
 	if resp, _ := e.get(t, "/api/files/"+id.String()+"/content"); resp.StatusCode != 200 {
 		t.Fatal("owner lost access", resp.StatusCode)
+	}
+}
+
+func TestDownloadAuditByServedStatus(t *testing.T) {
+	e := newEnv(t)
+	u := e.user(t, "a@x.com")
+	plain := []byte("0123456789abcdefghijklmnopqrstuvwxyz")
+	id := e.putFile(t, u.ID, "f", plain)
+	e.login(t, "a@x.com", pw)
+	p := "/api/files/" + id.String() + "/content"
+	sum := sha256.Sum256(plain)
+	etag := `"` + hex.EncodeToString(sum[:]) + `"`
+	count := func() int {
+		ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 50})
+		return len(ents)
+	}
+	for i, c := range []struct {
+		hdr    []string
+		status int
+		audit  bool
+	}{
+		{nil, 200, true},
+		{[]string{"Range", "bytes=5-", "If-Range", `"nope"`}, 200, true},
+		{[]string{"Range", "bytes=1-,1-"}, 200, true},
+		{[]string{"Range", "bytes=10-20"}, 206, true},
+		{[]string{"Range", "bytes=99999999-"}, 416, false},
+		{[]string{"Range", "bytes=5-", "If-Range", etag}, 206, true},
+	} {
+		before := count()
+		resp, _ := e.get(t, p, c.hdr...)
+		if resp.StatusCode != c.status || (c.status < 400 && resp.Header.Get("ETag") != etag) {
+			t.Fatalf("case %d: %d etag=%q", i, resp.StatusCode, resp.Header.Get("ETag"))
+		}
+		if got := count() - before; (got == 1) != c.audit || got > 1 {
+			t.Fatalf("case %d: %d audits", i, got)
+		}
+	}
+	ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 1})
+	if d := ents[0].Event.Detail; d["status"] != float64(206) || d["range"] != "bytes 5-35/36" {
+		t.Fatalf("%v", d)
 	}
 }

@@ -70,7 +70,7 @@ func serve() error {
 		return fmt.Errorf("staging dir: %w", err)
 	}
 	auditLog := audit.New(pool)
-	go upload.RunJanitor(ctx, pool, cfg.StagingDir, 24*time.Hour)
+	go upload.RunJanitor(ctx, pool, store, cfg.StagingDir, 24*time.Hour)
 	handler := httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store,

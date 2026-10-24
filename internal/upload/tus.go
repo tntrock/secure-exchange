@@ -261,9 +261,33 @@ func (h *handler) head(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
+	if u.offset == u.size { // a finish failed earlier: complete it now, or the client would report success with no file
+		if !h.tryLock(u.id) {
+			w.WriteHeader(http.StatusConflict)
+			return
+		}
+		defer h.unlock(u.id)
+		if u, err = h.load(r); err != nil || u == nil { // re-read under the lock
+			if err != nil {
+				fail(w, "head", err)
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+			}
+			return
+		}
+		sum, err := h.openHash(u)
+		if err == nil {
+			err = h.finish(r, u, sum)
+		}
+		if err != nil {
+			fail(w, "finish", err)
+			return
+		}
+		w.Header().Set("X-SX-File-ID", u.id.String())
+	}
 	w.Header().Set("Upload-Offset", strconv.FormatInt(u.offset, 10))
 	w.Header().Set("Upload-Length", strconv.FormatInt(u.size, 10))
-	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 }
 

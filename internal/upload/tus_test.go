@@ -367,7 +367,7 @@ func TestJanitorRemovesStale(t *testing.T) {
 	old := time.Now().Add(-25 * time.Hour)
 	os.Chtimes(orphan, old, old)
 
-	sweep(ctx, e.pool, e.staging, 24*time.Hour)
+	sweep(ctx, e.pool, e.store, e.staging, 24*time.Hour)
 
 	var n int
 	e.pool.QueryRow(ctx, `SELECT count(*) FROM uploads`).Scan(&n)
@@ -461,5 +461,46 @@ func TestFinishUsesRotatedDEK(t *testing.T) {
 	}
 	if _, err := both.UnwrapDEK(w, kid); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A failed finish leaves offset == size committed; tus clients then HEAD and
+// would report success, so HEAD must complete the upload (or fail with 500).
+func TestHeadCompletesFailedFinish(t *testing.T) {
+	e := newEnv(t)
+	data := random(sxcrypto.ChunkSize + 100)
+	id := e.create("a", int64(len(data)))
+	e.failPut.Store(true)
+	if resp := e.patch("a", id, 0, data); resp.StatusCode != 500 {
+		t.Fatalf("patch with failing store: %d", resp.StatusCode)
+	}
+	if resp := e.head("a", id); resp.StatusCode != 500 {
+		t.Fatalf("head with failing store: %d", resp.StatusCode)
+	}
+	e.failPut.Store(false)
+	resp := e.head("a", id)
+	if resp.StatusCode != 200 || resp.Header.Get("Upload-Offset") != strconv.Itoa(len(data)) ||
+		resp.Header.Get("Upload-Length") != strconv.Itoa(len(data)) || resp.Header.Get("X-SX-File-ID") != id {
+		t.Fatalf("head: %d %v", resp.StatusCode, resp.Header)
+	}
+	e.readBack(id, data)
+	if resp := e.head("a", id); resp.StatusCode != 404 {
+		t.Fatalf("head after completion: %d", resp.StatusCode)
+	}
+}
+
+// A stale row whose finish failed after Put may have left a blob behind.
+func TestJanitorDeletesOrphanBlob(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	id := e.create("a", 10)
+	if err := e.store.Put(ctx, id, bytes.NewReader([]byte("x")), 1); err != nil {
+		t.Fatal(err)
+	}
+	e.pool.Exec(ctx, `UPDATE uploads SET updated_at = now() - interval '25 hours' WHERE id = $1`, id)
+	sweep(ctx, e.pool, e.store, e.staging, 24*time.Hour)
+	if r, err := e.store.OpenRange(ctx, id, 0, 1); err == nil {
+		r.Close()
+		t.Fatal("orphan blob survived")
 	}
 }

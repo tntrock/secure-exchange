@@ -9,15 +9,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tntrock/secure-exchange/internal/blob"
 )
 
 // RunJanitor removes abandoned uploads (no progress for maxAge) every 10
 // minutes until ctx is done.
-func RunJanitor(ctx context.Context, pool *pgxpool.Pool, stagingDir string, maxAge time.Duration) {
+func RunJanitor(ctx context.Context, pool *pgxpool.Pool, store blob.Store, stagingDir string, maxAge time.Duration) {
 	t := time.NewTicker(10 * time.Minute)
 	defer t.Stop()
 	for {
-		sweep(ctx, pool, stagingDir, maxAge)
+		sweep(ctx, pool, store, stagingDir, maxAge)
 		select {
 		case <-ctx.Done():
 			return
@@ -28,7 +30,7 @@ func RunJanitor(ctx context.Context, pool *pgxpool.Pool, stagingDir string, maxA
 
 // sweep deletes stale upload rows with their staging files, then staging
 // files older than maxAge that have no row (left by a crash after completion).
-func sweep(ctx context.Context, pool *pgxpool.Pool, stagingDir string, maxAge time.Duration) {
+func sweep(ctx context.Context, pool *pgxpool.Pool, store blob.Store, stagingDir string, maxAge time.Duration) {
 	rows, err := pool.Query(ctx, `DELETE FROM uploads WHERE updated_at < now() - $1::interval RETURNING id`, maxAge)
 	if err != nil {
 		slog.Error("upload janitor", "err", err)
@@ -47,6 +49,10 @@ func sweep(ctx context.Context, pool *pgxpool.Pool, stagingDir string, maxAge ti
 	}
 	for _, id := range ids {
 		remove(filepath.Join(stagingDir, id.String()))
+		// a finish that failed after Put leaves a blob; no files row can claim it once the upload row is gone
+		if err := store.Delete(ctx, id.String()); err != nil {
+			slog.Error("upload janitor: delete blob", "id", id, "err", err)
+		}
 	}
 
 	ents, err := os.ReadDir(stagingDir)

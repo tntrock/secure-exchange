@@ -8,10 +8,13 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/time/rate"
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
+	"github.com/tntrock/secure-exchange/internal/blob"
+	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
 type Deps struct {
@@ -21,6 +24,9 @@ type Deps struct {
 	TrustedProxies []netip.Prefix
 	SessionTTL     time.Duration
 	Uploads        http.Handler // tus endpoint (internal/upload), mounted under /api/uploads/
+	Pool           *pgxpool.Pool
+	Keys           *sxcrypto.Keyring
+	Store          blob.Store
 }
 
 type server struct {
@@ -48,6 +54,9 @@ func (s *server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
 
 	mux.Handle("GET /api/me", s.requireUser(s.me))
+	mux.Handle("GET /api/files", s.requireUser(s.listFiles))
+	mux.Handle("GET /api/files/{id}/content", s.requireUser(s.downloadFile))
+	mux.Handle("DELETE /api/files/{id}", s.requireUser(s.deleteFile))
 	mux.Handle("POST /api/me/totp/setup", s.requireUser(s.totpSetup))
 	mux.Handle("POST /api/me/totp/enable", s.requireUser(s.totpEnable))
 	if s.Uploads != nil {

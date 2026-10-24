@@ -67,6 +67,7 @@ func serve() error {
 	go upload.RunJanitor(ctx, pool, cfg.StagingDir, 24*time.Hour)
 	handler := httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: auditLog,
+		Pool: pool, Keys: keys, Store: store,
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL,
 		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies),
 	})

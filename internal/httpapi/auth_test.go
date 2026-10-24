@@ -22,6 +22,7 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
+	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
@@ -34,6 +35,8 @@ type env struct {
 	users *auth.Users
 	audit *audit.Log
 	pool  *pgxpool.Pool
+	keys  *sxcrypto.Keyring
+	store blob.Store
 }
 
 func newEnv(t *testing.T) *env {
@@ -45,8 +48,12 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{users: auth.NewUsers(pool, kr), audit: audit.New(pool), pool: pool}
-	e.ts = httptest.NewTLSServer(NewServer(Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour,
+	store, err := blob.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &env{users: auth.NewUsers(pool, kr), audit: audit.New(pool), pool: pool, keys: kr, store: store}
+	e.ts = httptest.NewTLSServer(NewServer(Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour, Pool: pool, Keys: kr, Store: store,
 		Uploads: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, auth.UserFrom(r.Context()).ID.String())
 		})}))

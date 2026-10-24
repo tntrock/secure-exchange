@@ -2,6 +2,7 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -9,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -117,7 +119,8 @@ func (s *SMTP) Send(ctx context.Context, m Message) error {
 	if err := w.Close(); err != nil {
 		return err
 	}
-	return c.Quit()
+	c.Quit() // DATA was accepted; a QUIT failure must not look like a failed send (duplicate delivery)
+	return nil
 }
 
 func (s *SMTP) render(from string, m Message) []byte {
@@ -132,8 +135,11 @@ func (s *SMTP) render(from string, m Message) []byte {
 		"Message-ID: <" + hex.EncodeToString(id) + "@" + domain + ">",
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=utf-8",
-		"Content-Transfer-Encoding: 8bit",
+		"Content-Transfer-Encoding: quoted-printable",
 	}
-	body := strings.ReplaceAll(strings.ReplaceAll(m.Body, "\r\n", "\n"), "\n", "\r\n")
-	return []byte(strings.Join(h, "\r\n") + "\r\n\r\n" + body)
+	var qp bytes.Buffer // QP keeps lines under RFC 5322's 998 octets even for long CJK text
+	w := quotedprintable.NewWriter(&qp)
+	w.Write([]byte(strings.ReplaceAll(strings.ReplaceAll(m.Body, "\r\n", "\n"), "\n", "\r\n")))
+	w.Close()
+	return []byte(strings.Join(h, "\r\n") + "\r\n\r\n" + qp.String())
 }

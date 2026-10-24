@@ -78,21 +78,22 @@ func (o *Outbox) runOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT id, to_addr, body_sealed FROM mail_outbox
+	rows, err := tx.Query(ctx, `SELECT id, to_addr, body_sealed, attempts FROM mail_outbox
 		WHERE sent_at IS NULL AND attempts < 10 AND next_attempt_at <= now()
 		ORDER BY next_attempt_at LIMIT 20 FOR UPDATE SKIP LOCKED`)
 	if err != nil {
 		return 0, err
 	}
 	type row struct {
-		id     uuid.UUID
-		to     string
-		sealed []byte
+		id       uuid.UUID
+		to       string
+		sealed   []byte
+		attempts int
 	}
 	var due []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.id, &r.to, &r.sealed); err != nil {
+		if err := rows.Scan(&r.id, &r.to, &r.sealed, &r.attempts); err != nil {
 			return 0, err
 		}
 		due = append(due, r)
@@ -102,30 +103,58 @@ func (o *Outbox) runOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	sent := 0
+	// Bookkeeping must survive shutdown, or already-delivered mail would be re-sent.
+	dctx := context.WithoutCancel(ctx)
 	// ponytail: the tx (row locks) is held while sending up to 20 messages; fine for a
 	// single instance, move sending out of the tx if mail volume or SMTP latency grows.
 	for _, r := range due {
-		if sendErr := o.deliver(ctx, r.id, r.to, r.sealed); sendErr == nil {
+		if ctx.Err() != nil {
+			break
+		}
+		sendErr := o.deliver(ctx, r.id, r.to, r.sealed)
+		if sendErr != nil && ctx.Err() != nil {
+			break // interrupted by shutdown, not a real failure
+		}
+		// savepoint, so one failed UPDATE doesn't abort the whole batch
+		sp, err := tx.Begin(dctx)
+		if err != nil {
+			return sent, err
+		}
+		if sendErr == nil {
 			sent++
-			_, err = tx.Exec(ctx, `UPDATE mail_outbox SET sent_at = now(), last_error = '' WHERE id = $1`, r.id)
+			_, err = sp.Exec(dctx, `UPDATE mail_outbox SET sent_at = now(), last_error = '' WHERE id = $1`, r.id)
 		} else {
-			msg := sendErr.Error()
-			if len(msg) > 500 {
-				msg = msg[:500]
-			}
-			_, err = tx.Exec(ctx, `UPDATE mail_outbox SET attempts = attempts + 1, last_error = $2,
+			// cut on a rune boundary: Postgres rejects invalid UTF-8
+			msg := strings.ToValidUTF8(truncate(sendErr.Error(), 500), "")
+			slog.Warn("mail send failed", "id", r.id, "attempts", r.attempts+1, "err", sendErr)
+			_, err = sp.Exec(dctx, `UPDATE mail_outbox SET attempts = attempts + 1, last_error = $2,
 				next_attempt_at = now() + least(power(2, attempts + 1) * interval '1 minute', interval '6 hours')
 				WHERE id = $1`, r.id, msg)
 		}
+		if err == nil {
+			err = sp.Commit(dctx)
+		} else {
+			sp.Rollback(dctx)
+		}
 		if err != nil {
-			return 0, err
+			slog.Error("mail outbox bookkeeping failed", "id", r.id, "err", err)
 		}
 	}
-	// ponytail: 寄送紀錄只留 7 天
-	if _, err := tx.Exec(ctx, `DELETE FROM mail_outbox WHERE sent_at < now() - interval '7 days'`); err != nil {
-		return 0, err
+	if err := tx.Commit(dctx); err != nil {
+		return sent, err
 	}
-	return sent, tx.Commit(ctx)
+	// ponytail: 寄送紀錄只留 7 天
+	if _, err := o.pool.Exec(dctx, `DELETE FROM mail_outbox WHERE sent_at < now() - interval '7 days'`); err != nil {
+		slog.Error("mail outbox cleanup failed", "err", err)
+	}
+	return sent, nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }
 
 func (o *Outbox) deliver(ctx context.Context, id uuid.UUID, to string, sealed []byte) error {

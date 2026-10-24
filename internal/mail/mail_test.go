@@ -118,7 +118,8 @@ func TestSMTPAgainstMailpit(t *testing.T) {
 	fmt.Sscanf(strings.Replace(addr, ":", " ", 1), "%s %d", &host, &port)
 	s := NewSMTP(config.SMTPConfig{Host: host, Port: port, From: "sx@example.com", TLS: "none"})
 	subj := fmt.Sprintf("[secure-exchange] 測試 / test %d", time.Now().UnixNano())
-	if err := s.Send(context.Background(), Message{To: "bob@example.com", Subject: subj, Body: "內文 body"}); err != nil {
+	body := strings.Repeat("內文長行", 750) + "\n第二行 body"
+	if err := s.Send(context.Background(), Message{To: "bob@example.com", Subject: subj, Body: body}); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := http.Get("http://localhost:58025/api/v1/messages")
@@ -126,12 +127,26 @@ func TestSMTPAgainstMailpit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var out struct{ Messages []struct{ Subject string } }
+	var out struct {
+		Messages []struct{ ID, Subject string }
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range out.Messages {
 		if m.Subject == subj {
+			r2, err := http.Get("http://localhost:58025/api/v1/message/" + m.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r2.Body.Close()
+			var full struct{ Text string }
+			if err := json.NewDecoder(r2.Body).Decode(&full); err != nil {
+				t.Fatal(err)
+			}
+			if strings.TrimSpace(strings.ReplaceAll(full.Text, "\r\n", "\n")) != body {
+				t.Fatalf("body mangled: got %d bytes, want %d", len(full.Text), len(body))
+			}
 			return
 		}
 	}

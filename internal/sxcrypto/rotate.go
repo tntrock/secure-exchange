@@ -15,9 +15,45 @@ const rotateBatch = 500
 // RotateAll re-wraps every files/uploads DEK and re-seals users.totp_secret_sealed
 // and uploads.hash_state under the active key. Rows already on the active key
 // are skipped. Returns the number of values rewritten. File contents are untouched.
+const maxRotatePasses = 3
+
+// afterPass is a test hook, called after each full pass.
+var afterPass func(pass int)
+
+// RotateAll re-wraps every uploads/files DEK and re-seals users.totp_secret_sealed
+// and uploads.hash_state under the active key. Values already on the active key
+// are skipped. Returns the number of values rewritten. File contents are untouched.
+//
+// Uploads are rotated before files so an upload finishing mid-run (which copies
+// its DEK into files) is caught by the files step or the residual check; the
+// run repeats up to maxRotatePasses times until nothing old remains.
 func RotateAll(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, error) {
 	total := 0
-	for _, t := range []string{"files", "uploads"} {
+	for pass := 1; ; pass++ {
+		n, err := rotatePass(ctx, pool, keys)
+		total += n
+		if err != nil {
+			return total, err
+		}
+		if afterPass != nil {
+			afterPass(pass)
+		}
+		left, err := residual(ctx, pool, keys)
+		if err != nil {
+			return total, err
+		}
+		if left == "" {
+			return total, nil
+		}
+		if pass == maxRotatePasses {
+			return total, fmt.Errorf("rotate: values still on old keys after %d passes (%s); stop writers and retry", pass, left)
+		}
+	}
+}
+
+func rotatePass(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, error) {
+	total := 0
+	for _, t := range []string{"uploads", "files"} {
 		n, err := rotateDEKs(ctx, pool, keys, t)
 		total += n
 		if err != nil {
@@ -35,6 +71,25 @@ func RotateAll(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, err
 		}
 	}
 	return total, nil
+}
+
+// residual describes values not on the active key ("" when none).
+func residual(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (string, error) {
+	prefix := binary.BigEndian.AppendUint32(nil, uint32(keys.ActiveID()))
+	var files, uploads, totp, hash int
+	err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM files WHERE key_id <> $1),
+		(SELECT count(*) FROM uploads WHERE key_id <> $1),
+		(SELECT count(*) FROM users WHERE totp_secret_sealed IS NOT NULL AND substring(totp_secret_sealed from 1 for 4) <> $2),
+		(SELECT count(*) FROM uploads WHERE substring(hash_state from 1 for 4) <> $2)`,
+		keys.ActiveID(), prefix).Scan(&files, &uploads, &totp, &hash)
+	if err != nil {
+		return "", err
+	}
+	if files+uploads+totp+hash == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("files=%d uploads=%d totp=%d hash_state=%d", files, uploads, totp, hash), nil
 }
 
 // batch runs fn in a tx; table/column names come from constants above.

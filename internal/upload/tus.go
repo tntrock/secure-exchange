@@ -410,6 +410,10 @@ func (h *handler) finish(r *http.Request, u *upload, sum hash.Hash) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Re-read the DEK under lock: key rotation may have re-wrapped it since PATCH began.
+	if err := tx.QueryRow(ctx, `SELECT wrapped_dek, key_id FROM uploads WHERE id = $1 FOR UPDATE`, u.id).Scan(&u.wrappedDEK, &u.keyID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO files (id, owner_id, name, content_type, size, sha256, wrapped_dek, key_id, storage_key)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, u.id, u.owner, u.name, u.contentType, u.size, sum.Sum(nil), u.wrappedDEK, u.keyID, key); err != nil {
 		return err

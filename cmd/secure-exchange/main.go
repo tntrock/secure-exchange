@@ -21,19 +21,25 @@ import (
 	"github.com/tntrock/secure-exchange/internal/upload"
 )
 
-func main() {
+func main() { os.Exit(run(os.Args[1:])) }
+
+// run dispatches a subcommand and returns the process exit code.
+func run(args []string) int {
 	cmd := "serve"
-	if len(os.Args) > 1 {
-		cmd = os.Args[1]
+	if len(args) > 0 {
+		cmd = args[0]
 	}
-	if cmd != "serve" {
+	cmds := map[string]func() error{"serve": serve, "rotate-keys": rotateKeys}
+	f, ok := cmds[cmd]
+	if !ok {
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", cmd)
-		os.Exit(2)
+		return 2
 	}
-	if err := serve(); err != nil {
+	if err := f(); err != nil {
 		slog.Error("fatal", "err", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func serve() error {

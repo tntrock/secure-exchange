@@ -34,6 +34,7 @@ type env struct {
 	ts      *httptest.Server
 	pool    *pgxpool.Pool
 	keys    *sxcrypto.Keyring
+	keySpec string
 	store   blob.Store
 	staging string
 	users   map[string]*auth.User
@@ -54,7 +55,7 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, pool: pool, keys: keys, store: store, staging: t.TempDir(), users: map[string]*auth.User{}}
+	e := &env{t: t, pool: pool, keys: keys, keySpec: "1:" + base64.StdEncoding.EncodeToString(k), store: store, staging: t.TempDir(), users: map[string]*auth.User{}}
 	us := auth.NewUsers(pool, keys)
 	for _, name := range []string{"a", "b"} {
 		u, err := us.Create(context.Background(), name+"@example.com", name, "staff", "password-12345")
@@ -414,4 +415,51 @@ func TestHashStateNotPlaintext(t *testing.T) {
 		t.Fatalf("retry: %d %v", resp.StatusCode, resp.Header)
 	}
 	e.readBack(id, marker)
+}
+
+// A PATCH that began before key rotation holds the old wrapped DEK in memory;
+// finishing it must still store the rotated DEK in files.
+func TestFinishUsesRotatedDEK(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	data := random(1000)
+	id := e.create("a", int64(len(data)))
+	e.failPut.Store(true) // upload completes but finish fails, leaving the uploads row and staging file
+	if resp := e.patch("a", id, 0, data); resp.StatusCode == 204 {
+		t.Fatal("expected finish to fail")
+	}
+	e.failPut.Store(false)
+
+	uid := uuid.MustParse(id)
+	stale := &upload{id: uid}
+	if err := e.pool.QueryRow(ctx, `SELECT owner_id, name, content_type, size, wrapped_dek, key_id FROM uploads WHERE id=$1`, uid).
+		Scan(&stale.owner, &stale.name, &stale.contentType, &stale.size, &stale.wrappedDEK, &stale.keyID); err != nil {
+		t.Fatal(err)
+	}
+	if stale.keyID != 1 {
+		t.Fatalf("setup: key_id %d", stale.keyID)
+	}
+	both, err := sxcrypto.ParseKeyring(e.keySpec+",2:"+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sxcrypto.RotateAll(ctx, e.pool, both); err != nil {
+		t.Fatal(err)
+	}
+
+	r := httptest.NewRequest("PATCH", "/", nil)
+	if err := e.h.finish(r, stale, sha256.New()); err != nil {
+		t.Fatal(err)
+	}
+	var kid int
+	var w []byte
+	if err := e.pool.QueryRow(ctx, `SELECT key_id, wrapped_dek FROM files WHERE id=$1`, uid).Scan(&kid, &w); err != nil {
+		t.Fatal(err)
+	}
+	if kid != 2 {
+		t.Fatalf("files.key_id = %d, want 2 (stale DEK stored)", kid)
+	}
+	if _, err := both.UnwrapDEK(w, kid); err != nil {
+		t.Fatal(err)
+	}
 }

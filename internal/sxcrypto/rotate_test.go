@@ -6,10 +6,12 @@ import (
 	"encoding/base64"
 	"io"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pquerna/otp/totp"
 
 	"github.com/tntrock/secure-exchange/internal/auth"
@@ -116,5 +118,56 @@ func TestRotateRewrapsAndStillDecrypts(t *testing.T) {
 	next, _ := totp.GenerateCode(secret, time.Now().Add(30*time.Second))
 	if !auth.NewUsers(pool, k2).CheckTOTP(ctx, u.ID, next) {
 		t.Fatal("CheckTOTP failed with key-2-only keyring")
+	}
+}
+
+func insertOldFile(t *testing.T, pool *pgxpool.Pool, k1 *sxcrypto.Keyring, owner uuid.UUID) {
+	t.Helper()
+	_, w, kid, _ := k1.NewDEK()
+	if _, err := pool.Exec(context.Background(), `INSERT INTO files (id, owner_id, name, content_type, size, sha256, wrapped_dek, key_id, storage_key)
+		VALUES ($1,$2,'f','x',0,'\x00',$3,$4,'k')`, uuid.New(), owner, w, kid); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A key-1 row appearing after a pass (e.g. an old server finishing an upload)
+// is picked up by the residual check's follow-up pass.
+func TestRotateCatchesRowAppearingMidRun(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	k1 := ring(t, "1:"+b64key(1), 1)
+	k12 := ring(t, "1:"+b64key(1)+",2:"+b64key(2), 2)
+	u, err := auth.NewUsers(pool, k1).Create(ctx, "a@example.com", "A", "staff", "correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertOldFile(t, pool, k1, u.ID)
+	sxcrypto.SetAfterPass(func(pass int) {
+		if pass == 1 {
+			insertOldFile(t, pool, k1, u.ID)
+		}
+	})
+	t.Cleanup(func() { sxcrypto.SetAfterPass(nil) })
+	n, err := sxcrypto.RotateAll(ctx, pool, k12)
+	if err != nil || n != 2 {
+		t.Fatalf("n=%d err=%v, want 2 nil", n, err)
+	}
+}
+
+// If old rows keep appearing, RotateAll gives up after 3 passes with an error naming the counts.
+func TestRotateErrorsWhenResidualPersists(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	k1 := ring(t, "1:"+b64key(1), 1)
+	k12 := ring(t, "1:"+b64key(1)+",2:"+b64key(2), 2)
+	u, err := auth.NewUsers(pool, k1).Create(ctx, "a@example.com", "A", "staff", "correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sxcrypto.SetAfterPass(func(int) { insertOldFile(t, pool, k1, u.ID) })
+	t.Cleanup(func() { sxcrypto.SetAfterPass(nil) })
+	_, err = sxcrypto.RotateAll(ctx, pool, k12)
+	if err == nil || !strings.Contains(err.Error(), "files=1") {
+		t.Fatalf("err = %v, want residual error naming files=1", err)
 	}
 }

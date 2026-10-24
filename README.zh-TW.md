@@ -28,11 +28,28 @@ docker compose up -d
 
 ## 備份
 
-下列三項必須一起備份：
+下列各項必須一起備份：
 
-1. 資料庫：`docker compose exec postgres pg_dump -U sx sx > sx.sql`
-2. `sxdata` volume（加密後的檔案與暫存），或你的 S3 bucket。
-3. **`SX_MASTER_KEYS` 中的主金鑰。主金鑰遺失，已儲存的檔案即無法解密。請在伺服器之外另存一份。**
+1. 資料庫：`docker compose exec -T postgres pg_dump -U sx sx > sx.sql`
+2. `sxdata` volume（加密後的檔案與暫存），或你的 S3 bucket：
+   `docker run --rm --volumes-from "$(docker compose ps -aq app)" -v "$PWD:/backup" debian:bookworm-slim tar -C /data -czf /backup/sxdata.tgz .`
+3. **`.env` 檔。其中的 `SX_MASTER_KEYS` 存放主金鑰。主金鑰遺失，已儲存的檔案即無法解密。請在伺服器之外另存一份。**
+
+## 還原
+
+還原時必須使用與備份當時**相同的 `SX_MASTER_KEYS` 與 `SX_ACTIVE_KEY_ID`**，否則還原後的檔案無法解密。
+
+1. 把備份的 `.env` 放回 `docker-compose.yml` 旁。
+2. 建立容器與空的 volume，只啟動 PostgreSQL，再把備份匯入空的資料庫：
+   ```sh
+   docker compose create
+   docker compose up -d postgres
+   docker compose exec -T postgres psql -U sx -d sx -v ON_ERROR_STOP=1 < sx.sql
+   ```
+3. 還原 `sxdata` volume（或你的 S3 bucket）：
+   `docker run --rm --volumes-from "$(docker compose ps -aq app)" -v "$PWD:/backup" debian:bookworm-slim tar -C /data -xzf /backup/sxdata.tgz`
+4. 選用：以同樣方式（把 `app` 換成 `caddy`）還原 `caddydata` volume 以保留 TLS 憑證；否則 Caddy 會重新申請。
+5. `docker compose up -d`。
 
 ## 主金鑰輪替
 

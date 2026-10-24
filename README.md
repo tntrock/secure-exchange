@@ -28,11 +28,28 @@ Configuration is entirely through environment variables; every `SX_*` setting is
 
 ## Backup
 
-Back up all three, together:
+Back up all of these, together:
 
-1. The database: `docker compose exec postgres pg_dump -U sx sx > sx.sql`
-2. The `sxdata` volume (encrypted blobs and staging), or your S3 bucket.
-3. **The master key(s) in `SX_MASTER_KEYS`. If the key is lost, stored files cannot be decrypted. Keep a copy outside the server.**
+1. The database: `docker compose exec -T postgres pg_dump -U sx sx > sx.sql`
+2. The `sxdata` volume (encrypted blobs and staging), or your S3 bucket:
+   `docker run --rm --volumes-from "$(docker compose ps -aq app)" -v "$PWD:/backup" debian:bookworm-slim tar -C /data -czf /backup/sxdata.tgz .`
+3. **The `.env` file. It holds the master key(s) in `SX_MASTER_KEYS`. If the key is lost, stored files cannot be decrypted. Keep a copy outside the server.**
+
+## Restore
+
+Restoring requires the **same `SX_MASTER_KEYS` and `SX_ACTIVE_KEY_ID`** as when the backup was taken; without them the restored files cannot be decrypted.
+
+1. Put the backed-up `.env` next to `docker-compose.yml`.
+2. Create the containers and empty volumes, start only PostgreSQL, and load the dump into the empty database:
+   ```sh
+   docker compose create
+   docker compose up -d postgres
+   docker compose exec -T postgres psql -U sx -d sx -v ON_ERROR_STOP=1 < sx.sql
+   ```
+3. Restore the `sxdata` volume (or your S3 bucket):
+   `docker run --rm --volumes-from "$(docker compose ps -aq app)" -v "$PWD:/backup" debian:bookworm-slim tar -C /data -xzf /backup/sxdata.tgz`
+4. Optional: restore the `caddydata` volume the same way (with `caddy` in place of `app`) to keep the TLS certificates; otherwise Caddy obtains new ones.
+5. `docker compose up -d`.
 
 ## Master key rotation
 

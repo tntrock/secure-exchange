@@ -30,12 +30,14 @@ type Deps struct {
 	Keys           *sxcrypto.Keyring
 	Store          blob.Store
 	Shares         *share.Service
+	CodeDelay      time.Duration // recipient /code and /verify answer no sooner than this after the request starts (P10)
 }
 
 type server struct {
 	Deps
 	dummyHash    string   // verified against when the email is unknown, to equalise timing
 	accountLimit *limiter // per email (login) / per user (totp)
+	codeLimit    *limiter // recipient code requests per (share token, email)
 }
 
 func NewServer(deps Deps) http.Handler {
@@ -43,7 +45,8 @@ func NewServer(deps Deps) http.Handler {
 	if err != nil {
 		panic(err) // only fails if rand fails
 	}
-	s := &server{Deps: deps, dummyHash: dummy, accountLimit: newLimiter(rate.Every(12*time.Second), 5)}
+	s := &server{Deps: deps, dummyHash: dummy, accountLimit: newLimiter(rate.Every(12*time.Second), 5),
+		codeLimit: newLimiter(rate.Every(200*time.Second), 3)}
 	return securityHeaders(http.NewCrossOriginProtection().Handler(s.routes()))
 }
 
@@ -66,6 +69,16 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/shares/{id}/revoke", s.requireUser(s.revokeShare))
 	mux.Handle("POST /api/shares/{id}/recipients", s.requireUser(s.addRecipients))
 	mux.Handle("POST /api/shares/{id}/recipients/{rid}/revoke", s.requireUser(s.revokeRecipient))
+	// external recipients: no staff login
+	recipIP := func(h http.HandlerFunc) http.Handler {
+		return s.padded(rateLimit(s.ip, rate.Every(6*time.Second), 10)(h))
+	}
+	mux.HandleFunc("GET /api/s/{token}", s.recipientLanding)
+	mux.Handle("POST /api/s/{token}/code", recipIP(s.requestCode))
+	mux.Handle("POST /api/s/{token}/verify", recipIP(s.verifyCode))
+	mux.Handle("GET /api/s/{token}/files", s.requireRecipient(s.listRecipientFiles))
+	mux.Handle("GET /api/s/{token}/files/{fid}/content", s.requireRecipient(s.recipientDownload))
+	mux.HandleFunc("POST /api/s/{token}/logout", s.recipientLogout)
 	mux.Handle("POST /api/me/totp/setup", s.requireUser(s.totpSetup))
 	mux.Handle("POST /api/me/totp/enable", s.requireUser(s.totpEnable))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not_found")) })

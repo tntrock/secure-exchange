@@ -93,56 +93,59 @@ func (s *Service) Landing(ctx context.Context, token string, ip netip.Addr) (*Sh
 }
 
 // RequestCode mails a fresh code if email is an active recipient; otherwise it does nothing.
-// Both cases return nil so callers cannot tell them apart.
-func (s *Service) RequestCode(ctx context.Context, token, email string, ip netip.Addr) error {
+// sent reports which happened, for the audit log only: callers must answer both cases alike.
+func (s *Service) RequestCode(ctx context.Context, token, email string, ip netip.Addr) (sent bool, err error) {
 	sh, err := s.Landing(ctx, token, ip)
 	if err != nil {
-		return err
+		return false, err
 	}
 	email, ok := mail.ValidAddress(email)
 	if !ok {
-		return nil
+		return false, nil
 	}
 	var rid uuid.UUID
 	err = s.pool.QueryRow(ctx, `SELECT id FROM share_recipients WHERE share_id = $1 AND lower(email) = $2 AND revoked_at IS NULL`,
 		sh.ID, email).Scan(&rid)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	// backstop against guessing by requesting code after code; the HTTP rate limit is the main guard
 	var recent int
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM share_otps WHERE recipient_id = $1 AND created_at > now() - interval '1 hour'`, rid).Scan(&recent); err != nil {
-		return err
+		return false, err
 	}
 	if recent >= otpsPerHour {
-		return nil
+		return false, nil
 	}
 	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
 	if err != nil {
-		return err
+		return false, err
 	}
 	code := fmt.Sprintf("%06d", n.Int64())
 	id := uuid.New()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx, `UPDATE share_otps SET used_at = now() WHERE recipient_id = $1 AND used_at IS NULL`, rid); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO share_otps (id, recipient_id, code_hash, expires_at) VALUES ($1,$2,$3,$4)`,
 		id, rid, otpHash(id, code), s.now().Add(otpTTL)); err != nil {
-		return err
+		return false, err
 	}
 	subject, body := mail.OTPCode(code)
 	if err := s.outbox.Enqueue(ctx, tx, mail.Message{To: email, Subject: subject, Body: body}); err != nil {
-		return err
+		return false, err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // VerifyCode consumes a recipient's code, counts a view and opens a one-hour session.
@@ -303,4 +306,10 @@ func (s *Service) RecordDownload(ctx context.Context, a *Access, fileID uuid.UUI
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// Logout ends a recipient session; an unknown token is not an error.
+func (s *Service) Logout(ctx context.Context, sessionToken string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM share_sessions WHERE token_hash = $1`, hashString(sessionToken))
+	return err
 }

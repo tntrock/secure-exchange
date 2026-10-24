@@ -44,7 +44,7 @@ func (e *env) newShare(t *testing.T, mod func(*CreateInput), emails ...string) (
 // code requests a code for email and returns it from the outbox.
 func (e *env) code(t *testing.T, token, email string) string {
 	t.Helper()
-	if err := e.svc.RequestCode(context.Background(), token, email, ip1); err != nil {
+	if _, err := e.svc.RequestCode(context.Background(), token, email, ip1); err != nil {
 		t.Fatal(err)
 	}
 	msgs := mailtest.Messages(t, e.pool, e.keys)
@@ -78,22 +78,22 @@ func TestRequestCodeUniform(t *testing.T) {
 	e := setup(t)
 	_, tok := e.newShare(t, nil, "bob@x.com")
 	before := len(mailtest.Messages(t, e.pool, e.keys))
-	if err := e.svc.RequestCode(context.Background(), tok, " Bob@X.com", ip1); err != nil {
-		t.Fatal(err)
+	if sent, err := e.svc.RequestCode(context.Background(), tok, " Bob@X.com", ip1); err != nil || !sent {
+		t.Fatal(sent, err)
 	}
 	if n := len(mailtest.Messages(t, e.pool, e.keys)); n != before+1 {
 		t.Fatalf("listed: outbox %d want %d", n, before+1)
 	}
-	if err := e.svc.RequestCode(context.Background(), tok, "eve@x.com", ip1); err != nil {
-		t.Fatal(err)
+	if sent, err := e.svc.RequestCode(context.Background(), tok, "eve@x.com", ip1); err != nil || sent {
+		t.Fatal(sent, err)
 	}
-	if err := e.svc.RequestCode(context.Background(), tok, "not an email", ip1); err != nil {
+	if _, err := e.svc.RequestCode(context.Background(), tok, "not an email", ip1); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(mailtest.Messages(t, e.pool, e.keys)); n != before+1 {
 		t.Fatalf("unlisted: outbox %d want %d", n, before+1)
 	}
-	if err := e.svc.RequestCode(context.Background(), "nope", "bob@x.com", ip1); !errors.Is(err, ErrNotFound) {
+	if _, err := e.svc.RequestCode(context.Background(), "nope", "bob@x.com", ip1); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("bad token: %v", err)
 	}
 }
@@ -466,7 +466,7 @@ func TestRequestCodeHourlyBackstop(t *testing.T) {
 		e.code(t, tok, "bob@x.com")
 	}
 	mails := len(mailtest.Messages(t, e.pool, e.keys))
-	if err := e.svc.RequestCode(context.Background(), tok, "bob@x.com", ip1); err != nil {
+	if _, err := e.svc.RequestCode(context.Background(), tok, "bob@x.com", ip1); err != nil {
 		t.Fatal(err)
 	}
 	if n := count(t, e, `SELECT count(*) FROM share_otps`); n != 10 {

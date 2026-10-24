@@ -34,10 +34,11 @@ func (s *server) serveFile(w http.ResponseWriter, r *http.Request, f *fileRow, e
 	sw := &statusWriter{ResponseWriter: w}
 	http.ServeContent(sw, r, "", time.Time{}, rs)
 	if r.Method == http.MethodGet && (sw.status == http.StatusOK || sw.status == http.StatusPartialContent) {
-		d := map[string]any{"status": sw.status, "range": h.Get("Content-Range")}
+		d := map[string]any{}
 		for k, v := range ev.Detail {
 			d[k] = v
 		}
+		d["status"], d["range"] = sw.status, h.Get("Content-Range") // what was served wins over caller detail (R15)
 		ev.Action, ev.TargetType, ev.TargetID, ev.Result, ev.Detail = audit.ActDownload, "file", f.id.String(), "ok", d
 		s.record(r, ev)
 	}

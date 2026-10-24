@@ -1,12 +1,14 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import "./i18n";
 import LangSwitch from "./components/LangSwitch";
 import { api, ApiError } from "./api";
 import Login from "./pages/Login";
 import Files from "./pages/Files";
+import Shares from "./pages/Shares";
+import ShareDetail from "./pages/ShareDetail";
 import TotpSetup from "./pages/TotpSetup";
 import "./style.css";
 
@@ -17,6 +19,8 @@ function Shell({ children }: { children: React.ReactNode }) {
     <>
       <header>
         <strong>{t("app.title")}</strong>
+        <Link to="/files">{t("nav.files")}</Link>
+        <Link to="/shares">{t("nav.shares")}</Link>
         <span className="spacer" />
         <LangSwitch />
         <button onClick={() => api.logout().finally(() => nav("/login"))}>{t("app.logout")}</button>
@@ -46,6 +50,8 @@ createRoot(document.getElementById("root")!).render(
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/files" element={<Private><Files /></Private>} />
+        <Route path="/shares" element={<Private><Shares /></Private>} />
+        <Route path="/shares/:id" element={<Private><ShareDetail /></Private>} />
         <Route path="/settings/totp" element={<Private><TotpSetup /></Private>} />
         <Route path="*" element={<Navigate to="/files" replace />} />
       </Routes>

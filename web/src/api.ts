@@ -1,11 +1,31 @@
 export interface Me { id: string; email: string; display_name: string; role: string; totp_enabled: boolean }
 export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string }
 
+export interface ShareReq {
+  file_ids: string[]; emails: string[]; allow_download: boolean; watermark: boolean;
+  expires_at: string; max_views: number | null; ip_allow: string[]; message: string;
+}
+export interface ShareSummary {
+  id: string; created_at: string; expires_at: string; revoked: boolean; expired: boolean;
+  file_count: number; recipient_count: number; view_count: number; max_views: number | null;
+}
+export interface Recipient { id: string; email: string; revoked: boolean; first_opened_at: string | null; last_access_at: string | null }
+export interface ShareDetailInfo {
+  id: string; message: string; allow_download: boolean; watermark: boolean; expires_at: string; max_views: number | null;
+  view_count: number; ip_allow: string[]; revoked: boolean; expired: boolean; created_at: string;
+  files: { id: string; name: string; size: number; deleted: boolean }[];
+  recipients: Recipient[];
+}
+
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, code: string) {
-    super(code);
+  field?: string;
+  code?: string;
+  constructor(status: number, error: string, field?: string, code?: string) {
+    super(error);
     this.status = status;
+    this.field = field;
+    this.code = code;
   }
 }
 
@@ -18,7 +38,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, j.error ?? "error");
+    throw new ApiError(res.status, j.error ?? "error", j.field, j.code);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
@@ -32,6 +52,12 @@ export const api = {
   totpEnable: (code: string) => call<void>("POST", "/api/me/totp/enable", { code }),
   files: () => call<FileInfo[]>("GET", "/api/files"),
   deleteFile: (id: string) => call<void>("DELETE", `/api/files/${id}`),
+  createShare: (r: ShareReq) => call<{ id: string }>("POST", "/api/shares", r),
+  shares: () => call<ShareSummary[]>("GET", "/api/shares"),
+  share: (id: string) => call<ShareDetailInfo>("GET", `/api/shares/${id}`),
+  revokeShare: (id: string) => call<void>("POST", `/api/shares/${id}/revoke`),
+  addRecipients: (id: string, emails: string[]) => call<Recipient[]>("POST", `/api/shares/${id}/recipients`, { emails }),
+  revokeRecipient: (id: string, rid: string) => call<void>("POST", `/api/shares/${id}/recipients/${rid}/revoke`),
 };
 
 export const fmtSize = (n: number, lng: string) => {

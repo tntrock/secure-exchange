@@ -17,5 +17,29 @@
   "upload": {
     "drop": "拖放檔案到此處，或點擊選擇", "pause": "暫停", "resume": "繼續", "cancel": "取消",
     "done": "上傳完成", "failed": "上傳失敗"
+  },
+  "nav": { "files": "我的檔案", "shares": "我的分享" },
+  "share": {
+    "create": "建立分享", "selected": "已選 {{count}} 個", "title": "建立分享", "submit": "建立", "cancel": "取消",
+    "recipients": "收件人（一行一個，或以逗號分隔）", "allowDownload": "允許下載", "watermark": "浮水印",
+    "expiresAt": "有效期限", "maxViews": "檢視次數上限（選填）", "ipAllow": "允許的 IP／CIDR（選填，一行一個）",
+    "message": "附言（選填）",
+    "viewOnlyNote": "線上檢視將在後續版本提供，目前收件人只能看到檔案清單",
+    "listTitle": "我的分享", "empty": "尚無分享", "createdAt": "建立時間", "files": "檔案數", "recipientCount": "收件人數", "views": "檢視次數",
+    "status": { "active": "有效", "expired": "已過期", "revoked": "已撤銷" },
+    "detailTitle": "分享詳情", "settings": "設定", "yes": "是", "no": "否", "unlimited": "不限", "none": "無",
+    "fileList": "檔案", "deleted": "（已刪除）", "recipientList": "收件人", "email": "Email", "firstOpened": "首次開啟",
+    "lastAccess": "最後存取", "never": "—", "revoke": "撤銷", "revokeShare": "撤銷整個分享",
+    "confirmRevoke": "確定撤銷此分享？所有收件人將失去存取權。", "confirmRevokeRecipient": "確定撤銷 {{email}}？",
+    "addRecipients": "新增收件人", "add": "新增", "back": "返回分享列表",
+    "error": {
+      "generic": "無法建立分享，請檢查表單",
+      "emails": { "required": "請至少輸入一位收件人", "too_many": "收件人過多（上限 50 位）", "invalid": "有 Email 格式不正確" },
+      "file_ids": { "not_found": "找不到所選的檔案", "too_many": "檔案過多（上限 100 個）", "required": "請至少選擇一個檔案" },
+      "expires_at": { "required": "必須設定有效期限", "out_of_range": "有效期限須介於 1 小時至系統允許的上限之間" },
+      "max_views": { "out_of_range": "檢視次數上限超出範圍" },
+      "ip_allow": { "invalid": "IP 或 CIDR 格式不正確", "too_many": "IP 項目過多" },
+      "message": { "too_many": "附言過長（上限 2000 字）" }
+    }
   }
 }

@@ -17,5 +17,29 @@
   "upload": {
     "drop": "Drop files here, or click to choose", "pause": "Pause", "resume": "Resume", "cancel": "Cancel",
     "done": "Upload complete", "failed": "Upload failed"
+  },
+  "nav": { "files": "My files", "shares": "My shares" },
+  "share": {
+    "create": "Create share", "selected": "{{count}} selected", "title": "Create share", "submit": "Create", "cancel": "Cancel",
+    "recipients": "Recipients (one per line or comma-separated)", "allowDownload": "Allow download", "watermark": "Watermark",
+    "expiresAt": "Expires at", "maxViews": "Max views (optional)", "ipAllow": "Allowed IPs/CIDRs (optional, one per line)",
+    "message": "Message (optional)",
+    "viewOnlyNote": "Online viewing will be available in a later release; for now recipients will only see the file list",
+    "listTitle": "My shares", "empty": "No shares yet", "createdAt": "Created", "files": "Files", "recipientCount": "Recipients", "views": "Views",
+    "status": { "active": "Active", "expired": "Expired", "revoked": "Revoked" },
+    "detailTitle": "Share details", "settings": "Settings", "yes": "Yes", "no": "No", "unlimited": "Unlimited", "none": "None",
+    "fileList": "Files", "deleted": "(deleted)", "recipientList": "Recipients", "email": "Email", "firstOpened": "First opened",
+    "lastAccess": "Last access", "never": "—", "revoke": "Revoke", "revokeShare": "Revoke entire share",
+    "confirmRevoke": "Revoke this share? All recipients will lose access.", "confirmRevokeRecipient": "Revoke {{email}}?",
+    "addRecipients": "Add recipients", "add": "Add", "back": "Back to shares",
+    "error": {
+      "generic": "Could not create the share, please check the form",
+      "emails": { "required": "Enter at least one recipient", "too_many": "Too many recipients (max 50)", "invalid": "One or more email addresses are invalid" },
+      "file_ids": { "not_found": "A selected file was not found", "too_many": "Too many files (max 100)", "required": "Select at least one file" },
+      "expires_at": { "required": "Expiry is required", "out_of_range": "Expiry must be between 1 hour and the maximum allowed from now" },
+      "max_views": { "out_of_range": "Max views is out of range" },
+      "ip_allow": { "invalid": "Invalid IP or CIDR", "too_many": "Too many IP entries" },
+      "message": { "too_many": "Message is too long (max 2000 characters)" }
+    }
   }
 }

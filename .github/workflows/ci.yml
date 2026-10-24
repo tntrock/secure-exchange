@@ -27,6 +27,7 @@ jobs:
           docker run -d --name minio -p 59000:9000 \
             -e MINIO_ROOT_USER=sxminio -e MINIO_ROOT_PASSWORD=sxminio123 \
             cgr.dev/chainguard/minio server /data
+          curl --retry 30 --retry-delay 1 --retry-connrefused -fsS http://localhost:59000/minio/health/ready
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod

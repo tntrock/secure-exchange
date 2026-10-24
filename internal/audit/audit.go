@@ -21,6 +21,13 @@ const (
 	ActDownload   = "file.download"
 	ActDelete     = "file.delete"
 	ActKeyRotate  = "crypto.rotate"
+
+	ActShareCreate          = "share.create"
+	ActShareRevoke          = "share.revoke"
+	ActShareRecipientAdd    = "share.recipient.add"
+	ActShareRecipientRevoke = "share.recipient.revoke"
+	ActShareOTPRequest      = "share.otp.request"
+	ActShareOTPVerify       = "share.otp.verify"
 )
 
 const lockKey = 7461

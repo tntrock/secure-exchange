@@ -2,10 +2,8 @@ package httpapi
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -17,7 +15,6 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
-	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
 func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
@@ -92,29 +89,7 @@ func (s *server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	dek, err := s.Keys.UnwrapDEK(f.wrappedDEK, f.keyID)
-	if err != nil {
-		slog.Error("unwrap dek", "file", f.id, "err", err)
-		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
-		return
-	}
-	rs := sxcrypto.OpenPlain(r.Context(), func(ctx context.Context, off, n int64) (io.ReadCloser, error) {
-		return s.Store.OpenRange(ctx, f.key, off, n)
-	}, dek, f.id, f.size) // R7: size from the DB
-	defer rs.Close()
-	h := w.Header()
-	h.Set("ETag", `"`+hex.EncodeToString(f.sum)+`"`)
-	h.Set("Content-Type", "application/octet-stream")
-	h.Set("Content-Disposition", contentDisposition(f.name))
-	h.Set("Cache-Control", "private, no-store")
-	sw := &statusWriter{ResponseWriter: w}
-	http.ServeContent(sw, r, "", time.Time{}, rs)
-	if r.Method == http.MethodGet && (sw.status == http.StatusOK || sw.status == http.StatusPartialContent) {
-		// audited by what was actually served, not by what the client asked for (R15)
-		s.record(r, audit.Event{ActorID: auth.UserFrom(r.Context()).ID.String(), Action: audit.ActDownload,
-			TargetType: "file", TargetID: f.id.String(), Result: "ok",
-			Detail: map[string]any{"status": sw.status, "range": h.Get("Content-Range")}})
-	}
+	s.serveFile(w, r, f, audit.Event{ActorID: auth.UserFrom(r.Context()).ID.String()})
 }
 
 func (s *server) deleteFile(w http.ResponseWriter, r *http.Request) {

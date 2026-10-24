@@ -13,10 +13,11 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("auth: not found")
-	ErrBadCode      = errors.New("auth: bad code")
-	ErrWeakPassword = errors.New("auth: password too weak")
-	ErrEmailTaken   = errors.New("auth: email taken")
+	ErrNotFound           = errors.New("auth: not found")
+	ErrBadCode            = errors.New("auth: bad code")
+	ErrWeakPassword       = errors.New("auth: password too weak")
+	ErrEmailTaken         = errors.New("auth: email taken")
+	ErrTOTPAlreadyEnabled = errors.New("auth: totp already enabled")
 )
 
 const (
@@ -61,7 +62,7 @@ func VerifyPassword(encoded, pw string) bool {
 	salt, err1 := base64.RawStdEncoding.DecodeString(p[4])
 	want, err2 := base64.RawStdEncoding.DecodeString(p[5])
 	// bound cost params so a tampered hash cannot force huge work
-	if err1 != nil || err2 != nil || len(want) == 0 || m > 1<<20 || t > 20 || th == 0 {
+	if err1 != nil || err2 != nil || len(want) == 0 || m > 1<<20 || t == 0 || t > 20 || th == 0 {
 		return false
 	}
 	got := argon2.IDKey([]byte(pw), salt, t, m, th, uint32(len(want)))

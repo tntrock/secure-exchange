@@ -29,8 +29,14 @@ func (s *Users) BeginTOTP(ctx context.Context, id uuid.UUID) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, err = s.pool.Exec(ctx, `UPDATE users SET totp_secret_sealed=$2, totp_enabled=false, totp_last_step=0 WHERE id=$1`, id, sealed)
-	return key.URL(), err
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET totp_secret_sealed=$2, totp_last_step=0 WHERE id=$1 AND NOT totp_enabled`, id, sealed)
+	if err != nil {
+		return "", err
+	}
+	if tag.RowsAffected() == 0 { // user existed above, so it is enrolled already
+		return "", ErrTOTPAlreadyEnabled
+	}
+	return key.URL(), nil
 }
 
 // EnableTOTP turns TOTP on if code is valid for the pending secret.

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp"
 
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
@@ -119,5 +120,43 @@ func TestEnsureInitialAdminOnlyWhenEmpty(t *testing.T) {
 	s.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n)
 	if n != 1 {
 		t.Fatal(n)
+	}
+}
+
+func TestBeginTOTPRejectedWhenEnabled(t *testing.T) {
+	s := newUsers(t)
+	ctx := context.Background()
+	u, _ := s.Create(ctx, "t@x.com", "", "staff", "password-12345")
+	url, _ := s.BeginTOTP(ctx, u.ID)
+	secret := secretFromURL(url)
+	code, _ := totp.GenerateCode(secret, time.Now())
+	if err := s.EnableTOTP(ctx, u.ID, code); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BeginTOTP(ctx, u.ID); !errors.Is(err, ErrTOTPAlreadyEnabled) {
+		t.Fatalf("got %v", err)
+	}
+	if u2, _ := s.ByID(ctx, u.ID); !u2.TOTPEnabled {
+		t.Fatal("2FA was disabled")
+	}
+	next, _ := totp.GenerateCode(secret, time.Now().Add(30*time.Second))
+	if !s.CheckTOTP(ctx, u.ID, next) {
+		t.Fatal("original secret no longer valid")
+	}
+	if _, err := s.BeginTOTP(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+}
+
+func TestVerifyPasswordMalformedNoPanic(t *testing.T) {
+	for _, h := range []string{
+		"$argon2id$v=19$m=65536,t=0,p=4$c2FsdHNhbHRzYWx0$aGFzaGhhc2g",
+		"$argon2id$v=19$m=65536,t=3,p=0$c2FsdHNhbHRzYWx0$aGFzaGhhc2g",
+		"$argon2id$v=19$m=0,t=3,p=4$c2FsdHNhbHRzYWx0$aGFzaGhhc2g",
+		"$argon2id$garbage", "", "$$$$$",
+	} {
+		if VerifyPassword(h, "password-12345") {
+			t.Fatalf("accepted %q", h)
+		}
 	}
 }

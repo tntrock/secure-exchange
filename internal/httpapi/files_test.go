@@ -227,3 +227,14 @@ func TestDownloadAuditByServedStatus(t *testing.T) {
 		t.Fatalf("%v", d)
 	}
 }
+
+func TestUnknownAPIIsJSON404AndSPAServed(t *testing.T) {
+	e := newEnv(t)
+	resp, body := e.get(t, "/api/unknown")
+	if resp.StatusCode != 404 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") || !strings.Contains(string(body), "not_found") {
+		t.Fatal(resp.StatusCode, resp.Header.Get("Content-Type"), string(body))
+	}
+	if resp, _ := e.get(t, "/files"); resp.StatusCode == 405 || strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
+		t.Fatal("SPA route not served by webui", resp.StatusCode)
+	}
+}

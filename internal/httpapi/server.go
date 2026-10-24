@@ -15,6 +15,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
+	"github.com/tntrock/secure-exchange/internal/webui"
 )
 
 type Deps struct {
@@ -59,6 +60,8 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("DELETE /api/files/{id}", s.requireUser(s.deleteFile))
 	mux.Handle("POST /api/me/totp/setup", s.requireUser(s.totpSetup))
 	mux.Handle("POST /api/me/totp/enable", s.requireUser(s.totpEnable))
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not_found")) })
+	mux.Handle("/", webui.Handler())
 	if s.Uploads != nil {
 		mux.Handle("/api/uploads/", s.requireUser(s.Uploads.ServeHTTP))
 	}

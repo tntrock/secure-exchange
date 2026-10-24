@@ -275,24 +275,10 @@ func (s *Service) Get(ctx context.Context, ownerID, id uuid.UUID) (*Share, error
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT f.id, f.name, f.size, f.deleted_at IS NOT NULL FROM share_files sf JOIN files f ON f.id = sf.file_id
-		WHERE sf.share_id = $1 ORDER BY f.name, f.id`, id)
-	if err != nil {
+	if err := s.loadFiles(ctx, sh); err != nil {
 		return nil, err
 	}
-	for rows.Next() {
-		var f ShareFile
-		if err := rows.Scan(&f.ID, &f.Name, &f.Size, &f.Deleted); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		sh.Files = append(sh.Files, f)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	rows, err = s.pool.Query(ctx, `SELECT id, email, revoked_at, first_opened_at, last_access_at FROM share_recipients
+	rows, err := s.pool.Query(ctx, `SELECT id, email, revoked_at, first_opened_at, last_access_at FROM share_recipients
 		WHERE share_id = $1 ORDER BY created_at, email`, id)
 	if err != nil {
 		return nil, err
@@ -306,6 +292,24 @@ func (s *Service) Get(ctx context.Context, ownerID, id uuid.UUID) (*Share, error
 		sh.Recipients = append(sh.Recipients, r)
 	}
 	return sh, rows.Err()
+}
+
+// loadFiles fills sh.Files, flagging files deleted since the share was made.
+func (s *Service) loadFiles(ctx context.Context, sh *Share) error {
+	rows, err := s.pool.Query(ctx, `SELECT f.id, f.name, f.size, f.deleted_at IS NOT NULL FROM share_files sf JOIN files f ON f.id = sf.file_id
+		WHERE sf.share_id = $1 ORDER BY f.name, f.id`, sh.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f ShareFile
+		if err := rows.Scan(&f.ID, &f.Name, &f.Size, &f.Deleted); err != nil {
+			return err
+		}
+		sh.Files = append(sh.Files, f)
+	}
+	return rows.Err()
 }
 
 // Revoke is idempotent; it also drops every recipient session of the share.

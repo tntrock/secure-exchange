@@ -51,6 +51,13 @@ func RotateAll(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, err
 	}
 }
 
+// sealedCols lists every Seal-ed column (aad = prefix + row id); rotation and residual share it.
+var sealedCols = []struct{ table, col, aad string }{
+	{"users", "totp_secret_sealed", "totp:"},
+	{"uploads", "hash_state", "uploadhash:"},
+	{"mail_outbox", "body_sealed", "mail:"},
+}
+
 func rotatePass(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, error) {
 	total := 0
 	for _, t := range []string{"uploads", "files"} {
@@ -60,10 +67,7 @@ func rotatePass(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, er
 			return total, fmt.Errorf("rotate %s.wrapped_dek: %w", t, err)
 		}
 	}
-	for _, s := range []struct{ table, col, aad string }{
-		{"users", "totp_secret_sealed", "totp:"},
-		{"uploads", "hash_state", "uploadhash:"},
-	} {
+	for _, s := range sealedCols {
 		n, err := rotateSealed(ctx, pool, keys, s.table, s.col, s.aad)
 		total += n
 		if err != nil {
@@ -76,20 +80,25 @@ func rotatePass(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, er
 // residual describes values not on the active key ("" when none).
 func residual(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (string, error) {
 	prefix := binary.BigEndian.AppendUint32(nil, uint32(keys.ActiveID()))
-	var files, uploads, totp, hash int
-	err := pool.QueryRow(ctx, `SELECT
-		(SELECT count(*) FROM files WHERE key_id <> $1),
-		(SELECT count(*) FROM uploads WHERE key_id <> $1),
-		(SELECT count(*) FROM users WHERE totp_secret_sealed IS NOT NULL AND substring(totp_secret_sealed from 1 for 4) <> $2),
-		(SELECT count(*) FROM uploads WHERE substring(hash_state from 1 for 4) <> $2)`,
-		keys.ActiveID(), prefix).Scan(&files, &uploads, &totp, &hash)
+	var files, uploads int
+	err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM files WHERE key_id <> $1), (SELECT count(*) FROM uploads WHERE key_id <> $1)`,
+		keys.ActiveID()).Scan(&files, &uploads)
 	if err != nil {
 		return "", err
 	}
-	if files+uploads+totp+hash == 0 {
+	desc, total := fmt.Sprintf("files=%d uploads=%d", files, uploads), files+uploads
+	for _, s := range sealedCols {
+		var n int
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s WHERE %s IS NOT NULL AND substring(%s from 1 for 4) <> $1`, s.table, s.col, s.col), prefix).Scan(&n); err != nil {
+			return "", err
+		}
+		desc += fmt.Sprintf(" %s.%s=%d", s.table, s.col, n)
+		total += n
+	}
+	if total == 0 {
 		return "", nil
 	}
-	return fmt.Sprintf("files=%d uploads=%d totp=%d hash_state=%d", files, uploads, totp, hash), nil
+	return desc, nil
 }
 
 // batch runs fn in a tx; table/column names come from constants above.

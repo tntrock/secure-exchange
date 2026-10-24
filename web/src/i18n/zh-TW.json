@@ -7,7 +7,7 @@
   },
   "totp": {
     "title": "設定雙因素驗證", "scan": "請用驗證器 App 掃描 QR code，再輸入產生的 6 位數驗證碼。",
-    "start": "開始設定", "code": "驗證碼", "enable": "啟用", "enabled": "雙因素驗證已啟用", "failed": "驗證碼錯誤或無法設定"
+    "qrAlt": "雙因素驗證 QR code", "start": "開始設定", "code": "驗證碼", "enable": "啟用", "enabled": "雙因素驗證已啟用", "failed": "驗證碼錯誤或無法設定"
   },
   "files": {
     "title": "我的檔案", "empty": "尚無檔案", "name": "名稱", "size": "大小", "created": "上傳時間",

@@ -2,7 +2,8 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { setLanguage } from "./i18n";
+import "./i18n";
+import LangSwitch from "./components/LangSwitch";
 import { api, ApiError } from "./api";
 import Login from "./pages/Login";
 import Files from "./pages/Files";
@@ -10,17 +11,14 @@ import TotpSetup from "./pages/TotpSetup";
 import "./style.css";
 
 function Shell({ children }: { children: React.ReactNode }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const nav = useNavigate();
   return (
     <>
       <header>
         <strong>{t("app.title")}</strong>
         <span className="spacer" />
-        <select aria-label={t("app.language")} value={i18n.language} onChange={(e) => setLanguage(e.target.value)}>
-          <option value="zh-TW">繁體中文</option>
-          <option value="en">English</option>
-        </select>
+        <LangSwitch />
         <button onClick={() => api.logout().finally(() => nav("/login"))}>{t("app.logout")}</button>
       </header>
       <main>{children}</main>

@@ -40,7 +40,7 @@ export default function TotpSetup() {
       ) : (
         <>
           <p>{t("totp.scan")}</p>
-          <img src={qr} alt="QR code" width={220} height={220} />
+          <img src={qr} alt={t("totp.qrAlt")} width={220} height={220} />
           <form onSubmit={enable}>
             <label>
               {t("totp.code")}

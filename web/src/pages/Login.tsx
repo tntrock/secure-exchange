@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../api";
+import LangSwitch from "../components/LangSwitch";
 
 export default function Login() {
   const { t } = useTranslation();
@@ -34,6 +35,7 @@ export default function Login() {
 
   return (
     <main>
+      <div style={{ textAlign: "right" }}><LangSwitch /></div>
       <h1>{mfa ? t("login.totpTitle") : t("login.title")}</h1>
       <form onSubmit={submit}>
         {!mfa ? (

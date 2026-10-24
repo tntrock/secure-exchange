@@ -7,7 +7,7 @@
   },
   "totp": {
     "title": "Set up two-factor authentication", "scan": "Scan the QR code with an authenticator app, then enter the 6-digit code.",
-    "start": "Start setup", "code": "Code", "enable": "Enable", "enabled": "Two-factor authentication is enabled", "failed": "Invalid code or setup failed"
+    "qrAlt": "Two-factor authentication QR code", "start": "Start setup", "code": "Code", "enable": "Enable", "enabled": "Two-factor authentication is enabled", "failed": "Invalid code or setup failed"
   },
   "files": {
     "title": "My files", "empty": "No files yet", "name": "Name", "size": "Size", "created": "Uploaded",

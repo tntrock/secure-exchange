@@ -1,3 +1,5 @@
+name: secure-exchange-dev
+
 services:
   postgres:
     image: postgres:17

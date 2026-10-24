@@ -83,11 +83,20 @@ func (r *Keyring) NewDEK() (dek, wrapped []byte, keyID int, err error) {
 	if _, err = rand.Read(dek); err != nil {
 		return nil, nil, 0, err
 	}
-	wrapped, err = seal(r.keys[r.active], dek, nil)
+	wrapped, keyID, err = r.WrapDEK(dek)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	return dek, wrapped, r.active, nil
+	return dek, wrapped, keyID, nil
+}
+
+// WrapDEK wraps an existing DEK under the active key.
+func (r *Keyring) WrapDEK(dek []byte) (wrapped []byte, keyID int, err error) {
+	wrapped, err = seal(r.keys[r.active], dek, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	return wrapped, r.active, nil
 }
 
 func (r *Keyring) UnwrapDEK(wrapped []byte, keyID int) ([]byte, error) {

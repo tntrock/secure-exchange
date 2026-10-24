@@ -89,3 +89,34 @@ func serve() error {
 	}
 	return nil
 }
+
+// rotateKeys re-wraps/re-seals all stored secrets under the active master key.
+func rotateKeys() error {
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return err
+	}
+	keys, err := sxcrypto.ParseKeyring(cfg.MasterKeys, cfg.ActiveKeyID)
+	if err != nil {
+		return fmt.Errorf("master keys: %w", err)
+	}
+	ctx := context.Background()
+	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	n, err := sxcrypto.RotateAll(ctx, pool, keys)
+	if err != nil {
+		return err
+	}
+	if err := audit.New(pool).Append(ctx, audit.Event{
+		ActorType: "system", ActorID: "rotate-keys", Action: audit.ActKeyRotate,
+		TargetType: "keyring", TargetID: fmt.Sprint(keys.ActiveID()), Result: "ok",
+		Detail: map[string]any{"count": n, "active_key_id": keys.ActiveID()},
+	}); err != nil {
+		return fmt.Errorf("audit: %w", err)
+	}
+	fmt.Printf("rotated %d values to key %d\n", n, keys.ActiveID())
+	return nil
+}

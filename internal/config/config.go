@@ -73,8 +73,8 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 
 	if s := req("SX_ACTIVE_KEY_ID"); s != "" {
-		if n, err := strconv.Atoi(s); err != nil {
-			bad("SX_ACTIVE_KEY_ID", err)
+		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
+			bad("SX_ACTIVE_KEY_ID", errors.New("must be a positive integer"))
 		} else {
 			c.ActiveKeyID = n
 		}

@@ -62,3 +62,14 @@ func TestLoadS3RequiresBucket(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestLoadActiveKeyIDMustBePositive(t *testing.T) {
+	for _, v := range []string{"0", "-1"} {
+		m := required()
+		m["SX_ACTIVE_KEY_ID"] = v
+		_, err := Load(env(m))
+		if err == nil || !strings.Contains(err.Error(), "SX_ACTIVE_KEY_ID") {
+			t.Fatalf("%s: got %v", v, err)
+		}
+	}
+}

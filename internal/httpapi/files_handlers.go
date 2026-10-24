@@ -111,7 +111,6 @@ func (s *server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(sw, r, "", time.Time{}, rs)
 	if r.Method == http.MethodGet && (sw.status == http.StatusOK || sw.status == http.StatusPartialContent) {
 		// audited by what was actually served, not by what the client asked for (R15)
-		r = r.WithContext(context.WithoutCancel(r.Context()))
 		s.record(r, audit.Event{ActorID: auth.UserFrom(r.Context()).ID.String(), Action: audit.ActDownload,
 			TargetType: "file", TargetID: f.id.String(), Result: "ok",
 			Detail: map[string]any{"status": sw.status, "range": h.Get("Content-Range")}})
@@ -133,7 +132,7 @@ func (s *server) deleteFile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 		return
 	}
-	if err := s.Store.Delete(r.Context(), f.key); err != nil {
+	if err := s.Store.Delete(context.WithoutCancel(r.Context()), f.key); err != nil { // the row is already marked deleted
 		slog.Error("blob delete", "file", f.id, "err", err)
 	}
 	s.record(r, audit.Event{ActorID: u.ID.String(), Action: audit.ActDelete, TargetType: "file", TargetID: f.id.String(), Result: "ok"})

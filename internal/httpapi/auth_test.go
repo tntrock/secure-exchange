@@ -336,3 +336,15 @@ func TestUploadsRequireUser(t *testing.T) {
 		t.Fatal(resp.StatusCode, string(body))
 	}
 }
+
+// An audit event must be stored even when the client already hung up.
+func TestRecordSurvivesCanceledRequest(t *testing.T) {
+	e := newEnv(t)
+	s := &server{Deps: Deps{Audit: e.audit}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.record(httptest.NewRequest("DELETE", "/", nil).WithContext(ctx), audit.Event{Action: audit.ActDelete, Result: "ok"})
+	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDelete}); err != nil || len(ents) != 1 {
+		t.Fatalf("audit: %v %d", err, len(ents))
+	}
+}

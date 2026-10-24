@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -17,7 +18,8 @@ func (s *server) record(r *http.Request, e audit.Event) {
 	if e.ActorType == "" {
 		e.ActorType = "user"
 	}
-	if err := s.Audit.Append(r.Context(), e); err != nil {
+	// the event happened even if the client has since hung up
+	if err := s.Audit.Append(context.WithoutCancel(r.Context()), e); err != nil {
 		slog.Error("audit append", "action", e.Action, "err", err)
 	}
 }

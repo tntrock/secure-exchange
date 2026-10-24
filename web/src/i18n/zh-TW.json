@@ -18,6 +18,7 @@
     "drop": "拖放檔案到此處，或點擊選擇", "pause": "暫停", "resume": "繼續", "cancel": "取消",
     "done": "上傳完成", "failed": "上傳失敗"
   },
+  "recipient": {"title":"取得分享的檔案","from":"{{name}} 與您分享了檔案","expires":"有效期限：{{at}}","email":"您的 Email","sendCode":"寄送驗證碼","code":"6 位數驗證碼","verify":"驗證","resend":"重新寄送驗證碼","changeEmail":"使用其他 Email","codeSent":"若您在名單中，將收到驗證碼","filesTitle":"分享的檔案","fileUnavailable":"無法使用","leave":"離開","error":{"notFound":"找不到此分享","gone":"此分享已過期或已被撤銷","ipDenied":"您目前的網路位置不允許存取此分享","rateLimited":"嘗試次數過多，請稍後再試","invalidCode":"驗證碼錯誤或已失效","viewLimit":"此分享的檢視次數已達上限","sessionEnded":"登入已結束，請重新驗證","generic":"發生錯誤，請稍後再試"}},
   "nav": { "files": "我的檔案", "shares": "我的分享" },
   "share": {
     "create": "建立分享", "selected": "已選 {{count}} 個", "title": "建立分享", "submit": "建立", "cancel": "取消",

@@ -17,6 +17,12 @@ export interface ShareDetailInfo {
   recipients: Recipient[];
 }
 
+export interface RecipientLanding { owner_name: string; message: string; expires_at: string }
+export interface RecipientFiles {
+  message: string; expires_at: string; allow_download: boolean; watermark: boolean;
+  files: { id: string; name: string; size: number; available: boolean }[];
+}
+
 export class ApiError extends Error {
   status: number;
   field?: string;
@@ -58,6 +64,11 @@ export const api = {
   revokeShare: (id: string) => call<void>("POST", `/api/shares/${id}/revoke`),
   addRecipients: (id: string, emails: string[]) => call<Recipient[]>("POST", `/api/shares/${id}/recipients`, { emails }),
   revokeRecipient: (id: string, rid: string) => call<void>("POST", `/api/shares/${id}/recipients/${rid}/revoke`),
+  recipientLanding: (tk: string) => call<RecipientLanding>("GET", `/api/s/${encodeURIComponent(tk)}`),
+  recipientCode: (tk: string, email: string) => call<{ sent: boolean }>("POST", `/api/s/${encodeURIComponent(tk)}/code`, { email }),
+  recipientVerify: (tk: string, email: string, code: string) => call<void>("POST", `/api/s/${encodeURIComponent(tk)}/verify`, { email, code }),
+  recipientFiles: (tk: string) => call<RecipientFiles>("GET", `/api/s/${encodeURIComponent(tk)}/files`),
+  recipientLogout: (tk: string) => call<void>("POST", `/api/s/${encodeURIComponent(tk)}/logout`),
 };
 
 export const fmtSize = (n: number, lng: string) => {

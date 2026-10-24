@@ -10,6 +10,7 @@ import Files from "./pages/Files";
 import Shares from "./pages/Shares";
 import ShareDetail from "./pages/ShareDetail";
 import TotpSetup from "./pages/TotpSetup";
+import Access from "./pages/recipient/Access";
 import "./style.css";
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -53,6 +54,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/shares" element={<Private><Shares /></Private>} />
         <Route path="/shares/:id" element={<Private><ShareDetail /></Private>} />
         <Route path="/settings/totp" element={<Private><TotpSetup /></Private>} />
+        <Route path="/s/:token" element={<Access />} />
         <Route path="*" element={<Navigate to="/files" replace />} />
       </Routes>
     </BrowserRouter>

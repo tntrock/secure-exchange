@@ -18,6 +18,7 @@
     "drop": "Drop files here, or click to choose", "pause": "Pause", "resume": "Resume", "cancel": "Cancel",
     "done": "Upload complete", "failed": "Upload failed"
   },
+  "recipient": {"title":"Access shared files","from":"{{name}} shared files with you","expires":"Expires: {{at}}","email":"Your email","sendCode":"Send code","code":"6-digit code","verify":"Verify","resend":"Resend code","changeEmail":"Use a different email","codeSent":"If you are on the recipient list, a code has been sent","filesTitle":"Shared files","fileUnavailable":"Unavailable","leave":"Leave","error":{"notFound":"Share not found","gone":"This share has expired or been revoked","ipDenied":"Access from your network location is not allowed","rateLimited":"Too many attempts, please try again later","invalidCode":"Incorrect or expired code","viewLimit":"This share has reached its view limit","sessionEnded":"Your session has ended, please verify again","generic":"Something went wrong, please try again"}},
   "nav": { "files": "My files", "shares": "My shares" },
   "share": {
     "create": "Create share", "selected": "{{count}} selected", "title": "Create share", "submit": "Create", "cancel": "Cancel",

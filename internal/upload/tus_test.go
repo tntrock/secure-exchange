@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,6 +37,8 @@ type env struct {
 	store   blob.Store
 	staging string
 	users   map[string]*auth.User
+	h       *handler
+	failPut atomic.Bool // makes blob Put fail, so a completed upload's row survives
 }
 
 func newEnv(t *testing.T) *env {
@@ -60,7 +63,8 @@ func newEnv(t *testing.T) *env {
 		}
 		e.users[name] = u
 	}
-	h := NewHandler(pool, keys, store, audit.New(pool), e.staging, testMax, nil)
+	e.h = NewHandler(pool, keys, flakyStore{store, &e.failPut}, audit.New(pool), e.staging, testMax, nil).(*handler)
+	h := e.h
 	// stands in for httpapi's requireUser
 	e.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), e.users[r.Header.Get("X-Test-User")])))
@@ -227,16 +231,45 @@ func TestTusRejectsMisalignedOffset(t *testing.T) {
 func TestTusConcurrentPatchConflict(t *testing.T) {
 	e := newEnv(t)
 	id := e.create("a", 10)
-	conn, err := e.pool.Acquire(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	// a PATCH whose body stalls holds the upload's lock
+	pr, pw := io.Pipe()
+	done := make(chan *http.Response)
+	go func() {
+		r, _ := http.NewRequest("PATCH", e.ts.URL+"/api/uploads/"+id, pr)
+		r.Header.Set("X-Test-User", "a")
+		r.Header.Set("Tus-Resumable", "1.0.0")
+		r.Header.Set("Content-Type", "application/offset+octet-stream")
+		r.Header.Set("Upload-Offset", "0")
+		resp, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Error(err)
+			done <- nil
+			return
+		}
+		resp.Body.Close()
+		done <- resp
+	}()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		e.h.mu.Lock()
+		busy := e.h.active[uuid.MustParse(id)]
+		e.h.mu.Unlock()
+		if busy {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("slow PATCH never took the lock")
+		}
 	}
-	defer conn.Release()
-	conn.Exec(context.Background(), `SELECT pg_advisory_lock($1, hashtext($2))`, lockClass, id)
 	if resp := e.patch("a", id, 0, random(10)); resp.StatusCode != 409 {
-		t.Fatalf("locked patch: %d", resp.StatusCode)
+		t.Fatalf("concurrent patch: %d", resp.StatusCode)
 	}
-	conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1, hashtext($2))`, lockClass, id)
+	if resp := e.req("a", "DELETE", id, nil); resp.StatusCode != 409 {
+		t.Fatalf("concurrent delete: %d", resp.StatusCode)
+	}
+	pw.Close() // empty body: nothing appended, lock released
+	if resp := <-done; resp == nil || resp.StatusCode != 204 || resp.Header.Get("Upload-Offset") != "0" {
+		t.Fatalf("slow patch: %v", resp)
+	}
 	if resp := e.patch("a", id, 0, random(10)); resp.StatusCode != 204 {
 		t.Fatalf("unlocked patch: %d", resp.StatusCode)
 	}
@@ -345,4 +378,40 @@ func TestJanitorRemovesStale(t *testing.T) {
 			t.Fatalf("%s: gone=%v err=%v", p, gone, err)
 		}
 	}
+}
+
+type flakyStore struct {
+	blob.Store
+	fail *atomic.Bool
+}
+
+func (s flakyStore) Put(ctx context.Context, key string, r io.Reader, size int64) error {
+	if s.fail.Load() {
+		return io.ErrClosedPipe
+	}
+	return s.Store.Put(ctx, key, r, size)
+}
+
+// sha256's marshalled state holds the unprocessed tail (<64 B) in the clear,
+// so it must be sealed before it reaches the database.
+func TestHashStateNotPlaintext(t *testing.T) {
+	e := newEnv(t)
+	marker := []byte("SECRET-MARKER-0123456789-abcdefghijklmn") // 39 bytes: all of it stays in sha256's buffer
+	id := e.create("a", int64(len(marker)))
+	e.failPut.Store(true)
+	if resp := e.patch("a", id, 0, marker); resp.StatusCode != 500 {
+		t.Fatalf("patch with failing store: %d", resp.StatusCode)
+	}
+	var state []byte
+	if err := e.pool.QueryRow(context.Background(), `SELECT hash_state FROM uploads WHERE id = $1`, id).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(state, marker[:16]) {
+		t.Fatal("hash_state contains plaintext")
+	}
+	e.failPut.Store(false)
+	if resp := e.patch("a", id, int64(len(marker)), nil); resp.StatusCode != 204 || resp.Header.Get("X-SX-File-ID") != id {
+		t.Fatalf("retry: %d %v", resp.StatusCode, resp.Header)
+	}
+	e.readBack(id, marker)
 }

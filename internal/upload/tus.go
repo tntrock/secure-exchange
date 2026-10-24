@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -32,8 +34,9 @@ import (
 
 const (
 	tusVersion = "1.0.0"
-	maxMetaLen = 255  // bytes kept of client-supplied filename / filetype
-	lockClass  = 7462 // advisory lock namespace (two-int form, disjoint from audit's single-key lock)
+	maxMetaLen = 255 // bytes kept of client-supplied filename / filetype
+	// a PATCH that stalls this long between body reads is cut off, freeing its upload lock
+	chunkReadTimeout = 60 * time.Second
 )
 
 type handler struct {
@@ -45,12 +48,16 @@ type handler struct {
 	maxSize    int64
 	trusted    []netip.Prefix
 	mux        *http.ServeMux
+
+	// ponytail: in-process lock — single instance only; use a lease column for multi-instance
+	mu     sync.Mutex
+	active map[uuid.UUID]bool // uploads with a PATCH/DELETE in progress
 }
 
 // NewHandler serves the tus endpoint at /api/uploads/. The caller must put
 // the user in the request context (auth.WithUser) and create stagingDir.
 func NewHandler(pool *pgxpool.Pool, keys *sxcrypto.Keyring, store blob.Store, audit *audit.Log, stagingDir string, maxSize int64, trusted []netip.Prefix) http.Handler {
-	h := &handler{pool: pool, keys: keys, store: store, audit: audit, stagingDir: stagingDir, maxSize: maxSize, trusted: trusted, mux: http.NewServeMux()}
+	h := &handler{pool: pool, keys: keys, store: store, audit: audit, stagingDir: stagingDir, maxSize: maxSize, trusted: trusted, mux: http.NewServeMux(), active: map[uuid.UUID]bool{}}
 	h.mux.HandleFunc("OPTIONS /api/uploads/", h.options)
 	h.mux.HandleFunc("POST /api/uploads/{$}", h.create)
 	h.mux.HandleFunc("HEAD /api/uploads/{id}", h.head)
@@ -149,9 +156,12 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		fail(w, "new dek", err)
 		return
 	}
-	state, _ := sha256.New().(encoding.BinaryMarshaler).MarshalBinary()
 	u := &upload{id: uuid.New(), owner: auth.UserFrom(r.Context()).ID, name: meta["filename"], contentType: ctype,
-		size: size, wrappedDEK: wrapped, keyID: keyID, hashState: state}
+		size: size, wrappedDEK: wrapped, keyID: keyID}
+	if u.hashState, err = h.sealHash(u.id, sha256.New()); err != nil {
+		fail(w, "seal hash state", err)
+		return
+	}
 
 	f, err := os.OpenFile(h.stagingPath(u.id), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -178,7 +188,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Location", "/api/uploads/"+u.id.String())
 	if size == 0 {
-		if err := h.finish(r, h.pool, u, sha256.New()); err != nil {
+		if err := h.finish(r, u, sha256.New()); err != nil {
 			fail(w, "finish", err)
 			return
 		}
@@ -187,19 +197,34 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
-type querier interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+// sealHash encrypts the marshalled sha256 state: it carries the unprocessed
+// tail of the plaintext (up to 63 bytes) in the clear.
+func (h *handler) sealHash(id uuid.UUID, sum hash.Hash) ([]byte, error) {
+	state, err := sum.(encoding.BinaryMarshaler).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return h.keys.Seal(state, []byte("uploadhash:"+id.String()))
+}
+
+func (h *handler) openHash(u *upload) (hash.Hash, error) {
+	state, err := h.keys.Open(u.hashState, []byte("uploadhash:"+u.id.String()))
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.New()
+	return sum, sum.(encoding.BinaryUnmarshaler).UnmarshalBinary(state)
 }
 
 // load returns the caller's upload named in the path, or nil if it does not
 // exist or belongs to someone else.
-func load(r *http.Request, q querier) (*upload, error) {
+func (h *handler) load(r *http.Request) (*upload, error) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		return nil, nil
 	}
 	u := &upload{id: id}
-	err = q.QueryRow(r.Context(), `SELECT owner_id, name, content_type, size, "offset", wrapped_dek, key_id, hash_state
+	err = h.pool.QueryRow(r.Context(), `SELECT owner_id, name, content_type, size, "offset", wrapped_dek, key_id, hash_state
 		FROM uploads WHERE id = $1 AND owner_id = $2`, id, auth.UserFrom(r.Context()).ID).
 		Scan(&u.owner, &u.name, &u.contentType, &u.size, &u.offset, &u.wrappedDEK, &u.keyID, &u.hashState)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -208,28 +233,26 @@ func load(r *http.Request, q querier) (*upload, error) {
 	return u, err
 }
 
-// lock takes the per-upload advisory lock on a dedicated connection so that
-// requests on one upload never interleave. ok=false: someone else holds it.
-func (h *handler) lock(ctx context.Context, id uuid.UUID) (conn *pgxpool.Conn, unlock func(), ok bool, err error) {
-	conn, err = h.pool.Acquire(ctx)
-	if err != nil {
-		return nil, nil, false, err
+// tryLock marks id busy so requests on one upload never interleave; false
+// means another request holds it. Release with unlock.
+func (h *handler) tryLock(id uuid.UUID) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.active[id] {
+		return false
 	}
-	if err = conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1, hashtext($2))`, lockClass, id.String()).Scan(&ok); err != nil || !ok {
-		conn.Release()
-		return nil, nil, false, err
-	}
-	return conn, func() {
-		ctx := context.WithoutCancel(ctx)
-		if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock($1, hashtext($2))`, lockClass, id.String()); err != nil {
-			conn.Conn().Close(ctx) // never return a connection that may still hold the lock
-		}
-		conn.Release()
-	}, true, nil
+	h.active[id] = true
+	return true
+}
+
+func (h *handler) unlock(id uuid.UUID) {
+	h.mu.Lock()
+	delete(h.active, id)
+	h.mu.Unlock()
 }
 
 func (h *handler) head(w http.ResponseWriter, r *http.Request) {
-	u, err := load(r, h.pool)
+	u, err := h.load(r)
 	if err != nil {
 		fail(w, "head", err)
 		return
@@ -245,7 +268,7 @@ func (h *handler) head(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) patch(w http.ResponseWriter, r *http.Request) {
-	u, err := load(r, h.pool)
+	u, err := h.load(r)
 	if err != nil {
 		fail(w, "patch", err)
 		return
@@ -263,17 +286,12 @@ func (h *handler) patch(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	conn, unlock, ok, err := h.lock(r.Context(), u.id)
-	if err != nil {
-		fail(w, "lock", err)
-		return
-	}
-	if !ok {
+	if !h.tryLock(u.id) {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
-	defer unlock()
-	if u, err = load(r, conn); err != nil || u == nil { // re-read under the lock
+	defer h.unlock(u.id)
+	if u, err = h.load(r); err != nil || u == nil { // re-read under the lock
 		if err != nil {
 			fail(w, "patch", err)
 		} else {
@@ -288,17 +306,19 @@ func (h *handler) patch(w http.ResponseWriter, r *http.Request) {
 
 	// DB work must not be lost to a client hanging up after a chunk was appended.
 	ctx := context.WithoutCancel(r.Context())
-	sum := sha256.New()
-	if err := sum.(encoding.BinaryUnmarshaler).UnmarshalBinary(u.hashState); err != nil {
+	sum, err := h.openHash(u)
+	if err != nil {
 		fail(w, "hash state", err)
 		return
 	}
-	if err := h.appendChunks(ctx, conn, u, r.Body, sum); err != nil {
+	rc := http.NewResponseController(w)
+	defer rc.SetReadDeadline(time.Time{})
+	if err := h.appendChunks(ctx, rc, u, r.Body, sum); err != nil {
 		fail(w, "append", err)
 		return
 	}
 	if u.offset == u.size {
-		if err := h.finish(r, conn, u, sum); err != nil {
+		if err := h.finish(r, u, sum); err != nil {
 			fail(w, "finish", err)
 			return
 		}
@@ -310,7 +330,7 @@ func (h *handler) patch(w http.ResponseWriter, r *http.Request) {
 
 // appendChunks seals whole chunks from body onto the staging file, advancing
 // u.offset; a trailing partial chunk (body ended early) is discarded.
-func (h *handler) appendChunks(ctx context.Context, conn *pgxpool.Conn, u *upload, body io.Reader, sum hash.Hash) error {
+func (h *handler) appendChunks(ctx context.Context, rc *http.ResponseController, u *upload, body io.Reader, sum hash.Hash) error {
 	f, err := os.OpenFile(h.stagingPath(u.id), os.O_WRONLY, 0)
 	if err != nil {
 		return err
@@ -341,6 +361,9 @@ func (h *handler) appendChunks(ctx context.Context, conn *pgxpool.Conn, u *uploa
 	buf := make([]byte, sxcrypto.ChunkSize)
 	for u.offset < u.size {
 		n := min(sxcrypto.ChunkSize, u.size-u.offset)
+		if err := rc.SetReadDeadline(time.Now().Add(chunkReadTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return err
+		}
 		if _, err := io.ReadFull(body, buf[:n]); err != nil {
 			return nil // short or broken body: keep what is committed
 		}
@@ -352,8 +375,11 @@ func (h *handler) appendChunks(ctx context.Context, conn *pgxpool.Conn, u *uploa
 		if err := f.Sync(); err != nil {
 			return err
 		}
-		state, _ := sum.(encoding.BinaryMarshaler).MarshalBinary()
-		tag, err := conn.Exec(ctx, `UPDATE uploads SET "offset" = $2, hash_state = $3, updated_at = now() WHERE id = $1`, u.id, next, state)
+		state, err := h.sealHash(u.id, sum)
+		if err != nil {
+			return err
+		}
+		tag, err := h.pool.Exec(ctx, `UPDATE uploads SET "offset" = $2, hash_state = $3, updated_at = now() WHERE id = $1`, u.id, next, state)
 		if err != nil {
 			return err
 		}
@@ -365,13 +391,9 @@ func (h *handler) appendChunks(ctx context.Context, conn *pgxpool.Conn, u *uploa
 	return nil
 }
 
-type beginner interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
-}
-
 // finish moves the complete staging file into the blob store and turns the
 // upload into a file with the same id.
-func (h *handler) finish(r *http.Request, db beginner, u *upload, sum hash.Hash) error {
+func (h *handler) finish(r *http.Request, u *upload, sum hash.Hash) error {
 	ctx := context.WithoutCancel(r.Context())
 	key := u.id.String()
 	f, err := os.Open(h.stagingPath(u.id))
@@ -383,7 +405,7 @@ func (h *handler) finish(r *http.Request, db beginner, u *upload, sum hash.Hash)
 	if err != nil {
 		return err
 	}
-	tx, err := db.Begin(ctx)
+	tx, err := h.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -414,7 +436,7 @@ func (h *handler) finish(r *http.Request, db beginner, u *upload, sum hash.Hash)
 }
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) {
-	u, err := load(r, h.pool)
+	u, err := h.load(r)
 	if err != nil {
 		fail(w, "delete", err)
 		return
@@ -423,17 +445,12 @@ func (h *handler) delete(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	conn, unlock, ok, err := h.lock(r.Context(), u.id)
-	if err != nil {
-		fail(w, "lock", err)
-		return
-	}
-	if !ok {
+	if !h.tryLock(u.id) {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
-	defer unlock()
-	tag, err := conn.Exec(r.Context(), `DELETE FROM uploads WHERE id = $1 AND owner_id = $2`, u.id, u.owner)
+	defer h.unlock(u.id)
+	tag, err := h.pool.Exec(r.Context(), `DELETE FROM uploads WHERE id = $1 AND owner_id = $2`, u.id, u.owner)
 	if err != nil {
 		fail(w, "delete", err)
 		return

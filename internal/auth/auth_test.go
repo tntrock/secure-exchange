@@ -1,10 +1,12 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -158,5 +160,19 @@ func TestVerifyPasswordMalformedNoPanic(t *testing.T) {
 		if VerifyPassword(h, "password-12345") {
 			t.Fatalf("accepted %q", h)
 		}
+	}
+}
+
+func TestEnsureInitialAdminWarnsWhenUnconfigured(t *testing.T) {
+	s := newUsers(t)
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+	if err := s.EnsureInitialAdmin(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "level=WARN") || !strings.Contains(buf.String(), "SX_INIT_ADMIN_PASSWORD") {
+		t.Fatalf("no warning logged: %q", buf.String())
 	}
 }

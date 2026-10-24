@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -63,14 +64,16 @@ func (s *Users) ByID(ctx context.Context, id uuid.UUID) (*User, error) {
 	return scanUser(s.pool.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE id=$1`, id))
 }
 
-// EnsureInitialAdmin creates an admin only when no users exist and both values are set.
+// EnsureInitialAdmin creates an admin only when no users exist and both values
+// are set; with no users and no values it logs a warning.
 func (s *Users) EnsureInitialAdmin(ctx context.Context, email, password string) error {
-	if email == "" || password == "" {
-		return nil
-	}
 	var n int
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n); err != nil || n > 0 {
 		return err
+	}
+	if email == "" || password == "" {
+		slog.Warn("no users exist and SX_INIT_ADMIN_EMAIL / SX_INIT_ADMIN_PASSWORD are not set: nobody can log in")
+		return nil
 	}
 	_, err := s.Create(ctx, email, "Administrator", "admin", password)
 	if errors.Is(err, ErrEmailTaken) { // lost a startup race with another instance

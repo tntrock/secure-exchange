@@ -56,6 +56,7 @@ var sealedCols = []struct{ table, col, aad string }{
 	{"users", "totp_secret_sealed", "totp:"},
 	{"uploads", "hash_state", "uploadhash:"},
 	{"mail_outbox", "body_sealed", "mail:"},
+	{"shares", "token_sealed", "sharetoken:"},
 }
 
 func rotatePass(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, error) {

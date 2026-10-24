@@ -37,7 +37,7 @@ func setup(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(pool, mail.NewOutbox(pool, keys, nil), "https://sx.example", 30)
+	svc := NewService(pool, mail.NewOutbox(pool, keys, nil), keys, "https://sx.example", 30)
 	e := &env{pool: pool, keys: keys, svc: svc, now: time.Now().Truncate(time.Second)}
 	svc.now = func() time.Time { return e.now }
 	e.owner = e.user(t, "owner@x.com", "Olivia")
@@ -142,6 +142,7 @@ func TestCreateShareValidation(t *testing.T) {
 		{"others file", func(in *CreateInput) { in.FileIDs = []uuid.UUID{otherFile} }, "file_ids", "not_found"},
 		{"deleted file", func(in *CreateInput) { in.FileIDs = []uuid.UUID{delFile} }, "file_ids", "not_found"},
 		{"30 min", func(in *CreateInput) { in.ExpiresAt = e.now.Add(30 * time.Minute) }, "expires_at", "out_of_range"},
+		{"no expiry", func(in *CreateInput) { in.ExpiresAt = time.Time{} }, "expires_at", "required"},
 		{"31 days", func(in *CreateInput) { in.ExpiresAt = e.now.Add(31 * 24 * time.Hour) }, "expires_at", "out_of_range"},
 		{"max views 0", func(in *CreateInput) { z := 0; in.MaxViews = &z }, "max_views", "out_of_range"},
 		{"bad ip", func(in *CreateInput) { in.IPAllow = []string{"300.1.1.1"} }, "ip_allow", "invalid"},
@@ -245,9 +246,12 @@ func TestAddRecipientsSkipsExisting(t *testing.T) {
 	if err != nil || len(added) != 1 || added[0].Email != "dave@z.com" {
 		t.Fatalf("%v %v", added, err)
 	}
-	// the link token is only stored hashed, so no invitation can be re-sent here
-	if n := len(mailtest.Messages(t, e.pool, e.keys)); n != 1 {
-		t.Fatalf("outbox %d", n)
+	msgs := mailtest.Messages(t, e.pool, e.keys)
+	if len(msgs) != 2 || msgs[1].To != "dave@z.com" || !linkRE.MatchString(msgs[1].Body) {
+		t.Fatalf("%+v", msgs)
+	}
+	if linkRE.FindString(msgs[0].Body) != linkRE.FindString(msgs[1].Body) {
+		t.Fatal("link differs from original invitation")
 	}
 }
 
@@ -294,5 +298,21 @@ func TestGetOtherOwner404(t *testing.T) {
 	l, _ := e.svc.List(context.Background(), e.owner.ID)
 	if len(l) != 1 || l[0].FileCount != 1 || l[0].RecipientCount != 1 {
 		t.Fatalf("%+v", l)
+	}
+}
+
+func TestTokenSealedNotPlaintext(t *testing.T) {
+	e := setup(t)
+	sh, err := e.svc.Create(context.Background(), e.owner, e.input(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := linkRE.FindStringSubmatch(mailtest.Messages(t, e.pool, e.keys)[0].Body)[1]
+	var sealed []byte
+	if err := e.pool.QueryRow(context.Background(), `SELECT token_sealed FROM shares WHERE id=$1`, sh.ID).Scan(&sealed); err != nil {
+		t.Fatal(err)
+	}
+	if len(sealed) == 0 || bytes.Contains(sealed, []byte(token)) {
+		t.Fatal("token_sealed empty or contains the token")
 	}
 }

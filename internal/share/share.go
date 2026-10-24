@@ -17,6 +17,7 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
 const (
@@ -84,13 +85,14 @@ type CreateInput struct {
 type Service struct {
 	pool    *pgxpool.Pool
 	outbox  *mail.Outbox
+	keys    *sxcrypto.Keyring
 	baseURL string
 	maxDays int
 	now     func() time.Time
 }
 
-func NewService(pool *pgxpool.Pool, outbox *mail.Outbox, baseURL string, maxDays int) *Service {
-	return &Service{pool: pool, outbox: outbox, baseURL: baseURL, maxDays: maxDays, now: time.Now}
+func NewService(pool *pgxpool.Pool, outbox *mail.Outbox, keys *sxcrypto.Keyring, baseURL string, maxDays int) *Service {
+	return &Service{pool: pool, outbox: outbox, keys: keys, baseURL: baseURL, maxDays: maxDays, now: time.Now}
 }
 
 func invalid(field, code string) error { return &ValidationError{field, code} }
@@ -150,6 +152,9 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 	if len(fileIDs) > maxFiles {
 		return nil, invalid("file_ids", "too_many")
 	}
+	if in.ExpiresAt.IsZero() {
+		return nil, invalid("expires_at", "required")
+	}
 	now := s.now()
 	if in.ExpiresAt.Before(now.Add(time.Hour)) || in.ExpiresAt.After(now.AddDate(0, 0, s.maxDays)) {
 		return nil, invalid("expires_at", "out_of_range")
@@ -173,6 +178,10 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 	hash := sha256.Sum256([]byte(token))
 	id := uuid.New()
 
+	sealed, err := s.keys.Seal([]byte(token), []byte("sharetoken:"+id.String()))
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -185,8 +194,8 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 	if n != len(fileIDs) {
 		return nil, invalid("file_ids", "not_found")
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO shares (id, owner_id, token_hash, message, allow_download, watermark, expires_at, max_views, ip_allow)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id, owner.ID, hash[:], in.Message, in.AllowDownload, in.Watermark, in.ExpiresAt, in.MaxViews, ips); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO shares (id, owner_id, token_hash, token_sealed, message, allow_download, watermark, expires_at, max_views, ip_allow)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, id, owner.ID, hash[:], sealed, in.Message, in.AllowDownload, in.Watermark, in.ExpiresAt, in.MaxViews, ips); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO share_files (share_id, file_id) SELECT $1, unnest($2::uuid[])`, id, fileIDs); err != nil {
@@ -340,8 +349,7 @@ func (s *Service) RevokeRecipient(ctx context.Context, ownerID, shareID, recipie
 }
 
 // AddRecipients adds addresses not already on the share and returns the new ones.
-// The link token exists only as a hash, so no invitation can be sent from here.
-// ponytail: the owner must pass the link on themselves; store a sealed token if re-invites are wanted.
+// Each new recipient is sent the same invitation as the original ones.
 func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID uuid.UUID, emails []string) ([]Recipient, error) {
 	emails, err := normEmails(emails)
 	if err != nil {
@@ -353,8 +361,12 @@ func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID u
 	}
 	defer tx.Rollback(ctx)
 	var revoked *time.Time
+	var sealed []byte
+	var expires time.Time
+	var message string
 	// FOR UPDATE serializes concurrent adds so the 50 cap holds
-	err = tx.QueryRow(ctx, `SELECT revoked_at FROM shares WHERE id = $1 AND owner_id = $2 FOR UPDATE`, shareID, owner.ID).Scan(&revoked)
+	err = tx.QueryRow(ctx, `SELECT revoked_at, token_sealed, expires_at, message FROM shares WHERE id = $1 AND owner_id = $2 FOR UPDATE`,
+		shareID, owner.ID).Scan(&revoked, &sealed, &expires, &message)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -364,6 +376,11 @@ func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID u
 	if revoked != nil {
 		return nil, ErrRevoked
 	}
+	tok, err := s.keys.Open(sealed, []byte("sharetoken:"+shareID.String()))
+	if err != nil {
+		return nil, err
+	}
+	subject, body := mail.Invitation(s.baseURL+"/s/"+string(tok), senderName(owner), message, expires)
 	var total int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM share_recipients WHERE share_id = $1`, shareID).Scan(&total); err != nil {
 		return nil, err
@@ -377,6 +394,9 @@ func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID u
 		}
 		if tag.RowsAffected() == 1 {
 			added = append(added, r)
+			if err := s.outbox.Enqueue(ctx, tx, mail.Message{To: e, Subject: subject, Body: body}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if total+len(added) > maxRecipients {

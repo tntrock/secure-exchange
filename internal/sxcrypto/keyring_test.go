@@ -35,7 +35,7 @@ func TestKeyringRejectsBadSpec(t *testing.T) {
 		active int
 	}{
 		{"", 1}, {"1:short", 1}, {"1:" + k(1) + ",1:" + k(2), 1}, {"1:" + k(1), 9},
-		{"x:" + k(1), 1}, {"1" + k(1), 1}, {"0:" + k(1), 0},
+		{"x:" + k(1), 1}, {"1" + k(1), 1}, {"0:" + k(1), 0}, {"1:" + k(1) + ",2147483648:" + k(2), 1},
 	} {
 		if _, err := ParseKeyring(c.spec, c.active); err == nil {
 			t.Errorf("spec %q active %d: want error", c.spec, c.active)

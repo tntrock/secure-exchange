@@ -64,7 +64,7 @@ func TestLoadS3RequiresBucket(t *testing.T) {
 }
 
 func TestLoadActiveKeyIDMustBePositive(t *testing.T) {
-	for _, v := range []string{"0", "-1"} {
+	for _, v := range []string{"0", "-1", "2147483648"} {
 		m := required()
 		m["SX_ACTIVE_KEY_ID"] = v
 		_, err := Load(env(m))

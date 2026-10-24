@@ -32,8 +32,9 @@ func ParseKeyring(spec string, activeID int) (*Keyring, error) {
 		if !ok {
 			return nil, errors.New("keyring: entry must be <id>:<base64>")
 		}
-		id, err := strconv.Atoi(idStr)
-		if err != nil || id <= 0 {
+		n, err := strconv.ParseUint(idStr, 10, 31) // fits int4 (key_id columns) and uint32
+		id := int(n)
+		if err != nil || id == 0 {
 			return nil, fmt.Errorf("keyring: invalid key id %q", idStr)
 		}
 		if _, dup := r.keys[id]; dup {

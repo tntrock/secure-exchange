@@ -73,10 +73,10 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 
 	if s := req("SX_ACTIVE_KEY_ID"); s != "" {
-		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
-			bad("SX_ACTIVE_KEY_ID", errors.New("must be a positive integer"))
+		if n, err := strconv.ParseUint(s, 10, 31); err != nil || n == 0 {
+			bad("SX_ACTIVE_KEY_ID", errors.New("must be an integer from 1 to 2147483647"))
 		} else {
-			c.ActiveKeyID = n
+			c.ActiveKeyID = int(n)
 		}
 	}
 	if s := get("SX_MAX_FILE_SIZE", ""); s != "" {

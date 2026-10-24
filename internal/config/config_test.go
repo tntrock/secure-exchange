@@ -16,6 +16,8 @@ func required() map[string]string {
 		"SX_DATABASE_URL":  "postgres://u@h/db",
 		"SX_MASTER_KEYS":   "1:abc",
 		"SX_ACTIVE_KEY_ID": "1",
+		"SX_SMTP_HOST":     "smtp.example",
+		"SX_SMTP_FROM":     "SX <noreply@x.example>",
 	}
 }
 
@@ -71,5 +73,67 @@ func TestLoadActiveKeyIDMustBePositive(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "SX_ACTIVE_KEY_ID") {
 			t.Fatalf("%s: got %v", v, err)
 		}
+	}
+}
+
+func TestLoadSMTPDefaults(t *testing.T) {
+	c, err := Load(env(required()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SMTP.Host != "smtp.example" || c.SMTP.Port != 587 || c.SMTP.TLS != "starttls" || c.ShareMaxDays != 30 {
+		t.Fatalf("unexpected: %+v", c)
+	}
+}
+
+func TestLoadSMTPRequired(t *testing.T) {
+	for _, k := range []string{"SX_SMTP_HOST", "SX_SMTP_FROM"} {
+		m := required()
+		delete(m, k)
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), k) {
+			t.Fatalf("%s: got %v", k, err)
+		}
+	}
+}
+
+func TestLoadSMTPFromInvalid(t *testing.T) {
+	m := required()
+	m["SX_SMTP_FROM"] = "not an address"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SMTP_FROM") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLoadShareMaxDaysRange(t *testing.T) {
+	for _, v := range []string{"0", "366", "x"} {
+		m := required()
+		m["SX_SHARE_MAX_DAYS"] = v
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SHARE_MAX_DAYS") {
+			t.Fatalf("%s: got %v", v, err)
+		}
+	}
+	m := required()
+	m["SX_SHARE_MAX_DAYS"] = "365"
+	if c, err := Load(env(m)); err != nil || c.ShareMaxDays != 365 {
+		t.Fatalf("got %+v, %v", c, err)
+	}
+}
+
+func TestLoadSMTPTLSValues(t *testing.T) {
+	m := required()
+	for _, v := range []string{"tls", "none", "starttls"} {
+		m["SX_SMTP_TLS"] = v
+		if c, err := Load(env(m)); err != nil || c.SMTP.TLS != v {
+			t.Fatalf("%s: got %+v, %v", v, c, err)
+		}
+	}
+	m["SX_SMTP_TLS"] = "bogus"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SMTP_TLS") {
+		t.Fatalf("got %v", err)
+	}
+	m["SX_SMTP_TLS"] = "tls"
+	m["SX_SMTP_PORT"] = "70000"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SMTP_PORT") {
+		t.Fatalf("got %v", err)
 	}
 }

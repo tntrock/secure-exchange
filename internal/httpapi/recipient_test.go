@@ -1,12 +1,15 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -312,6 +315,23 @@ func TestRecipientCookieAttributes(t *testing.T) {
 	}
 }
 
+func TestRecipientPadOverrunLogsNoToken(t *testing.T) {
+	buf := &lockedBuf{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	e := newEnv(t, func(d *Deps) { d.CodeDelay = time.Nanosecond })
+	a := e.user(t, "a@x.com")
+	f := e.putFile(t, a.ID, "doc", []byte("x"))
+	e.login(t, "a@x.com", pw)
+	_, tok := e.recipShare(t, true, []uuid.UUID{f}, "r@y.com")
+	e.do(t, "POST", "/api/s/"+tok+"/code", map[string]string{"email": "r@y.com"})
+	out := buf.String()
+	if !strings.Contains(out, "exceeded timing pad") || !strings.Contains(out, "/api/s/{token}/code") || strings.Contains(out, tok) {
+		t.Fatal(out)
+	}
+}
+
 func TestRecipientCodeTimingPadded(t *testing.T) {
 	const pad = 300 * time.Millisecond
 	e := newEnv(t, func(d *Deps) { d.CodeDelay = pad })
@@ -331,4 +351,22 @@ func TestRecipientCodeTimingPadded(t *testing.T) {
 	if bodies[0] != bodies[1] || bodies[2] != `{"error":"invalid_code"}`+"\n" {
 		t.Fatal(bodies)
 	}
+}
+
+// lockedBuf is a log sink shared between the server goroutines and the test.
+type lockedBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }

@@ -88,7 +88,7 @@ func (s *server) padded(next http.Handler) http.Handler {
 		if left := s.CodeDelay - time.Since(start); left > 0 {
 			time.Sleep(left)
 		} else if s.CodeDelay > 0 {
-			slog.Warn("recipient code request exceeded timing pad", "path", r.URL.Path, "elapsed", time.Since(start))
+			slog.Warn("recipient code request exceeded timing pad", "route", r.Pattern, "elapsed", time.Since(start))
 		}
 		if bw.status == 0 {
 			bw.status = http.StatusOK
@@ -193,7 +193,11 @@ func (s *server) requireRecipient(next http.HandlerFunc) http.Handler {
 		}
 		var same bool
 		if err := s.Pool.QueryRow(r.Context(), `SELECT token_hash = $2 FROM shares WHERE id = $1`, a.Share.ID, []byte(tokenKey(r.PathValue("token")))).
-			Scan(&same); err != nil || !same {
+			Scan(&same); err != nil {
+			recipientErr(w, err) // 500 + log; the error text carries no token
+			return
+		}
+		if !same {
 			writeJSON(w, http.StatusUnauthorized, errBody("unauthorized"))
 			return
 		}

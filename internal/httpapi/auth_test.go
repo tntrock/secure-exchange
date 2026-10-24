@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pquerna/otp/totp"
@@ -269,5 +270,47 @@ func TestAuditOnLogin(t *testing.T) {
 	}
 	if bad, err := e.audit.Verify(ctx); err != nil || bad != 0 {
 		t.Fatal(bad, err)
+	}
+}
+
+func TestAuditFieldsTruncated(t *testing.T) {
+	e := newEnv(t)
+	e.user(t, "tr@x.com")
+	long := strings.Repeat("é", 1500) // 3000 bytes, multi-byte to exercise rune safety
+	ua := strings.Repeat("u", 10<<10)
+	post := func(body string) int {
+		req, _ := http.NewRequest("POST", e.ts.URL+"/api/auth/login", strings.NewReader(body))
+		req.Header.Set("User-Agent", ua)
+		resp, err := e.c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := post(`{"email":"` + long + `@x.com","password":"x"}`); code != 401 {
+		t.Fatal(code)
+	}
+	if code := post(`{"email":"` + strings.Repeat("a", 10<<10) + `","password":"x"}`); code != 400 {
+		t.Fatal("oversized body", code)
+	}
+	if code := post(`{"email":"tr@x.com","password":"` + pw + `"}`); code != 200 {
+		t.Fatal(code)
+	}
+	ctx := context.Background()
+	got, err := e.audit.List(ctx, audit.Filter{Action: audit.ActLoginFail})
+	if err != nil || len(got) != 1 {
+		t.Fatal(len(got), err)
+	}
+	email, _ := got[0].Event.Detail["email"].(string)
+	if n := len(got[0].Event.UserAgent); n == 0 || n > 512 {
+		t.Fatal("audit user_agent bytes", n)
+	}
+	if len(email) == 0 || len(email) > 254 || !utf8.ValidString(email) {
+		t.Fatal("audit email bytes", len(email))
+	}
+	var n int
+	if err := e.pool.QueryRow(ctx, `SELECT max(octet_length(user_agent)) FROM sessions`).Scan(&n); err != nil || n == 0 || n > 512 {
+		t.Fatal("session user_agent bytes", n, err)
 	}
 }

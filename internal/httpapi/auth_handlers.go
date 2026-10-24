@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
@@ -12,7 +13,7 @@ import (
 
 // record appends an audit event with the request's client IP and UA filled in.
 func (s *server) record(r *http.Request, e audit.Event) {
-	e.IP, e.UserAgent = s.ip(r), r.UserAgent()
+	e.IP, e.UserAgent = s.ip(r), userAgent(r)
 	if e.ActorType == "" {
 		e.ActorType = "user"
 	}
@@ -47,7 +48,7 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	pwOK := auth.VerifyPassword(hash, in.Password)
 	if u == nil || u.PasswordHash == "" || !pwOK || u.Disabled {
-		ev := audit.Event{Action: audit.ActLoginFail, Result: "fail", Detail: map[string]any{"email": email, "stage": "password"}}
+		ev := audit.Event{Action: audit.ActLoginFail, Result: "fail", Detail: map[string]any{"email": truncate(email, maxEmailLen), "stage": "password"}}
 		if u != nil {
 			ev.ActorID = u.ID.String()
 		}
@@ -55,7 +56,7 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, errBody("invalid_credentials"))
 		return
 	}
-	token, err := s.Sessions.Create(r.Context(), u.ID, !u.TOTPEnabled, s.ip(r), r.UserAgent(), s.SessionTTL)
+	token, err := s.Sessions.Create(r.Context(), u.ID, !u.TOTPEnabled, s.ip(r), userAgent(r), s.SessionTTL)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
@@ -148,3 +149,22 @@ func (s *server) totpEnable(w http.ResponseWriter, r *http.Request) {
 	s.record(r, audit.Event{Action: audit.ActTOTPEnable, ActorID: u.ID.String(), Result: "ok"})
 	w.WriteHeader(http.StatusNoContent)
 }
+
+const (
+	maxUALen    = 512
+	maxEmailLen = 254 // RFC 5321 path limit
+)
+
+// truncate cuts s to at most n bytes without splitting a UTF-8 sequence.
+// Client-controlled strings go through it before reaching the append-only audit log or sessions.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+func userAgent(r *http.Request) string { return truncate(r.UserAgent(), maxUALen) }

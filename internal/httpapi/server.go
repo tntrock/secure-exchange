@@ -64,7 +64,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // readJSON decodes a small JSON body into v; on failure it writes 400 and returns false.
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(v); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(v); err != nil {
 		writeJSON(w, http.StatusBadRequest, errBody("bad_request"))
 		return false
 	}

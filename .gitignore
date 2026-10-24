@@ -1,0 +1,7 @@
+.superpowers/
+/secure-exchange
+/secure-exchange.exe
+/data/
+*.test
+*.out
+node_modules/

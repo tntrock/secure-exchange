@@ -290,7 +290,7 @@ func TestBackfillSkipsBadFile(t *testing.T) {
 	// the bad file is older, so it is listed first or not; either order must work
 	bad := addFile(t, pool, owner, "missing.pdf", 10, wrapped, keyID, "")
 	pool.Exec(ctx, `INSERT INTO files (id, owner_id, name, content_type, size, sha256, wrapped_dek, key_id, storage_key)
-		VALUES ($1,$2,'good.pdf','x',$3,'\x00',$4,$5,$1::text)`, good, owner, len(plain), wrapped, keyID)
+		VALUES ($1,$2,'good.pdf','x',$3,'\x00',$4,$5,$6)`, good, owner, len(plain), wrapped, keyID, good.String())
 	cfg := config.PreviewConfig{MaxBytes: 1 << 20, MaxVideoBytes: 1 << 20}
 	if n, err := Backfill(ctx, pool, store, keys, cfg); err != nil || n != 2 {
 		t.Fatalf("backfill = %d, %v", n, err)

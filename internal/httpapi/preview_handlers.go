@@ -135,7 +135,8 @@ func index(w http.ResponseWriter, s string) (int, bool) {
 
 // mark returns the recipient's watermark for fid (ok=false: don't draw one). It records the
 // (session, file) trace on first use, and the file.view audit entry when the trace is new;
-// unwatermarked views are traced too (from item 0 only) so file.view has one dedupe.
+// unwatermarked views are traced too (from item 0 only) so file.view has one dedupe:
+// watermark=false still creates a trace code, it is just never drawn.
 func (s *server) mark(r *http.Request, a *share.Access, fid uuid.UUID, n int) (preview.Mark, bool, error) {
 	if a == nil || !a.Share.Watermark && n != 0 {
 		return preview.Mark{}, false, nil

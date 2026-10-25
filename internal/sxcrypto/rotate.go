@@ -13,17 +13,18 @@ import (
 
 const rotateBatch = 500
 
-// RotateAll re-wraps every files/uploads DEK and re-seals users.totp_secret_sealed
-// and uploads.hash_state under the active key. Rows already on the active key
-// are skipped. Returns the number of values rewritten. File contents are untouched.
+// maxRotatePasses bounds how often RotateAll repeats while old-key values remain.
 const maxRotatePasses = 3
 
 // afterPass is a test hook, called after each full pass.
 var afterPass func(pass int)
 
-// RotateAll re-wraps every uploads/files DEK and re-seals users.totp_secret_sealed
-// and uploads.hash_state under the active key. Values already on the active key
-// are skipped. Returns the number of values rewritten. File contents are untouched.
+// RotateAll moves every master-key-protected value to the active key: it re-wraps
+// the wrapped_dek of every row in dekTables (uploads, files, preview_items) and
+// re-seals every column in sealedCols (users.totp_secret_sealed, uploads.hash_state,
+// mail_outbox.body_sealed, shares.token_sealed). Values already on the active key
+// are skipped. Returns the number of values rewritten. Blob contents (files and
+// preview artifacts) are untouched: only the DEKs that encrypt them change.
 //
 // Uploads are rotated before files so an upload finishing mid-run (which copies
 // its DEK into files) is caught by the files step or the residual check; the

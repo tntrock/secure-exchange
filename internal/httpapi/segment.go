@@ -59,8 +59,9 @@ func (s *server) burnSegment(ctx context.Context, w io.Writer, src io.Reader, m 
 	}
 	ctx, cancel := context.WithTimeout(ctx, burnTimeout)
 	defer cancel()
+	// as on pages (ruling Q11): dark glyphs with a 1px white halo, legible on bright and dark scenes
 	dt := "drawtext=fontfile=" + filterQuote(s.FontFile) + ":text=" + drawtextEscape(m.Text()) +
-		":fontsize=h/22:fontcolor=white@0.22:x=max((w-tw)/2\\,0):y=" // max: long text keeps its left end (the trace code); \, escapes the graph's filter separator
+		":fontsize=h/22:fontcolor=0x303030@0.22:bordercolor=white@0.22:borderw=1:x=max((w-tw)/2\\,0):y=" // max: long text keeps its left end (the trace code); \, escapes the graph's filter separator
 	vf := dt + "(h-th)/2," + dt + "h/5," + dt + "4*h/5"
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-loglevel", "error",
 		"-protocol_whitelist", "pipe", "-format_whitelist", "mpegts", "-f", "mpegts", "-copyts", "-i", "pipe:0",

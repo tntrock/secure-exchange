@@ -22,6 +22,7 @@ const (
 	otpTTL      = 10 * time.Minute
 	otpAttempts = 5
 	otpsPerHour = 10
+	otpsPerDay  = 20
 	sessionTTL  = time.Hour
 )
 
@@ -113,11 +114,12 @@ func (s *Service) RequestCode(ctx context.Context, token, email string, ip netip
 		return false, err
 	}
 	// backstop against guessing by requesting code after code; the HTTP rate limit is the main guard
-	var recent int
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM share_otps WHERE recipient_id = $1 AND created_at > now() - interval '1 hour'`, rid).Scan(&recent); err != nil {
+	var lastHour, lastDay int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE created_at > now() - interval '1 hour'), count(*)
+		FROM share_otps WHERE recipient_id = $1 AND created_at > now() - interval '24 hours'`, rid).Scan(&lastHour, &lastDay); err != nil {
 		return false, err
 	}
-	if recent >= otpsPerHour {
+	if lastHour >= otpsPerHour || lastDay >= otpsPerDay {
 		return false, nil
 	}
 	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))

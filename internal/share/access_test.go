@@ -505,3 +505,30 @@ func TestParseIPsMappedPrefix(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 }
+
+func TestRequestCodeDailyBackstop(t *testing.T) {
+	e := setup(t)
+	_, tok := e.newShare(t, nil, "bob@x.com")
+	e.code(t, tok, "bob@x.com")
+	// 19 more spread 2–20 hours back: under the hourly cap, 20 in the last day
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO share_otps (id, recipient_id, code_hash, expires_at, used_at, created_at)
+		SELECT gen_random_uuid(), recipient_id, code_hash, expires_at, now(), now() - make_interval(hours => g)
+		FROM share_otps, generate_series(2, 20) g`); err != nil {
+		t.Fatal(err)
+	}
+	mails := len(mailtest.Messages(t, e.pool, e.keys))
+	if _, err := e.svc.RequestCode(context.Background(), tok, "bob@x.com", ip1); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, e, `SELECT count(*) FROM share_otps`); n != 20 {
+		t.Fatalf("otps %d", n)
+	}
+	if n := len(mailtest.Messages(t, e.pool, e.keys)); n != mails {
+		t.Fatalf("mails %d want %d", n, mails)
+	}
+	// older than a day no longer counts
+	if _, err := e.pool.Exec(context.Background(), `UPDATE share_otps SET created_at = now() - interval '25 hours' WHERE created_at < now() - interval '19 hours'`); err != nil {
+		t.Fatal(err)
+	}
+	e.code(t, tok, "bob@x.com")
+}

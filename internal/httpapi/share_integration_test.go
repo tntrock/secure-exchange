@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,6 +127,7 @@ func TestShareEndToEnd(t *testing.T) {
 	}
 	tok := link[1]
 	otpRE := regexp.MustCompile(`驗證碼是：(\d{6})`)
+	var codes []string // every code seen, for the at-rest scan below
 	verify := func(c *http.Client, email string) (*http.Response, []byte) {
 		t.Helper()
 		if resp, b := jdo(c, "POST", "/api/s/"+tok+"/code", map[string]string{"email": email}); resp.StatusCode != 200 || string(b) != `{"sent":true}`+"\n" {
@@ -135,6 +137,7 @@ func TestShareEndToEnd(t *testing.T) {
 		if m == nil {
 			t.Fatal("no code in mail")
 		}
+		codes = append(codes, m[1])
 		return jdo(c, "POST", "/api/s/"+tok+"/verify", map[string]string{"email": email, "code": m[1]})
 	}
 	sum := sha256.Sum256(data)
@@ -174,5 +177,37 @@ func TestShareEndToEnd(t *testing.T) {
 	}
 	if bad, err := log.Verify(ctx); err != nil || bad != 0 {
 		t.Fatalf("audit chain: bad=%d err=%v", bad, err)
+	}
+
+	// secrets at rest: no code or link token in any text/bytea column of the share and mail tables
+	for _, table := range []string{"mail_outbox", "share_otps", "share_sessions", "shares"} {
+		rows, err := pool.Query(ctx, `SELECT column_name, data_type FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = $1 AND data_type IN ('text', 'bytea')`, table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var exprs []string
+		for rows.Next() {
+			var col, typ string
+			if err := rows.Scan(&col, &typ); err != nil {
+				t.Fatal(err)
+			}
+			if typ == "bytea" {
+				col = "encode(" + col + ", 'escape')"
+			}
+			exprs = append(exprs, "coalesce("+col+", '')")
+		}
+		if rows.Err() != nil || len(exprs) == 0 {
+			t.Fatalf("%s columns: %v", table, rows.Err())
+		}
+		var dump string
+		if err := pool.QueryRow(ctx, `SELECT coalesce(string_agg(concat_ws(' ', `+strings.Join(exprs, ", ")+`), ' '), '') FROM `+table).Scan(&dump); err != nil {
+			t.Fatal(err)
+		}
+		for _, secret := range append([]string{tok}, codes...) {
+			if strings.Contains(dump, secret) {
+				t.Errorf("%s stores %q in plaintext", table, secret)
+			}
+		}
 	}
 }

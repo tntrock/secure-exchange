@@ -1,7 +1,7 @@
 -- +goose Up
 CREATE TABLE shares (
   id uuid PRIMARY KEY, owner_id uuid NOT NULL REFERENCES users,
-  token_hash bytea NOT NULL UNIQUE, message text NOT NULL DEFAULT '',
+  token_hash bytea NOT NULL UNIQUE, token_sealed bytea NOT NULL, message text NOT NULL DEFAULT '',
   allow_download boolean NOT NULL, watermark boolean NOT NULL,
   expires_at timestamptz NOT NULL, max_views int CHECK (max_views > 0), view_count int NOT NULL DEFAULT 0,
   ip_allow cidr[] NOT NULL DEFAULT '{}', revoked_at timestamptz,

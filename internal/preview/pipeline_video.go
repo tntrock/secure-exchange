@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +17,8 @@ var (
 	ffmpegTimeoutMin = 600 * time.Second // ffmpeg gets max(this, 3 × video seconds)
 )
 
-var segNameRE = regexp.MustCompile(`^s\d{5}\.ts$`)
+// inputFormats: container demuxers allowed for untrusted input (no hls/concat/etc. that read other files).
+const inputFormats = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpegts,flv,asf,ogg"
 
 type segment struct {
 	name string
@@ -28,7 +28,7 @@ type segment struct {
 // videoPipeline transcodes a video to 6-second H.264/AAC MPEG-TS HLS segments (height ≤ 720), one item each.
 func videoPipeline(e *jobEnv) (Result, error) {
 	// file only: a hostile playlist/concat input must not reach network or other protocols
-	in := []string{"-protocol_whitelist", "file"}
+	in := []string{"-protocol_whitelist", "file", "-format_whitelist", inputFormats}
 	o, err := Run(e.ctx, e.dir, ffprobeTimeout, "ffprobe", append(in, "-v", "error", "-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1", e.in)...)
 	if err != nil {
@@ -48,7 +48,7 @@ func videoPipeline(e *jobEnv) (Result, error) {
 	timeout := max(ffmpegTimeoutMin, time.Duration(3*secs*float64(time.Second)))
 	args := append(in, "-nostdin", "-i", e.in, "-map", "0:v:0", "-map", "0:a:0?", "-vf", "scale=-2:'min(720,ih)'",
 		"-c:v", "libx264", "-force_key_frames", "expr:gte(t,n_forced*6)", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-ac", "2",
-		"-max_muxing_queue_size", "1024", "-threads", "2",
+		"-t", strconv.Itoa(e.cfg.MaxVideoSeconds), "-max_muxing_queue_size", "1024", "-threads", "2",
 		"-f", "hls", "-hls_time", "6", "-hls_playlist_type", "vod", "-hls_segment_type", "mpegts",
 		"-hls_segment_filename", filepath.Join(out, "s%05d.ts"), filepath.Join(out, "index.m3u8"))
 	if o, err := Run(e.ctx, e.dir, timeout, "ffmpeg", args...); err != nil {
@@ -59,6 +59,9 @@ func videoPipeline(e *jobEnv) (Result, error) {
 		return Result{}, errors.New("ffmpeg: no playlist")
 	}
 	segs, err := parsePlaylist(string(pl), out)
+	if err == nil {
+		err = checkSegmentCount(len(segs), e.cfg.MaxVideoSeconds)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -89,7 +92,7 @@ func videoPipeline(e *jobEnv) (Result, error) {
 }
 
 func probeSize(e *jobEnv, path string) (w, h int, err error) {
-	o, err := Run(e.ctx, e.dir, ffprobeTimeout, "ffprobe", "-v", "error", "-select_streams", "v:0",
+	o, err := Run(e.ctx, e.dir, ffprobeTimeout, "ffprobe", "-protocol_whitelist", "file", "-format_whitelist", "mpegts", "-v", "error", "-select_streams", "v:0",
 		"-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", path)
 	if err != nil {
 		return 0, 0, toolErr("ffprobe", err, o)
@@ -118,7 +121,7 @@ func parsePlaylist(pl, dir string) ([]segment, error) {
 			dur = int64(math.Round(sec * 1000))
 		case strings.HasPrefix(line, "#"):
 		default:
-			if dur < 0 || !segNameRE.MatchString(line) {
+			if dur < 0 || line != fmt.Sprintf("s%05d.ts", len(segs)) {
 				return nil, errors.New("ffmpeg: bad playlist entry")
 			}
 			if _, err := os.Stat(filepath.Join(dir, line)); err != nil {
@@ -132,4 +135,12 @@ func parsePlaylist(pl, dir string) ([]segment, error) {
 		return nil, errors.New("ffmpeg: empty playlist")
 	}
 	return segs, nil
+}
+
+// checkSegmentCount bounds the output regardless of what the input's header claimed.
+func checkSegmentCount(n, maxSeconds int) error {
+	if n > (maxSeconds+5)/6+1 {
+		return fmt.Errorf("%w: %d segments", errTooLarge, n)
+	}
+	return nil
 }

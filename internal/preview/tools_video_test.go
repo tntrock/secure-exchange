@@ -73,3 +73,24 @@ func TestParsePlaylist(t *testing.T) {
 		}
 	}
 }
+
+func TestVideoHLSInputRejected(t *testing.T) {
+	// an HLS playlist named .mp4 must not make ffmpeg read other files by absolute path
+	dir := t.TempDir()
+	ts := filepath.Join(dir, "x.ts")
+	if o, err := Run(ctx, dir, ffmpegTimeoutMin, "ffmpeg", "-nostdin", "-f", "lavfi", "-i", "testsrc=duration=2:size=320x240:rate=25", "-c:v", "libx264", ts); err != nil {
+		t.Fatalf("%v: %s", err, o)
+	}
+	pl := "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\n" + ts + "\n#EXT-X-ENDLIST\n"
+	_, items, err := runPipeline(t, videoPipeline, config.PreviewConfig{MaxVideoSeconds: 100}, "in.mp4", []byte(pl))
+	if err == nil || len(items) != 0 {
+		t.Fatalf("err = %v items %d", err, len(items))
+	}
+}
+
+func TestSegmentCountCap(t *testing.T) {
+	// header-claimed duration is untrusted: output beyond ceil(max/6)+1 segments fails closed
+	if checkSegmentCount(3, 14) != nil || !errors.Is(checkSegmentCount(5, 14), errTooLarge) {
+		t.Fatal("cap wrong")
+	}
+}

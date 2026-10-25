@@ -96,7 +96,8 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 		ShareMaxDays:      30,
 		WorkerTmp:         get("SX_WORKER_TMP", "/work"),
 		FontFile:          get("SX_FONT_FILE", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-		Preview:           PreviewConfig{MaxBytes: 2 << 30, MaxPages: 500, MaxVideoBytes: 20 << 30, MaxVideoSeconds: 7200, DPI: 110},
+		// input + rendered output must fit the 4 GiB /work tmpfs (see .env.example)
+		Preview: PreviewConfig{MaxBytes: 1 << 30, MaxPages: 500, MaxVideoBytes: 3 << 29, MaxVideoSeconds: 7200, DPI: 110},
 		SMTP: SMTPConfig{
 			Host:     web("SX_SMTP_HOST"),
 			Port:     587,

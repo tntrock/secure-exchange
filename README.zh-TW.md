@@ -61,7 +61,7 @@ SX_SMTP_TLS=starttls        # starttls（預設）、tls（隱式 TLS，通常�
 檔案可直接在瀏覽器中檢視，不必下載。瀏覽器收到的只有伺服器端產生的圖片與影片片段；檢視功能從不送出原始檔、PDF 或 Office 檔。
 
 - **支援格式：** 文件逐頁轉成圖片（PDF、Word／Excel／PowerPoint 與 OpenDocument、RTF、CSV、純文字、Markdown、JSON／XML／YAML、記錄檔與常見原始碼、HTML）；圖片（JPEG、PNG、GIF、WebP、BMP、TIFF）；影片（MP4、MOV、M4V、MKV、WebM、AVI）轉為 H.264／AAC、最高 720p，以 HLS 串流。其他檔案仍可用允許下載的分享傳送。
-- **預覽上限**（環境變數，見 `.env.example`）：`SX_PREVIEW_MAX_BYTES`（文件與圖片，預設 2 GiB）、`SX_PREVIEW_MAX_PAGES`（500）、`SX_PREVIEW_MAX_VIDEO_BYTES`（20 GiB）、`SX_PREVIEW_MAX_VIDEO_SECONDS`（7200）、`SX_RENDER_DPI`（110）。超過上限的檔案視為無法預覽。
+- **預覽上限**（環境變數，見 `.env.example`）：`SX_PREVIEW_MAX_BYTES`（文件與圖片，預設 1 GiB）、`SX_PREVIEW_MAX_PAGES`（500）、`SX_PREVIEW_MAX_VIDEO_BYTES`（1.5 GiB）、`SX_PREVIEW_MAX_VIDEO_SECONDS`（7200）、`SX_RENDER_DPI`（110）。超過上限的檔案視為無法預覽。**容量規則：** 解密後的輸入檔與所有產出都放在 worker 的 `/work` tmpfs，而 tmpfs 會計入容器記憶體上限，因此須維持「*最大預覽輸入 + 產出 ≤ `/work` 大小（4 GiB）< `mem_limit`（6 GiB）*」，且不使用 swap。調高上限時，請一併調高 `docker-compose.yml` 中的 tmpfs 大小與 `mem_limit`；仍把 `/work` 寫滿的工作會視為無法預覽。
 - **僅線上檢視的分享**需要預覽已完成：預覽仍在產生時不能加入該檔案；無法預覽的檔案只能放在允許下載的分享。
 - **浮水印：** 分享開啟「浮水印」後，收件人看到的每一頁、每一個影片片段都帶有平鋪、半透明的一行文字：追蹤碼、時間（UTC）、IP 與收件人 email。浮水印於每次請求時繪製，不會快取。檢視自己的檔案時不加浮水印。
 
@@ -69,7 +69,8 @@ SX_SMTP_TLS=starttls        # starttls（預設）、tls（隱式 TLS，通常�
 
 - **無對外網路：** 只接內部網路 `backend`（與 PostgreSQL、app 相連），無法連上網際網路。
 - **根檔案系統唯讀；** 解密後的檔案與中間檔只放在 `/work` 的 tmpfs（`SX_WORKER_TMP`，4 GiB），每個工作結束即刪除。產生的頁面與片段在儲存前一律加密。
-- **資源上限：** 記憶體 4 GiB、2 顆 CPU、512 個 process；移除所有 capabilities、`no-new-privileges`、以 uid 65532 執行。每個外部程式都有逾時。
+- **不使用 swap：** `memswap_limit` 等於 `mem_limit`，tmpfs 上的解密資料不會被換出到磁碟。若 `/work` 不是 tmpfs，worker 會拒絕啟動（`SX_WORKER_ALLOW_NON_TMPFS=1` 可略過此檢查，僅限開發使用）。
+- **資源上限：** 記憶體 6 GiB（含 4 GiB tmpfs）、2 顆 CPU、512 個 process；移除所有 capabilities、`no-new-privileges`、以 uid 65532 執行。每個外部程式都有逾時。
 
 **外部 S3：** 使用 `SX_STORAGE=s3` 且 S3 位於 compose 之外時，worker 需要能連到它。以 `docker-compose.override.yml` 讓它多接一個網路：
 

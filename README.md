@@ -61,7 +61,7 @@ For local development, `docker-compose.dev.yml` includes mailpit (SMTP on `:5102
 Files can be viewed in the browser without downloading them. The browser only ever receives images and video segments the server rendered; the original file, PDF or Office document is never sent by the viewer.
 
 - **Formats:** documents are rendered page by page (PDF, Word/Excel/PowerPoint and OpenDocument, RTF, CSV, plain text, Markdown, JSON/XML/YAML, logs and common source code, HTML); images (JPEG, PNG, GIF, WebP, BMP, TIFF); video (MP4, MOV, M4V, MKV, WebM, AVI) is transcoded to H.264/AAC, up to 720p, streamed as HLS. Other files can still be shared for download.
-- **Limits** (environment variables, see `.env.example`): `SX_PREVIEW_MAX_BYTES` (documents/images, default 2 GiB), `SX_PREVIEW_MAX_PAGES` (500), `SX_PREVIEW_MAX_VIDEO_BYTES` (20 GiB), `SX_PREVIEW_MAX_VIDEO_SECONDS` (7200), `SX_RENDER_DPI` (110). Larger files are marked as not previewable.
+- **Limits** (environment variables, see `.env.example`): `SX_PREVIEW_MAX_BYTES` (documents/images, default 1 GiB), `SX_PREVIEW_MAX_PAGES` (500), `SX_PREVIEW_MAX_VIDEO_BYTES` (1.5 GiB), `SX_PREVIEW_MAX_VIDEO_SECONDS` (7200), `SX_RENDER_DPI` (110). Larger files are marked as not previewable. **Sizing rule:** the decrypted input and all rendered output share the worker's `/work` tmpfs, which counts against its memory limit, so keep *largest preview input + output ≤ `/work` size (4 GiB) < `mem_limit` (6 GiB)*, with swap disabled. Raise the tmpfs size and `mem_limit` in `docker-compose.yml` together with the limits; a job that still fills `/work` ends as not previewable.
 - **View-only shares** require a ready preview: while it is still rendering, the share cannot include the file; files that cannot be previewed can only go in shares that allow download.
 - **Watermark:** turn on *watermark* for a share and every page and video segment the recipient sees carries a tiled, semi-transparent line with a tracking code, the time (UTC), their IP and their email address. It is drawn per request and never cached. Your own previews have no watermark.
 
@@ -69,7 +69,8 @@ Previews are rendered by a separate **worker** container (`docker compose up -d`
 
 - **No outbound network:** it is attached only to the internal `backend` network (with PostgreSQL and the app); it cannot reach the internet.
 - **Read-only root filesystem;** decrypted files and intermediates live only on a tmpfs at `/work` (`SX_WORKER_TMP`, 4 GiB) and are deleted after each job. Rendered pages and segments are encrypted before they are stored.
-- **Resource limits:** 4 GiB memory, 2 CPUs, 512 processes; all capabilities dropped, `no-new-privileges`, runs as uid 65532. Every external program has a timeout.
+- **No swap:** `memswap_limit` equals `mem_limit`, so decrypted pages on the tmpfs can never be swapped to disk. The worker refuses to start if `/work` is not a tmpfs (`SX_WORKER_ALLOW_NON_TMPFS=1` overrides this for development only).
+- **Resource limits:** 6 GiB memory (including the 4 GiB tmpfs), 2 CPUs, 512 processes; all capabilities dropped, `no-new-privileges`, runs as uid 65532. Every external program has a timeout.
 
 **External S3:** with `SX_STORAGE=s3` and an S3 endpoint outside the compose stack, the worker needs a route to it. Attach it to an additional network in a `docker-compose.override.yml`:
 

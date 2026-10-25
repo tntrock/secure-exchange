@@ -131,6 +131,11 @@ func worker() error {
 	if fi, err := os.Stat(cfg.WorkerTmp); err != nil || !fi.IsDir() {
 		return fmt.Errorf("SX_WORKER_TMP %q must be an existing directory (tmpfs)", cfg.WorkerTmp)
 	}
+	if os.Getenv("SX_WORKER_ALLOW_NON_TMPFS") != "1" {
+		if err := preview.CheckTmpfs(cfg.WorkerTmp); err != nil {
+			return fmt.Errorf("SX_WORKER_TMP: %w (set SX_WORKER_ALLOW_NON_TMPFS=1 only for development)", err)
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	pool, err := db.Open(ctx, cfg.DatabaseURL)

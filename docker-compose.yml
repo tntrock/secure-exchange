@@ -28,7 +28,9 @@ services:
       - /tmp:size=64m
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: 4g
+    # /work tmpfs pages count against mem_limit: keep largest preview input + output <= 4g < mem_limit
+    mem_limit: 6g
+    memswap_limit: 6g # = mem_limit: no swap, decrypted tmpfs pages never reach disk
     cpus: 2
     pids_limit: 512
     volumes:

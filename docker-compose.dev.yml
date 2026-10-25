@@ -22,3 +22,18 @@ services:
     ports:
       - "51025:1025"
       - "58025:8025"
+  # tools tests (soffice/poppler) against the dev postgres:
+  #   docker compose -f docker-compose.dev.yml --profile tools run --rm worker-test
+  worker-test:
+    build: {context: ., target: worker-test}
+    profiles: [tools]
+    depends_on: [postgres, minio]
+    volumes: [".:/src", "gomodcache:/root/go/pkg/mod"]
+    tmpfs: /work
+    environment:
+      SX_TEST_DATABASE_URL: postgres://sx:sx@postgres:5432/sx?sslmode=disable
+      SX_TEST_S3_ENDPOINT: minio:9000
+    command: go test -tags tools -count=1 ./internal/preview/...
+
+volumes:
+  gomodcache:

@@ -52,7 +52,14 @@ type Config struct {
 
 // Load reads configuration via getenv (e.g. os.Getenv). All problems are
 // reported together.
-func Load(getenv func(string) string) (*Config, error) {
+func Load(getenv func(string) string) (*Config, error) { return load(getenv, false) }
+
+// LoadWorker is Load for the preview worker: it checks only what the worker uses
+// (database, master keys, storage, preview limits, SX_WORKER_TMP), not the web
+// server or SMTP settings.
+func LoadWorker(getenv func(string) string) (*Config, error) { return load(getenv, true) }
+
+func load(getenv func(string) string, worker bool) (*Config, error) {
 	var errs []error
 	get := func(k, def string) string {
 		if v := strings.TrimSpace(getenv(k)); v != "" {
@@ -68,10 +75,14 @@ func Load(getenv func(string) string) (*Config, error) {
 		return v
 	}
 	bad := func(k string, err error) { errs = append(errs, fmt.Errorf("%s: %w", k, err)) }
+	web := req // required by the web server only
+	if worker {
+		web = func(k string) string { return get(k, "") }
+	}
 
 	c := &Config{
 		Listen:            get("SX_LISTEN", ":8080"),
-		BaseURL:           req("SX_BASE_URL"),
+		BaseURL:           web("SX_BASE_URL"),
 		DatabaseURL:       req("SX_DATABASE_URL"),
 		MasterKeys:        req("SX_MASTER_KEYS"),
 		Storage:           get("SX_STORAGE", "local"),
@@ -85,11 +96,11 @@ func Load(getenv func(string) string) (*Config, error) {
 		WorkerTmp:         get("SX_WORKER_TMP", "/work"),
 		Preview:           PreviewConfig{MaxBytes: 2 << 30, MaxPages: 500, MaxVideoBytes: 20 << 30, MaxVideoSeconds: 7200, DPI: 110},
 		SMTP: SMTPConfig{
-			Host:     req("SX_SMTP_HOST"),
+			Host:     web("SX_SMTP_HOST"),
 			Port:     587,
 			Username: get("SX_SMTP_USERNAME", ""),
 			Password: get("SX_SMTP_PASSWORD", ""),
-			From:     req("SX_SMTP_FROM"),
+			From:     web("SX_SMTP_FROM"),
 			TLS:      get("SX_SMTP_TLS", "starttls"),
 		},
 		S3: S3Config{
@@ -108,51 +119,12 @@ func Load(getenv func(string) string) (*Config, error) {
 			c.ActiveKeyID = int(n)
 		}
 	}
-	if s := get("SX_MAX_FILE_SIZE", ""); s != "" {
-		if n, err := strconv.ParseInt(s, 10, 64); err != nil || n <= 0 {
-			bad("SX_MAX_FILE_SIZE", errors.New("must be a positive integer"))
-		} else {
-			c.MaxFileSize = n
-		}
-	}
-	if s := get("SX_SESSION_TTL", ""); s != "" {
-		if d, err := time.ParseDuration(s); err != nil || d <= 0 {
-			bad("SX_SESSION_TTL", errors.New("must be a positive duration"))
-		} else {
-			c.SessionTTL = d
-		}
-	}
 	if s := get("SX_S3_USE_SSL", ""); s != "" {
 		b, err := strconv.ParseBool(s)
 		if err != nil {
 			bad("SX_S3_USE_SSL", err)
 		}
 		c.S3.UseSSL = b
-	}
-	for _, p := range strings.Split(get("SX_TRUSTED_PROXIES", ""), ",") {
-		if p = strings.TrimSpace(p); p == "" {
-			continue
-		}
-		pf, err := netip.ParsePrefix(p)
-		if err != nil {
-			bad("SX_TRUSTED_PROXIES", err)
-			continue
-		}
-		c.TrustedProxies = append(c.TrustedProxies, pf)
-	}
-	if s := get("SX_SMTP_PORT", ""); s != "" {
-		if n, err := strconv.ParseUint(s, 10, 16); err != nil || n == 0 {
-			bad("SX_SMTP_PORT", errors.New("must be an integer from 1 to 65535"))
-		} else {
-			c.SMTP.Port = int(n)
-		}
-	}
-	if s := get("SX_SHARE_MAX_DAYS", ""); s != "" {
-		if n, err := strconv.Atoi(s); err != nil || n < 1 || n > 365 {
-			bad("SX_SHARE_MAX_DAYS", errors.New("must be an integer from 1 to 365"))
-		} else {
-			c.ShareMaxDays = n
-		}
 	}
 	posInt := func(k string, dst *int) {
 		if s := get(k, ""); s != "" {
@@ -177,19 +149,60 @@ func Load(getenv func(string) string) (*Config, error) {
 	posInt64("SX_PREVIEW_MAX_VIDEO_BYTES", &c.Preview.MaxVideoBytes)
 	posInt("SX_PREVIEW_MAX_VIDEO_SECONDS", &c.Preview.MaxVideoSeconds)
 	posInt("SX_RENDER_DPI", &c.Preview.DPI)
-	if c.SMTP.From != "" {
-		if _, err := mail.ParseAddress(c.SMTP.From); err != nil {
-			bad("SX_SMTP_FROM", err)
+	if !worker {
+		if s := get("SX_MAX_FILE_SIZE", ""); s != "" {
+			if n, err := strconv.ParseInt(s, 10, 64); err != nil || n <= 0 {
+				bad("SX_MAX_FILE_SIZE", errors.New("must be a positive integer"))
+			} else {
+				c.MaxFileSize = n
+			}
 		}
-	}
-	switch c.SMTP.TLS {
-	case "starttls", "tls":
-	case "none":
-		if !LocalSMTPHost(c.SMTP.Host) {
-			errs = append(errs, fmt.Errorf("SX_SMTP_TLS: none is only allowed for localhost, 127.0.0.1 or mailpit, not %q", c.SMTP.Host))
+		if s := get("SX_SESSION_TTL", ""); s != "" {
+			if d, err := time.ParseDuration(s); err != nil || d <= 0 {
+				bad("SX_SESSION_TTL", errors.New("must be a positive duration"))
+			} else {
+				c.SessionTTL = d
+			}
 		}
-	default:
-		errs = append(errs, fmt.Errorf("SX_SMTP_TLS: %q must be starttls, tls or none", c.SMTP.TLS))
+		for _, p := range strings.Split(get("SX_TRUSTED_PROXIES", ""), ",") {
+			if p = strings.TrimSpace(p); p == "" {
+				continue
+			}
+			pf, err := netip.ParsePrefix(p)
+			if err != nil {
+				bad("SX_TRUSTED_PROXIES", err)
+				continue
+			}
+			c.TrustedProxies = append(c.TrustedProxies, pf)
+		}
+		if s := get("SX_SMTP_PORT", ""); s != "" {
+			if n, err := strconv.ParseUint(s, 10, 16); err != nil || n == 0 {
+				bad("SX_SMTP_PORT", errors.New("must be an integer from 1 to 65535"))
+			} else {
+				c.SMTP.Port = int(n)
+			}
+		}
+		if s := get("SX_SHARE_MAX_DAYS", ""); s != "" {
+			if n, err := strconv.Atoi(s); err != nil || n < 1 || n > 365 {
+				bad("SX_SHARE_MAX_DAYS", errors.New("must be an integer from 1 to 365"))
+			} else {
+				c.ShareMaxDays = n
+			}
+		}
+		if c.SMTP.From != "" {
+			if _, err := mail.ParseAddress(c.SMTP.From); err != nil {
+				bad("SX_SMTP_FROM", err)
+			}
+		}
+		switch c.SMTP.TLS {
+		case "starttls", "tls":
+		case "none":
+			if !LocalSMTPHost(c.SMTP.Host) {
+				errs = append(errs, fmt.Errorf("SX_SMTP_TLS: none is only allowed for localhost, 127.0.0.1 or mailpit, not %q", c.SMTP.Host))
+			}
+		default:
+			errs = append(errs, fmt.Errorf("SX_SMTP_TLS: %q must be starttls, tls or none", c.SMTP.TLS))
+		}
 	}
 	switch c.Storage {
 	case "local":

@@ -32,7 +32,7 @@ func run(args []string) int {
 	if len(args) > 0 {
 		cmd = args[0]
 	}
-	cmds := map[string]func() error{"serve": serve, "rotate-keys": rotateKeys}
+	cmds := map[string]func() error{"serve": serve, "rotate-keys": rotateKeys, "worker": worker}
 	f, ok := cmds[cmd]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", cmd)
@@ -105,6 +105,36 @@ func serve() error {
 	if err := srv.Shutdown(sctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	return nil
+}
+
+// worker drains the preview render queue. SX_WORKER_TMP must already exist (a tmpfs
+// mount): it is never created here, so plaintext cannot land on a real disk by accident.
+func worker() error {
+	cfg, err := config.LoadWorker(os.Getenv)
+	if err != nil {
+		return err
+	}
+	keys, err := sxcrypto.ParseKeyring(cfg.MasterKeys, cfg.ActiveKeyID)
+	if err != nil {
+		return fmt.Errorf("master keys: %w", err)
+	}
+	if fi, err := os.Stat(cfg.WorkerTmp); err != nil || !fi.IsDir() {
+		return fmt.Errorf("SX_WORKER_TMP %q must be an existing directory (tmpfs)", cfg.WorkerTmp)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	store, err := blob.New(cfg)
+	if err != nil {
+		return err
+	}
+	slog.Info("preview worker started", "tmp", cfg.WorkerTmp)
+	(&preview.Worker{Pool: pool, Store: store, Keys: keys, Cfg: cfg.Preview, Sandbox: preview.Sandbox{Root: cfg.WorkerTmp}}).Run(ctx)
 	return nil
 }
 

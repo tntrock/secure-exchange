@@ -19,7 +19,9 @@ test("pages: renders img per page, keys page and zoom, Esc closes", async () => 
   render(<Viewer base="/api/files/f1/preview" onClose={onClose} />);
   const imgs = await screen.findAllByRole("img");
   expect(imgs).toHaveLength(3);
-  expect(imgs[1].getAttribute("src")).toBe("/api/files/f1/preview/pages/2");
+  expect(imgs[0].getAttribute("src")).toBe("/api/files/f1/preview/pages/0");
+  expect(imgs[2].getAttribute("src")).toBe("/api/files/f1/preview/pages/2");
+  expect(imgs[0].getAttribute("data-page")).toBe("1");
   expect(imgs[0].getAttribute("draggable")).toBe("false");
   expect(screen.getByText("1 / 3")).toBeTruthy();
   const dlg = screen.getByRole("dialog");
@@ -72,4 +74,12 @@ test("staff 401 shows re-login message", async () => {
 test("lowestVisible picks the lowest page", () => {
   expect(lowestVisible([])).toBeNull();
   expect(lowestVisible(new Set([5, 3, 4]))).toBe(3);
+});
+
+test("image: single img requests pages/0", async () => {
+  stub(200, { kind: "image", status: "ready", page_count: 1, width: 800, height: 600 });
+  render(<Viewer base="/api/files/f1/preview" onClose={() => {}} />);
+  const imgs = await screen.findAllByRole("img");
+  expect(imgs).toHaveLength(1);
+  expect(imgs[0].getAttribute("src")).toBe("/api/files/f1/preview/pages/0");
 });

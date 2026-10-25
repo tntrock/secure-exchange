@@ -157,7 +157,7 @@ export default function Viewer({ base, onClose, onSessionEnded }: { base: string
         {total > 0 && (
           <div style={{ width: `${zoom}%`, margin: "0 auto" }}>
             {Array.from({ length: total }, (_, i) => (
-              <img key={i} data-page={i + 1} src={`${base}/pages/${i + 1}`} loading="lazy" draggable={false} onError={onImgError}
+              <img key={i} data-page={i + 1} src={`${base}/pages/${i}`} loading="lazy" draggable={false} onError={onImgError}
                 alt={t("viewer.page", { n: i + 1 })} style={{ display: "block", width: "100%", minHeight: 100, aspectRatio: info?.width && info?.height ? `${info.width} / ${info.height}` : undefined, marginBottom: 8, background: "#fff" }} />
             ))}
           </div>

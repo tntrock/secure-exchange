@@ -42,3 +42,14 @@ test("unknown 422 combination falls back to generic", async () => {
   setup(() => Promise.resolve(new Response(JSON.stringify({ error: "validation", field: "emails", code: "weird" }), { status: 422 })));
   expect(await screen.findByText(i18n.t("share.error.generic"))).toBeTruthy();
 });
+
+test.each(["preview_pending", "not_previewable"])("422 file_ids.%s shows its message", async (code) => {
+  setup(() => Promise.resolve(new Response(JSON.stringify({ error: "validation", field: "file_ids", code }), { status: 422 })));
+  expect(await screen.findByText(i18n.t(`share.error.file_ids.${code}`))).toBeTruthy();
+});
+
+test("view-only with a non-ready file shows the hint before submit", () => {
+  vi.stubGlobal("fetch", vi.fn());
+  render(<MemoryRouter><ShareDialog fileIds={["f1"]} notReady onClose={() => {}} /></MemoryRouter>);
+  expect(screen.getByText(i18n.t("share.previewHint"))).toBeTruthy();
+});

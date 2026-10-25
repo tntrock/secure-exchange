@@ -12,7 +12,8 @@
   "files": {
     "title": "My files", "empty": "No files yet", "name": "Name", "size": "Size", "created": "Uploaded",
     "sha256": "SHA-256", "download": "Download", "delete": "Delete", "confirmDelete": "Delete \"{{name}}\"?",
-    "settings": "Two-factor settings"
+    "settings": "Two-factor settings",
+    "preview": { "label": "Preview", "pending": "Processing", "ready": "Ready", "failed": "Preview failed", "unsupported": "Not previewable", "too_large": "Too large to preview" }
   },
   "upload": {
     "drop": "Drop files here, or click to choose", "pause": "Pause", "resume": "Resume", "cancel": "Cancel",
@@ -25,7 +26,8 @@
     "recipients": "Recipients (one per line or comma-separated)", "allowDownload": "Allow download", "watermark": "Watermark",
     "expiresAt": "Expires at", "maxViews": "Max views (optional)", "ipAllow": "Allowed IPs/CIDRs (optional, one per line)",
     "message": "Message (optional)",
-    "viewOnlyNote": "Online viewing will be available in a later release; for now recipients will only see the file list",
+    "viewOnlyNote": "Recipients can only view the files in the browser",
+    "previewHint": "Some selected files are not ready for preview; a view-only share may be rejected",
     "listTitle": "My shares", "empty": "No shares yet", "createdAt": "Created", "files": "Files", "recipientCount": "Recipients", "views": "Views",
     "status": { "active": "Active", "expired": "Expired", "revoked": "Revoked" },
     "detailTitle": "Share details", "settings": "Settings", "statusLabel": "Status", "yes": "Yes", "no": "No", "unlimited": "Unlimited", "none": "None",
@@ -37,7 +39,7 @@
       "generic": "Could not create the share, please check the form",
       "expired": "This share has expired; recipients can no longer be added",
       "emails": { "required": "Enter at least one recipient", "too_many": "Too many recipients (max 50)", "invalid": "One or more email addresses are invalid" },
-      "file_ids": { "not_found": "A selected file was not found", "too_many": "Too many files (max 100)", "required": "Select at least one file" },
+      "file_ids": { "preview_pending": "Some files are still being processed for preview, please wait", "not_previewable": "Some files cannot be previewed online; allow download instead", "not_found": "A selected file was not found", "too_many": "Too many files (max 100)", "required": "Select at least one file" },
       "expires_at": { "required": "Expiry is required", "out_of_range": "Expiry must be between 1 hour and the maximum allowed from now" },
       "max_views": { "out_of_range": "Max views is out of range" },
       "ip_allow": { "invalid": "Invalid IP or CIDR", "too_many": "Too many IP entries" },

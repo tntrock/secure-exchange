@@ -262,3 +262,26 @@ func TestDeleteFileDeletesItems(t *testing.T) {
 		t.Fatal("item blob remains")
 	}
 }
+
+func TestListFilesPreviewStatus(t *testing.T) {
+	e := newEnv(t)
+	u := e.user(t, "a@x.com")
+	e.putFile(t, u.ID, "none", []byte("1"))
+	r := e.putFile(t, u.ID, "ready", []byte("2"))
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO file_previews (file_id, kind, status) VALUES ($1,'pages','ready')`, r); err != nil {
+		t.Fatal(err)
+	}
+	e.login(t, "a@x.com", pw)
+	_, body := e.get(t, "/api/files")
+	got2 := map[string][2]string{}
+	var raw []map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatal(err, string(body))
+	}
+	for _, m := range raw {
+		got2[m["name"].(string)] = [2]string{m["preview_status"].(string), m["preview_kind"].(string)}
+	}
+	if got2["none"] != [2]string{"unsupported", "none"} || got2["ready"] != [2]string{"ready", "pages"} {
+		t.Fatalf("%v", got2)
+	}
+}

@@ -17,6 +17,12 @@ export default function Files() {
     api.files().then((f) => setFiles(f ?? []), () => setErr(t("app.error")));
   }, [t]);
   useEffect(refresh, [refresh]);
+  const anyPending = files.some((f) => f.preview_status === "pending");
+  useEffect(() => {
+    if (!anyPending) return;
+    const id = setInterval(refresh, 5000);
+    return () => clearInterval(id);
+  }, [anyPending, refresh]);
 
   const del = async (f: FileInfo) => {
     if (!confirm(t("files.confirmDelete", { name: f.name }))) return;
@@ -34,7 +40,7 @@ export default function Files() {
       <p><Link to="/settings/totp">{t("files.settings")}</Link></p>
       <Uploader onDone={refresh} />
       {sel.size > 0 && <p><button onClick={() => setDlg(true)}>{t("share.create")} ({t("share.selected", { count: sel.size })})</button></p>}
-      {dlg && <ShareDialog fileIds={[...sel]} onClose={() => setDlg(false)} />}
+      {dlg && <ShareDialog fileIds={[...sel]} notReady={files.some((f) => sel.has(f.id) && f.preview_status !== "ready")} onClose={() => setDlg(false)} />}
       {err && <p className="error" role="alert">{err}</p>}
       {files.length === 0 ? (
         <p>{t("files.empty")}</p>
@@ -47,6 +53,7 @@ export default function Files() {
               <th>{t("files.size")}</th>
               <th>{t("files.created")}</th>
               <th>{t("files.sha256")}</th>
+              <th>{t("files.preview.label")}</th>
               <th />
             </tr>
           </thead>
@@ -58,6 +65,7 @@ export default function Files() {
                 <td>{fmtSize(f.size, i18n.language)}</td>
                 <td>{fmtDate(f.created_at, i18n.language)}</td>
                 <td><code>{f.sha256.slice(0, 12)}</code></td>
+                <td>{t(`files.preview.${f.preview_status}`)}</td>
                 <td>
                   <a href={`/api/files/${f.id}/content`} download>{t("files.download")}</a>{" "}
                   <button onClick={() => del(f)}>{t("files.delete")}</button>

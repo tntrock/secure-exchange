@@ -1,5 +1,5 @@
 export interface Me { id: string; email: string; display_name: string; role: string; totp_enabled: boolean }
-export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string }
+export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string; preview_status: "pending" | "ready" | "failed" | "unsupported" | "too_large"; preview_kind: string }
 
 export interface ShareReq {
   file_ids: string[]; emails: string[]; allow_download: boolean; watermark: boolean;

@@ -18,6 +18,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/mail/mailtest"
+	"github.com/tntrock/secure-exchange/internal/preview"
 )
 
 var (
@@ -187,6 +188,7 @@ func TestRecipientViewOnlyNoDownload(t *testing.T) {
 	e := newEnv(t)
 	a := e.user(t, "a@x.com")
 	f := e.putFile(t, a.ID, "doc", []byte("x"))
+	e.seedPreview(t, f, preview.KindPages, preview.StatusReady, 1)
 	e.login(t, "a@x.com", pw)
 	_, tok := e.recipShare(t, false, []uuid.UUID{f}, "r@y.com")
 	e.recipVerify(t, tok, "r@y.com")

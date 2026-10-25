@@ -20,27 +20,31 @@ import (
 
 func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
-	rows, err := s.Pool.Query(r.Context(), `SELECT id, name, content_type, size, sha256, created_at
-		FROM files WHERE owner_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, u.ID)
+	rows, err := s.Pool.Query(r.Context(), `SELECT f.id, f.name, f.content_type, f.size, f.sha256, f.created_at,
+			COALESCE(p.status, 'unsupported'), COALESCE(p.kind, 'none')
+		FROM files f LEFT JOIN file_previews p ON p.file_id = f.id
+		WHERE f.owner_id = $1 AND f.deleted_at IS NULL ORDER BY f.created_at DESC`, u.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
 	}
 	defer rows.Close()
 	type item struct {
-		ID          uuid.UUID `json:"id"`
-		Name        string    `json:"name"`
-		ContentType string    `json:"content_type"`
-		Size        int64     `json:"size"`
-		SHA256      string    `json:"sha256"`
-		CreatedAt   string    `json:"created_at"`
+		ID            uuid.UUID `json:"id"`
+		Name          string    `json:"name"`
+		ContentType   string    `json:"content_type"`
+		Size          int64     `json:"size"`
+		SHA256        string    `json:"sha256"`
+		CreatedAt     string    `json:"created_at"`
+		PreviewStatus string    `json:"preview_status"`
+		PreviewKind   string    `json:"preview_kind"`
 	}
 	out := []item{}
 	for rows.Next() {
 		var it item
 		var sum []byte
 		var at time.Time
-		if err := rows.Scan(&it.ID, &it.Name, &it.ContentType, &it.Size, &sum, &at); err != nil {
+		if err := rows.Scan(&it.ID, &it.Name, &it.ContentType, &it.Size, &sum, &at, &it.PreviewStatus, &it.PreviewKind); err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 			return
 		}

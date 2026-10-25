@@ -12,7 +12,7 @@ const localDefault = () => {
   return d.toISOString().slice(0, 16);
 };
 
-export default function ShareDialog({ fileIds, onClose }: { fileIds: string[]; onClose: () => void }) {
+export default function ShareDialog({ fileIds, onClose, notReady = false }: { fileIds: string[]; onClose: () => void; notReady?: boolean }) {
   const { t, i18n } = useTranslation();
   const nav = useNavigate();
   const [emails, setEmails] = useState("");
@@ -67,6 +67,7 @@ export default function ShareDialog({ fileIds, onClose }: { fileIds: string[]; o
         </label>
         <label className="check"><input type="checkbox" checked={allowDownload} onChange={(e) => setAllowDownload(e.target.checked)} />{t("share.allowDownload")}</label>
         {!allowDownload && <p>{t("share.viewOnlyNote")}</p>}
+        {!allowDownload && notReady && <p role="status">{t("share.previewHint")}</p>}
         <label className="check"><input type="checkbox" checked={watermark} onChange={(e) => setWatermark(e.target.checked)} />{t("share.watermark")}</label>
         <label>{t("share.expiresAt")}
           <input type="datetime-local" value={expires} onChange={(e) => setExpires(e.target.value)} />

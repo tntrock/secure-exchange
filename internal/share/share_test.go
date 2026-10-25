@@ -328,3 +328,36 @@ func TestTokenSealedNotPlaintext(t *testing.T) {
 		t.Fatal("token_sealed empty or contains the token")
 	}
 }
+
+func TestCreateViewOnlyRequiresReadyPreview(t *testing.T) {
+	e := setup(t)
+	try := func(status string, allow bool) error {
+		in := e.input(t)
+		in.AllowDownload = allow
+		if status != "" {
+			if _, err := e.pool.Exec(context.Background(), `INSERT INTO file_previews (file_id, kind, status) VALUES ($1,'pages',$2)`, in.FileIDs[0], status); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, err := e.svc.Create(context.Background(), e.owner, in)
+		return err
+	}
+	for _, c := range []struct {
+		status string
+		allow  bool
+		code   string
+	}{
+		{"pending", false, "preview_pending"}, {"", false, "preview_pending"},
+		{"unsupported", false, "not_previewable"}, {"failed", false, "not_previewable"}, {"too_large", false, "not_previewable"},
+		{"ready", false, ""}, {"unsupported", true, ""},
+	} {
+		err := try(c.status, c.allow)
+		var ve *ValidationError
+		switch {
+		case c.code == "" && err != nil:
+			t.Fatalf("%s/%v: %v", c.status, c.allow, err)
+		case c.code != "" && (!errors.As(err, &ve) || ve.Field != "file_ids" || ve.Code != c.code):
+			t.Fatalf("%s/%v: %v", c.status, c.allow, err)
+		}
+	}
+}

@@ -3,7 +3,8 @@
 # "sxsmoke", own ports, mailpit via docker-compose.smoke.yml), then: login,
 # resumable (tus) upload of a 210 MiB random file with a simulated interruption,
 # download + sha256 compare, and the one-time share flow (invitation and
-# verification code fetched from the mailpit API, recipient download + sha256).
+# verification code fetched from the mailpit API, recipient download + sha256), then a .txt
+# preview rendered by the worker, viewed through a view-only watermarked share (download 403).
 # Tears everything down (volumes included) and removes its temporary .env.
 #   scripts/smoke.sh        (refuses to run if a ./.env already exists)
 set -euo pipefail
@@ -113,3 +114,41 @@ r -o "$tmp/shared.bin" "$BASE/api/s/$tok/files/$id/content"
 got=$(sha256sum "$tmp/shared.bin" | cut -d' ' -f1)
 [ "$got" = "$want" ] || { echo "share sha256 mismatch: $got != $want"; exit 1; }
 echo "PASS: ${SIZE_MB} MiB round-trip and one-time share, sha256 $want"
+
+# --- online viewer: .txt preview rendered by the worker, view-only watermarked share ---
+printf '第一段：安全檔案交換的冒煙測試。\n\n第二段：僅能線上檢視，頁面帶浮水印。\n' >"$tmp/note.txt"
+tname=$(printf 'note.txt' | base64)
+tloc=$(c -D - -o /dev/null -X POST -H 'Tus-Resumable: 1.0.0' -H "Upload-Length: $(stat -c %s "$tmp/note.txt")" \
+  -H "Upload-Metadata: filename $tname" "$BASE/api/uploads/" | tr -d '\r' | awk 'tolower($1)=="location:"{print $2}')
+case "$tloc" in http*) ;; *) tloc=$BASE$tloc ;; esac
+tid=$(c -D - -o /dev/null -X PATCH -H 'Tus-Resumable: 1.0.0' -H 'Content-Type: application/offset+octet-stream' \
+  -H 'Upload-Offset: 0' --data-binary @"$tmp/note.txt" "$tloc" | tr -d '\r' | awk 'tolower($1)=="x-sx-file-id:"{print $2}')
+[ -n "$tid" ] || { echo "no file id for note.txt"; exit 1; }
+
+st=
+for _ in $(seq 60); do
+  st=$(c "$BASE/api/files" | grep -o "\"id\":\"$tid\"[^}]*" | sed -n 's/.*"preview_status":"\([a-z_]*\)".*/\1/p')
+  [ "$st" = ready ] && break
+  case "$st" in failed|unsupported|too_large) break ;; esac
+  sleep 2
+done
+[ "$st" = ready ] || { echo "preview not ready after 120 s: '$st'"; dc logs worker | tail -50; exit 1; }
+echo "preview ready"
+
+curl -fsS -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
+printf '{"file_ids":["%s"],"emails":["%s"],"allow_download":false,"watermark":true,"expires_at":"%s","message":"smoke view"}' "$tid" "$RCPT" "$exp" |
+  c -H 'Content-Type: application/json' --data-binary @- "$BASE/api/shares" >/dev/null
+vtok=$(mail_body 's#.*/s/\([A-Za-z0-9_-]*\).*#\1#p')
+curl -fsS -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
+printf '{"email":"%s"}' "$RCPT" | r -H 'Content-Type: application/json' --data-binary @- "$BASE/api/s/$vtok/code" >/dev/null
+code=$(mail_body 's/.*驗證碼是：\([0-9]\{6\}\).*/\1/p')
+printf '{"email":"%s","code":"%s"}' "$RCPT" "$code" |
+  r -H 'Content-Type: application/json' --data-binary @- "$BASE/api/s/$vtok/verify" >/dev/null
+echo "view-only recipient verified"
+
+ct=$(r -D - -o "$tmp/page0.jpg" "$BASE/api/s/$vtok/files/$tid/preview/pages/0" | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')
+psize=$(stat -c %s "$tmp/page0.jpg")
+[ "$ct" = image/jpeg ] && [ "$psize" -gt 1024 ] || { echo "page 0: content-type '$ct', $psize bytes"; exit 1; }
+dl=$(curl -sk -b "$tmp/rjar" -H "Origin: $BASE" -o /dev/null -w '%{http_code}' "$BASE/api/s/$vtok/files/$tid/content")
+[ "$dl" = 403 ] || { echo "view-only download: expected 403, got $dl"; exit 1; }
+echo "PASS: watermarked page 0 ($psize bytes image/jpeg), view-only download 403"

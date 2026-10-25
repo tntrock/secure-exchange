@@ -52,3 +52,32 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: docker build .
+
+  # //go:build tools tests (LibreOffice/poppler/ffmpeg) inside the worker-test image.
+  tools:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: sx
+          POSTGRES_PASSWORD: sx
+          POSTGRES_DB: sx
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sx" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start minio
+        run: |
+          docker run -d --name minio -p 59000:9000 \
+            -e MINIO_ROOT_USER=sxminio -e MINIO_ROOT_PASSWORD=sxminio123 \
+            cgr.dev/chainguard/minio server /data
+          curl --retry 30 --retry-delay 1 --retry-all-errors -fsS http://localhost:59000/minio/health/ready
+      - run: docker build --target worker-test -t sx-worker-test .
+      - name: Tools tests
+        run: |
+          docker run --rm --network host --tmpfs /work -v "$PWD:/src" \
+            -e SX_TEST_DATABASE_URL=postgres://sx:sx@localhost:5432/sx?sslmode=disable \
+            -e SX_TEST_S3_ENDPOINT=localhost:59000 \
+            sx-worker-test

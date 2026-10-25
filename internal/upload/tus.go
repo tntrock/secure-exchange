@@ -28,7 +28,9 @@ import (
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
+	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/httpapi"
+	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -47,6 +49,7 @@ type handler struct {
 	stagingDir string
 	maxSize    int64
 	trusted    []netip.Prefix
+	preview    config.PreviewConfig
 	mux        *http.ServeMux
 
 	// ponytail: in-process lock — single instance only; use a lease column for multi-instance
@@ -56,8 +59,8 @@ type handler struct {
 
 // NewHandler serves the tus endpoint at /api/uploads/. The caller must put
 // the user in the request context (auth.WithUser) and create stagingDir.
-func NewHandler(pool *pgxpool.Pool, keys *sxcrypto.Keyring, store blob.Store, audit *audit.Log, stagingDir string, maxSize int64, trusted []netip.Prefix) http.Handler {
-	h := &handler{pool: pool, keys: keys, store: store, audit: audit, stagingDir: stagingDir, maxSize: maxSize, trusted: trusted, mux: http.NewServeMux(), active: map[uuid.UUID]bool{}}
+func NewHandler(pool *pgxpool.Pool, keys *sxcrypto.Keyring, store blob.Store, audit *audit.Log, stagingDir string, maxSize int64, trusted []netip.Prefix, pcfg config.PreviewConfig) http.Handler {
+	h := &handler{pool: pool, keys: keys, store: store, audit: audit, stagingDir: stagingDir, maxSize: maxSize, trusted: trusted, preview: pcfg, mux: http.NewServeMux(), active: map[uuid.UUID]bool{}}
 	h.mux.HandleFunc("OPTIONS /api/uploads/", h.options)
 	h.mux.HandleFunc("POST /api/uploads/{$}", h.create)
 	h.mux.HandleFunc("HEAD /api/uploads/{id}", h.head)
@@ -442,6 +445,18 @@ func (h *handler) finish(r *http.Request, u *upload, sum hash.Hash) error {
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, u.id, u.owner, u.name, u.contentType, u.size, sum.Sum(nil), u.wrappedDEK, u.keyID, key); err != nil {
 		return err
 	}
+	// Classify from chunk 0 of the staging file: the upload may have spanned
+	// several requests or a restart, so no first segment is kept in memory.
+	// A classify failure must not fail an otherwise complete upload.
+	kind, status := preview.KindNone, preview.StatusFailed
+	if head, err := h.stagingHead(u); err != nil {
+		slog.Error("upload: classify", "id", key, "err", err)
+	} else {
+		kind, status = preview.Classify(u.name, head, u.size, h.preview)
+	}
+	if err := preview.Enqueue(ctx, tx, u.id, kind, status); err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx, `DELETE FROM uploads WHERE id = $1`, u.id)
 	if err != nil {
 		return err
@@ -461,6 +476,30 @@ func (h *handler) finish(r *http.Request, u *upload, sum hash.Hash) error {
 		slog.Error("audit append", "action", audit.ActUpload, "err", err)
 	}
 	return nil
+}
+
+// stagingHead decrypts chunk 0 of the complete staging file (in memory only)
+// and returns its first preview.HeadLen plaintext bytes.
+func (h *handler) stagingHead(u *upload) ([]byte, error) {
+	f, err := os.Open(h.stagingPath(u.id))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	dek, err := h.keys.UnwrapDEK(u.wrappedDEK, u.keyID)
+	if err != nil {
+		return nil, err
+	}
+	n := min(sxcrypto.SealedChunkSize, sealedLen(u.size, u.size))
+	sealed := make([]byte, n)
+	if _, err := f.ReadAt(sealed, 0); err != nil {
+		return nil, err
+	}
+	plain, err := sxcrypto.OpenChunk(dek, u.id, 0, sxcrypto.ChunkCount(u.size) == 1, sealed)
+	if err != nil {
+		return nil, err
+	}
+	return plain[:min(len(plain), preview.HeadLen)], nil
 }
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) {

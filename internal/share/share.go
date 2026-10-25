@@ -198,6 +198,21 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 	if n != len(fileIDs) {
 		return nil, invalid("file_ids", "not_found")
 	}
+	if !in.AllowDownload {
+		// missing preview row counts as pending
+		var pending, bad int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE p.status IS NULL OR p.status = 'pending'),
+				count(*) FILTER (WHERE p.status IN ('failed','unsupported','too_large'))
+			FROM unnest($1::uuid[]) u(id) LEFT JOIN file_previews p ON p.file_id = u.id`, fileIDs).Scan(&pending, &bad); err != nil {
+			return nil, err
+		}
+		if bad > 0 {
+			return nil, invalid("file_ids", "not_previewable")
+		}
+		if pending > 0 {
+			return nil, invalid("file_ids", "preview_pending")
+		}
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO shares (id, owner_id, token_hash, token_sealed, message, allow_download, watermark, expires_at, max_views, ip_allow)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, id, owner.ID, hash[:], sealed, in.Message, in.AllowDownload, in.Watermark, in.ExpiresAt, in.MaxViews, ips); err != nil {
 		return nil, err

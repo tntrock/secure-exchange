@@ -12,20 +12,23 @@
   "files": {
     "title": "我的檔案", "empty": "尚無檔案", "name": "名稱", "size": "大小", "created": "上傳時間",
     "sha256": "SHA-256", "download": "下載", "delete": "刪除", "confirmDelete": "確定刪除「{{name}}」？",
-    "settings": "雙因素驗證設定"
+    "settings": "雙因素驗證設定",
+    "preview": { "label": "預覽", "pending": "處理中", "ready": "可預覽", "failed": "預覽失敗", "unsupported": "無法預覽", "too_large": "檔案過大無法預覽" }
   },
   "upload": {
     "drop": "拖放檔案到此處，或點擊選擇", "pause": "暫停", "resume": "繼續", "cancel": "取消",
     "done": "上傳完成", "failed": "上傳失敗"
   },
   "recipient": {"title":"取得分享的檔案","from":"{{name}} 與您分享了檔案","expires":"有效期限：{{at}}","email":"您的 Email","sendCode":"寄送驗證碼","code":"6 位數驗證碼","verify":"驗證","resend":"重新寄送驗證碼","changeEmail":"使用其他 Email","codeSent":"若您在名單中，將收到驗證碼","filesTitle":"分享的檔案","fileUnavailable":"無法使用","leave":"離開","error":{"notFound":"找不到此分享","gone":"此分享已過期或已被撤銷","ipDenied":"您目前的網路位置不允許存取此分享","rateLimited":"嘗試次數過多，請稍後再試","invalidCode":"驗證碼錯誤或已失效","viewLimit":"此分享的檢視次數已達上限","sessionEnded":"登入已結束，請重新驗證","generic":"發生錯誤，請稍後再試"}},
+  "viewer": { "reLogin": "登入已失效，請重新登入", "view_limit": "此分享已達檢視次數上限", "ip_denied": "不允許從您目前的網路位置存取", "open": "檢視", "close": "關閉", "prev": "上一頁", "next": "下一頁", "zoomIn": "放大", "zoomOut": "縮小", "page": "第 {{n}} 頁", "pending": "預覽處理中，請稍後再試", "notReady": "此檔案無法預覽", "gone": "分享已失效", "ended": "連線已結束，請重新驗證", "error": "無法載入預覽", "title": "檔案檢視器" },
   "nav": { "files": "我的檔案", "shares": "我的分享" },
   "share": {
     "create": "建立分享", "selected": "已選 {{count}} 個", "title": "建立分享", "submit": "建立", "cancel": "取消",
     "recipients": "收件人（一行一個，或以逗號分隔）", "allowDownload": "允許下載", "watermark": "浮水印",
     "expiresAt": "有效期限", "maxViews": "檢視次數上限（選填）", "ipAllow": "允許的 IP／CIDR（選填，一行一個）",
     "message": "附言（選填）",
-    "viewOnlyNote": "線上檢視將在後續版本提供，目前收件人只能看到檔案清單",
+    "viewOnlyNote": "收件人只能在瀏覽器中檢視",
+    "previewHint": "所選檔案中有尚未可預覽者，僅線上檢視的分享可能無法建立",
     "listTitle": "我的分享", "empty": "尚無分享", "createdAt": "建立時間", "files": "檔案數", "recipientCount": "收件人數", "views": "檢視次數",
     "status": { "active": "有效", "expired": "已過期", "revoked": "已撤銷" },
     "detailTitle": "分享詳情", "settings": "設定", "statusLabel": "狀態", "yes": "是", "no": "否", "unlimited": "不限", "none": "無",
@@ -37,7 +40,7 @@
       "generic": "無法建立分享，請檢查表單",
       "expired": "此分享已過期，無法再新增收件人",
       "emails": { "required": "請至少輸入一位收件人", "too_many": "收件人過多（上限 50 位）", "invalid": "有 Email 格式不正確" },
-      "file_ids": { "not_found": "找不到所選的檔案", "too_many": "檔案過多（上限 100 個）", "required": "請至少選擇一個檔案" },
+      "file_ids": { "preview_pending": "部分檔案仍在處理預覽，請稍候", "not_previewable": "部分檔案無法線上預覽，請改為允許下載", "not_found": "找不到所選的檔案", "too_many": "檔案過多（上限 100 個）", "required": "請至少選擇一個檔案" },
       "expires_at": { "required": "必須設定有效期限", "out_of_range": "有效期限須介於 1 小時至系統允許的上限之間" },
       "max_views": { "out_of_range": "檢視次數上限超出範圍" },
       "ip_allow": { "invalid": "IP 或 CIDR 格式不正確", "too_many": "IP 項目過多" },

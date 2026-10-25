@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -12,17 +13,18 @@ import (
 
 const rotateBatch = 500
 
-// RotateAll re-wraps every files/uploads DEK and re-seals users.totp_secret_sealed
-// and uploads.hash_state under the active key. Rows already on the active key
-// are skipped. Returns the number of values rewritten. File contents are untouched.
+// maxRotatePasses bounds how often RotateAll repeats while old-key values remain.
 const maxRotatePasses = 3
 
 // afterPass is a test hook, called after each full pass.
 var afterPass func(pass int)
 
-// RotateAll re-wraps every uploads/files DEK and re-seals users.totp_secret_sealed
-// and uploads.hash_state under the active key. Values already on the active key
-// are skipped. Returns the number of values rewritten. File contents are untouched.
+// RotateAll moves every master-key-protected value to the active key: it re-wraps
+// the wrapped_dek of every row in dekTables (uploads, files, preview_items) and
+// re-seals every column in sealedCols (users.totp_secret_sealed, uploads.hash_state,
+// mail_outbox.body_sealed, shares.token_sealed). Values already on the active key
+// are skipped. Returns the number of values rewritten. Blob contents (files and
+// preview artifacts) are untouched: only the DEKs that encrypt them change.
 //
 // Uploads are rotated before files so an upload finishing mid-run (which copies
 // its DEK into files) is caught by the files step or the residual check; the
@@ -59,9 +61,12 @@ var sealedCols = []struct{ table, col, aad string }{
 	{"shares", "token_sealed", "sharetoken:"},
 }
 
+// dekTables lists every table with wrapped_dek/key_id columns; uploads first so a finishing upload is caught later.
+var dekTables = []string{"uploads", "files", "preview_items"}
+
 func rotatePass(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, error) {
 	total := 0
-	for _, t := range []string{"uploads", "files"} {
+	for _, t := range dekTables {
 		n, err := rotateDEKs(ctx, pool, keys, t)
 		total += n
 		if err != nil {
@@ -81,13 +86,16 @@ func rotatePass(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, er
 // residual describes values not on the active key ("" when none).
 func residual(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (string, error) {
 	prefix := binary.BigEndian.AppendUint32(nil, uint32(keys.ActiveID()))
-	var files, uploads int
-	err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM files WHERE key_id <> $1), (SELECT count(*) FROM uploads WHERE key_id <> $1)`,
-		keys.ActiveID()).Scan(&files, &uploads)
-	if err != nil {
-		return "", err
+	desc, total := "", 0
+	for _, t := range dekTables {
+		var n int
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s WHERE key_id <> $1`, t), keys.ActiveID()).Scan(&n); err != nil {
+			return "", err
+		}
+		desc += fmt.Sprintf("%s=%d ", t, n)
+		total += n
 	}
-	desc, total := fmt.Sprintf("files=%d uploads=%d", files, uploads), files+uploads
+	desc = strings.TrimSuffix(desc, " ")
 	for _, s := range sealedCols {
 		var n int
 		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s WHERE %s IS NOT NULL AND substring(%s from 1 for 4) <> $1`, s.table, s.col, s.col), prefix).Scan(&n); err != nil {

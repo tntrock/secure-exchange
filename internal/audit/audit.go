@@ -21,6 +21,7 @@ const (
 	ActDownload   = "file.download"
 	ActDelete     = "file.delete"
 	ActKeyRotate  = "crypto.rotate"
+	ActFileView   = "file.view"
 
 	ActShareCreate          = "share.create"
 	ActShareRevoke          = "share.revoke"

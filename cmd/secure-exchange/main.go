@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/db"
 	"github.com/tntrock/secure-exchange/internal/httpapi"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/upload"
@@ -31,7 +33,7 @@ func run(args []string) int {
 	if len(args) > 0 {
 		cmd = args[0]
 	}
-	cmds := map[string]func() error{"serve": serve, "rotate-keys": rotateKeys}
+	cmds := map[string]func() error{"serve": serve, "rotate-keys": rotateKeys, "worker": worker}
 	f, ok := cmds[cmd]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", cmd)
@@ -71,6 +73,13 @@ func serve() error {
 	if err := os.MkdirAll(cfg.StagingDir, 0o700); err != nil {
 		return fmt.Errorf("staging dir: %w", err)
 	}
+	go func() {
+		if n, err := preview.Backfill(ctx, pool, store, keys, cfg.Preview); err != nil {
+			slog.Error("preview backfill", "err", err)
+		} else {
+			slog.Info("preview backfill", "files", n)
+		}
+	}()
 	auditLog := audit.New(pool)
 	outbox := mail.NewOutbox(pool, keys, mail.NewSMTP(cfg.SMTP))
 	go outbox.Run(ctx)
@@ -79,7 +88,8 @@ func serve() error {
 		Users: users, Sessions: auth.NewSessions(pool), Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL, CodeDelay: 300 * time.Millisecond,
-		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies),
+		FontFile: cfg.FontFile,
+		Uploads:  upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies, cfg.Preview),
 	})
 	srv := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
@@ -97,6 +107,48 @@ func serve() error {
 	if err := srv.Shutdown(sctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	return nil
+}
+
+// worker drains the preview render queue. SX_WORKER_TMP must already exist (a tmpfs
+// mount): it is never created here, so plaintext cannot land on a real disk by accident.
+func worker() error {
+	cfg, err := config.LoadWorker(os.Getenv)
+	if err != nil {
+		return err
+	}
+	keys, err := sxcrypto.ParseKeyring(cfg.MasterKeys, cfg.ActiveKeyID)
+	if err != nil {
+		return fmt.Errorf("master keys: %w", err)
+	}
+	// non-dumpable: sandboxed children run as this uid and must not read /proc/<pid>/environ (keys)
+	if err := preview.NoDump(); err != nil {
+		return fmt.Errorf("prctl PR_SET_DUMPABLE: %w", err)
+	}
+	if cfg.WorkerTmp, err = filepath.Abs(cfg.WorkerTmp); err != nil {
+		return fmt.Errorf("SX_WORKER_TMP: %w", err)
+	}
+	if fi, err := os.Stat(cfg.WorkerTmp); err != nil || !fi.IsDir() {
+		return fmt.Errorf("SX_WORKER_TMP %q must be an existing directory (tmpfs)", cfg.WorkerTmp)
+	}
+	if os.Getenv("SX_WORKER_ALLOW_NON_TMPFS") != "1" {
+		if err := preview.CheckTmpfs(cfg.WorkerTmp); err != nil {
+			return fmt.Errorf("SX_WORKER_TMP: %w (set SX_WORKER_ALLOW_NON_TMPFS=1 only for development)", err)
+		}
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	store, err := blob.New(cfg)
+	if err != nil {
+		return err
+	}
+	slog.Info("preview worker started", "tmp", cfg.WorkerTmp)
+	(&preview.Worker{Pool: pool, Store: store, Keys: keys, Cfg: cfg.Preview, Sandbox: preview.Sandbox{Root: cfg.WorkerTmp}}).Run(ctx)
 	return nil
 }
 

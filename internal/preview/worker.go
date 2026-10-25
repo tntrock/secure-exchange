@@ -1,0 +1,240 @@
+package preview
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime/debug"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tntrock/secure-exchange/internal/blob"
+	"github.com/tntrock/secure-exchange/internal/config"
+	"github.com/tntrock/secure-exchange/internal/sxcrypto"
+)
+
+// errTooLarge marks a pipeline error that ends the preview as too_large.
+var errTooLarge = errors.New("preview: over the preview limit")
+
+var errInternal = errors.New("internal error")
+
+// errRetry marks a transient error (database, blob store, decrypt): the job goes
+// back to the queue instead of failing; maxAttempts still ends it.
+var errRetry = errors.New("preview: transient")
+
+func retryable(err error) error { return fmt.Errorf("%w: %w", errRetry, err) }
+
+const (
+	pollInterval  = 2 * time.Second
+	renewInterval = 60 * time.Second
+	defaultLease  = 5 * time.Minute
+)
+
+// putFunc stores one plaintext artifact of exactly size bytes.
+type putFunc func(kind string, idx int, r io.Reader, size int64, meta Item) error
+
+// jobEnv is what a pipeline works with: the decrypted input at in, inside the work dir.
+type jobEnv struct {
+	ctx     context.Context
+	cfg     config.PreviewConfig
+	dir, in string
+	put     putFunc
+}
+
+type pipeline func(*jobEnv) (Result, error)
+
+var pipelines = map[Kind]pipeline{KindPages: docPipeline, KindImage: imagePipeline, KindVideo: videoPipeline}
+
+// Worker drains the render queue.
+type Worker struct {
+	Pool    *pgxpool.Pool
+	Store   blob.Store
+	Keys    *sxcrypto.Keyring
+	Cfg     config.PreviewConfig
+	Sandbox Sandbox
+	Lease   time.Duration // 0 = 5 minutes
+}
+
+// Run processes jobs until ctx ends.
+func (w *Worker) Run(ctx context.Context) {
+	if w.Lease == 0 {
+		w.Lease = defaultLease
+	}
+	for ctx.Err() == nil {
+		j, err := Claim(ctx, w.Pool, w.Lease)
+		if err != nil && ctx.Err() == nil {
+			slog.Error("preview: claim", "err", err)
+		}
+		if j == nil {
+			select {
+			case <-ctx.Done():
+			case <-time.After(pollInterval):
+			}
+			continue
+		}
+		w.runJob(ctx, j)
+	}
+}
+
+// runJob renders one job while renewing its lease, then records the outcome.
+func (w *Worker) runJob(ctx context.Context, j *Job) {
+	jctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var lost atomic.Bool
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		t := time.NewTicker(renewInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				if err := Renew(jctx, w.Pool, j, w.Lease); errors.Is(err, ErrLeaseLost) {
+					lost.Store(true)
+					cancel()
+					return
+				} else if err != nil && jctx.Err() == nil {
+					slog.Error("preview: renew lease", "job", j.ID, "err", err)
+				}
+			}
+		}
+	}()
+	res, err := w.process(jctx, j)
+	close(stop)
+	<-stopped
+	switch {
+	case lost.Load(), errors.Is(err, ErrLeaseLost):
+		slog.Warn("preview: lease lost, result dropped", "job", j.ID)
+		return
+	case ctx.Err() != nil:
+		return // shutting down: the lease expires and the job is retried
+	}
+	if err == nil {
+		if err = Complete(ctx, w.Pool, j, res); err == nil {
+			return
+		}
+		if errors.Is(err, ErrLeaseLost) {
+			slog.Warn("preview: lease lost at complete, result dropped", "job", j.ID)
+			return
+		}
+		if !errors.Is(err, ErrFileDeleted) {
+			err = retryable(err)
+		}
+	}
+	if errors.Is(err, errRetry) && !errors.Is(err, syscall.ENOSPC) {
+		slog.Warn("preview: job requeued", "job", j.ID, "file", j.FileID, "attempt", j.Attempts, "err", err)
+		if rerr := Requeue(ctx, w.Pool, j, err.Error()); rerr != nil {
+			slog.Error("preview: requeue", "job", j.ID, "err", rerr)
+			return
+		}
+		// also done when the next attempt starts; here so a job that then hits maxAttempts keeps no partial artifacts
+		if derr := DeleteItems(ctx, w.Pool, w.Store, j.FileID); derr != nil {
+			slog.Error("preview: delete items of requeued job", "job", j.ID, "err", derr)
+		}
+		return
+	}
+	status, msg := StatusFailed, err.Error()
+	switch {
+	case errors.Is(err, errTooLarge), errors.Is(err, syscall.ENOSPC):
+		status = StatusTooLarge
+	case errors.Is(err, ErrFileDeleted):
+		msg = "file deleted"
+	}
+	slog.Info("preview: job failed", "job", j.ID, "file", j.FileID, "status", status, "err", msg)
+	if ferr := Fail(ctx, w.Pool, j, status, msg); ferr != nil {
+		slog.Error("preview: record failure", "job", j.ID, "err", ferr)
+		return // not ours any more: leave the items to the current attempt
+	}
+	// a failed (or deleted) file keeps no partial artifacts
+	if derr := DeleteItems(ctx, w.Pool, w.Store, j.FileID); derr != nil {
+		slog.Error("preview: delete items of failed job", "job", j.ID, "err", derr)
+	}
+}
+
+var safeExt = regexp.MustCompile(`^\.[a-z0-9]{1,10}$`)
+
+// process decrypts the file and runs its pipeline; a panic becomes errInternal.
+func (w *Worker) process(ctx context.Context, j *Job) (res Result, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("preview: pipeline panic", "job", j.ID, "panic", r, "stack", string(debug.Stack()))
+			res, err = Result{}, errInternal
+		}
+	}()
+	var (
+		name, key string
+		size      int64
+		wrapped   []byte
+		keyID     int
+		kind      Kind
+	)
+	if err := w.Pool.QueryRow(ctx, `SELECT f.name, f.size, f.wrapped_dek, f.key_id, f.storage_key, p.kind
+		FROM files f JOIN file_previews p ON p.file_id = f.id WHERE f.id = $1`, j.FileID).
+		Scan(&name, &size, &wrapped, &keyID, &key, &kind); err != nil {
+		return Result{}, retryable(err)
+	}
+	// leftovers of an earlier attempt (requeued, or a worker that died) would clash on (file, kind, idx)
+	if err := deleteJobItems(ctx, w.Pool, w.Store, j); err != nil {
+		if errors.Is(err, ErrLeaseLost) {
+			return Result{}, err
+		}
+		return Result{}, retryable(err)
+	}
+	p := pipelines[kind]
+	if p == nil {
+		return Result{}, fmt.Errorf("no pipeline for kind %q", kind)
+	}
+	dek, err := w.Keys.UnwrapDEK(wrapped, keyID)
+	if err != nil {
+		return Result{}, retryable(err)
+	}
+	src := sxcrypto.OpenPlain(ctx, func(ctx context.Context, off, length int64) (io.ReadCloser, error) {
+		return w.Store.OpenRange(ctx, key, off, length)
+	}, dek, j.FileID, size)
+	defer src.Close()
+	ext := strings.ToLower(filepath.Ext(name))
+	if !safeExt.MatchString(ext) {
+		ext = ""
+	}
+	put := func(kind string, idx int, r io.Reader, size int64, meta Item) error {
+		if _, err := PutItem(ctx, w.Pool, w.Store, w.Keys, j.FileID, kind, idx, r, size, meta); err != nil {
+			return retryable(err)
+		}
+		return nil
+	}
+	return w.render(ctx, p, ext, src, put)
+}
+
+// render writes src to a fresh work dir as in<ext> and runs p there; the dir is
+// removed afterwards, also on error or panic.
+func (w *Worker) render(ctx context.Context, p pipeline, ext string, src io.Reader, put putFunc) (Result, error) {
+	dir, cleanup, err := w.Sandbox.NewDir()
+	defer cleanup()
+	if err != nil {
+		return Result{}, retryable(err)
+	}
+	in := filepath.Join(dir, "in"+ext)
+	f, err := os.OpenFile(in, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return Result{}, err
+	}
+	_, err = io.Copy(f, src)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return Result{}, retryable(fmt.Errorf("decrypt input: %w", err)) // ENOSPC: too_large, see runJob
+	}
+	return p(&jobEnv{ctx: ctx, cfg: w.Cfg, dir: dir, in: in, put: put})
+}

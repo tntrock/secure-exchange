@@ -153,3 +153,55 @@ func TestLoadSMTPTLSNoneLocalOnly(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestLoadPreviewDefaults(t *testing.T) {
+	c, err := Load(env(required()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := PreviewConfig{MaxBytes: 1 << 30, MaxPages: 500, MaxVideoBytes: 3 << 29, MaxVideoSeconds: 7200, DPI: 110}
+	if c.Preview != want || c.WorkerTmp != "/work" || c.FontFile != "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" {
+		t.Fatalf("preview = %+v tmp=%q font=%q", c.Preview, c.WorkerTmp, c.FontFile)
+	}
+}
+
+func TestLoadPreviewInvalid(t *testing.T) {
+	for _, kv := range [][2]string{{"SX_PREVIEW_MAX_PAGES", "0"}, {"SX_RENDER_DPI", "abc"}, {"SX_PREVIEW_MAX_BYTES", "-1"}, {"SX_PREVIEW_MAX_VIDEO_BYTES", "0"}, {"SX_PREVIEW_MAX_VIDEO_SECONDS", "x"}} {
+		m := required()
+		m[kv[0]] = kv[1]
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), kv[0]) {
+			t.Fatalf("%s=%s: err = %v", kv[0], kv[1], err)
+		}
+	}
+}
+
+func TestLoadWorker(t *testing.T) {
+	m := map[string]string{
+		"SX_DATABASE_URL":  "postgres://u@h/db",
+		"SX_MASTER_KEYS":   "1:abc",
+		"SX_ACTIVE_KEY_ID": "1",
+		// web-only settings are neither required nor validated
+		"SX_SMTP_TLS":       "bogus",
+		"SX_SESSION_TTL":    "x",
+		"SX_SHARE_MAX_DAYS": "0",
+	}
+	c, err := LoadWorker(env(m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.WorkerTmp != "/work" || c.Preview.MaxPages != 500 || c.Storage != "local" {
+		t.Fatalf("%+v", c)
+	}
+	m["SX_RENDER_DPI"] = "0"
+	m["SX_STORAGE"] = "s3"
+	delete(m, "SX_MASTER_KEYS")
+	_, err = LoadWorker(env(m))
+	for _, k := range []string{"SX_RENDER_DPI", "SX_S3_BUCKET", "SX_MASTER_KEYS"} {
+		if err == nil || !strings.Contains(err.Error(), k) {
+			t.Fatalf("%s: err = %v", k, err)
+		}
+	}
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SMTP_HOST") {
+		t.Fatalf("Load must still require SMTP: %v", err)
+	}
+}

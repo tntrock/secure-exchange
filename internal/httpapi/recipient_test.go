@@ -18,6 +18,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/mail/mailtest"
+	"github.com/tntrock/secure-exchange/internal/preview"
 )
 
 var (
@@ -41,8 +42,13 @@ func (e *env) lastMail(t *testing.T, to string) mail.Message {
 // recipShare has the logged-in owner share files without IP limits; it returns the share id and link token.
 func (e *env) recipShare(t *testing.T, allowDownload bool, files []uuid.UUID, emails ...string) (string, string) {
 	t.Helper()
+	return e.recipShareWM(t, allowDownload, false, files, emails...)
+}
+
+func (e *env) recipShareWM(t *testing.T, allowDownload, watermark bool, files []uuid.UUID, emails ...string) (string, string) {
+	t.Helper()
 	resp, b := e.do(t, "POST", "/api/shares", map[string]any{"file_ids": files, "emails": emails, "allow_download": allowDownload,
-		"expires_at": time.Now().Add(48 * time.Hour).Format(time.RFC3339), "message": "hi"})
+		"watermark": watermark, "expires_at": time.Now().Add(48 * time.Hour).Format(time.RFC3339), "message": "hi"})
 	if resp.StatusCode != 201 {
 		t.Fatal(resp.StatusCode, string(b))
 	}
@@ -182,6 +188,7 @@ func TestRecipientViewOnlyNoDownload(t *testing.T) {
 	e := newEnv(t)
 	a := e.user(t, "a@x.com")
 	f := e.putFile(t, a.ID, "doc", []byte("x"))
+	e.seedPreview(t, f, preview.KindPages, preview.StatusReady, 1)
 	e.login(t, "a@x.com", pw)
 	_, tok := e.recipShare(t, false, []uuid.UUID{f}, "r@y.com")
 	e.recipVerify(t, tok, "r@y.com")

@@ -20,6 +20,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
+	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
 	"github.com/tntrock/secure-exchange/internal/httpapi"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
@@ -47,7 +48,7 @@ func TestEndToEnd(t *testing.T) {
 	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
 		Pool: pool, Keys: keys, Store: store,
-		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil),
+		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}),
 	}))
 	defer ts.Close()
 	c := ts.Client()

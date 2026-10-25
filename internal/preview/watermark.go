@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -23,7 +24,7 @@ import (
 
 const (
 	traceAlphabet  = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-	watermarkAlpha = uint8(46) // ≈ 0.18 * 255
+	watermarkAlpha = uint8(56) // ≈ 0.22 * 255
 )
 
 // Mark is the per-viewer watermark content.
@@ -36,7 +37,11 @@ type Mark struct {
 func (m Mark) Text() string {
 	e := m.Email
 	if len(e) > 254 {
-		e = e[:254]
+		n := 254
+		for !utf8.RuneStart(e[n]) {
+			n--
+		}
+		e = e[:n]
 	}
 	return e + " · " + m.IP + " · " + m.At.UTC().Format("2006-01-02 15:04") + " UTC · " + m.Code
 }
@@ -49,36 +54,57 @@ var wmFont = func() *opentype.Font {
 	return f
 }()
 
+// wmSize picks max(14,w/45) px, shrinking to a 10px floor until the 30°-rotated text row fits width w.
+func wmSize(w int, text string) float64 {
+	size := math.Max(14, float64(w/45))
+	for ; size > 10; size-- {
+		f, err := opentype.NewFace(wmFont, &opentype.FaceOptions{Size: size, DPI: 72})
+		if err != nil {
+			break
+		}
+		tw := float64(font.MeasureString(f, text).Ceil() + 4)
+		f.Close()
+		if tw*math.Cos(math.Pi/6)+(size*1.5+4)*math.Sin(math.Pi/6) <= float64(w) {
+			break
+		}
+	}
+	return size
+}
+
 // Apply returns a copy of img with the mark tiled over it at 30°.
 // ponytail: tile is rebuilt per call (~ms); cache by (text,size) if it ever shows in profiles.
-func Apply(img image.Image, m Mark) *image.RGBA {
+func Apply(img image.Image, m Mark) (*image.RGBA, error) {
 	b := img.Bounds()
 	out := image.NewRGBA(b)
 	stddraw.Draw(out, b, img, b.Min, stddraw.Src)
 
-	size := math.Max(14, float64(b.Dx()/45))
+	text := m.Text()
+	sin, cos := math.Sin(math.Pi/6), math.Cos(math.Pi/6)
+	size := wmSize(b.Dx(), text)
 	face, err := opentype.NewFace(wmFont, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingNone})
 	if err != nil {
-		return out
+		return nil, err
 	}
 	defer face.Close()
-	text := m.Text()
 	tw := font.MeasureString(face, text).Ceil() + 4
 	th := int(size*1.5) + 4
 
-	// Two layers (dark offset 1px under white) on a transparent tile, full opacity.
+	// 1px white halo (8 neighbours), then dark glyphs on top, on a transparent tile.
 	tile := image.NewRGBA(image.Rect(0, 0, tw, th))
-	for _, l := range []struct {
-		c      color.Color
-		dx, dy int
-	}{{color.RGBA{0x20, 0x20, 0x20, 0xff}, 1, 1}, {color.White, 0, 0}} {
-		d := font.Drawer{Dst: tile, Src: image.NewUniform(l.c), Face: face,
-			Dot: fixed.P(2+l.dx, int(size*1.1)+l.dy)}
+	draw1 := func(c color.Color, dx, dy int) {
+		d := font.Drawer{Dst: tile, Src: image.NewUniform(c), Face: face, Dot: fixed.P(2+dx, int(size*1.1)+dy)}
 		d.DrawString(text)
 	}
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			if dx != 0 || dy != 0 {
+				draw1(color.White, dx, dy)
+			}
+		}
+	}
+	draw1(color.RGBA{0x30, 0x30, 0x30, 0xff}, 0, 0)
 
 	// Rotate 30° about the tile centre into a bounding box.
-	sin, cos := math.Sin(math.Pi/6), math.Cos(math.Pi/6)
 	rw := int(math.Ceil(float64(tw)*cos + float64(th)*sin))
 	rh := int(math.Ceil(float64(tw)*sin + float64(th)*cos))
 	cx, cy, rcx, rcy := float64(tw)/2, float64(th)/2, float64(rw)/2, float64(rh)/2
@@ -105,7 +131,7 @@ func Apply(img image.Image, m Mark) *image.RGBA {
 		}
 		row++
 	}
-	return out
+	return out, nil
 }
 
 func EncodeJPEG(w io.Writer, img image.Image) error {

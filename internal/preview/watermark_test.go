@@ -5,8 +5,13 @@ import (
 	"image/color"
 	"image/draw"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -21,7 +26,10 @@ var testMark = Mark{Email: "a@example.com", IP: "1.2.3.4", At: time.Date(2026, 1
 
 func TestApplyChangesPixelsKeepsSize(t *testing.T) {
 	src := whiteImg(800, 1000)
-	out := Apply(src, testMark)
+	out, err := Apply(src, testMark)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if out.Bounds() != src.Bounds() {
 		t.Fatalf("bounds %v", out.Bounds())
 	}
@@ -44,7 +52,10 @@ func TestApplyChangesPixelsKeepsSize(t *testing.T) {
 }
 
 func TestApplyCoversWholeImage(t *testing.T) {
-	out := Apply(whiteImg(800, 1000), testMark)
+	out, err := Apply(whiteImg(800, 1000), testMark)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for gy := 0; gy < 4; gy++ {
 		for gx := 0; gx < 4; gx++ {
 			n := 0
@@ -111,6 +122,103 @@ func BenchmarkApply(b *testing.B) {
 	src := whiteImg(1600, 2000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Apply(src, testMark)
+		if _, err := Apply(src, testMark); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func countLum(t *testing.T, img *image.RGBA, f func(r uint8) bool) int {
+	n := 0
+	for i := 0; i < len(img.Pix); i += 4 {
+		if f(img.Pix[i]) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestApplyVisibleOnWhiteAndBlack(t *testing.T) {
+	out, err := Apply(whiteImg(800, 1000), testMark)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countLum(t, out, func(r uint8) bool { return r < 230 }); n < 3000 {
+		t.Fatalf("only %d dark pixels on white", n)
+	}
+	black := image.NewRGBA(image.Rect(0, 0, 800, 1000))
+	draw.Draw(black, black.Bounds(), image.NewUniform(color.Black), image.Point{}, draw.Src)
+	out, err = Apply(black, testMark)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countLum(t, out, func(r uint8) bool { return r > 20 }); n < 3000 {
+		t.Fatalf("only %d light pixels on black", n)
+	}
+}
+
+func TestMarkTextCutsOnRuneBoundary(t *testing.T) {
+	m := testMark
+	m.Email = strings.Repeat("é", 200) // 400 bytes, 2 each
+	e := strings.SplitN(m.Text(), " · ", 2)[0]
+	if len(e) > 254 || !utf8.ValidString(e) {
+		t.Fatalf("len %d valid %v", len(e), utf8.ValidString(e))
+	}
+}
+
+func TestApplyShrinksTextToFitWidth(t *testing.T) {
+	m := testMark
+	m.Email = strings.Repeat("a", 60) + "@example.com"
+	w := 600
+	if _, err := Apply(whiteImg(w, 800), m); err != nil {
+		t.Fatal(err)
+	}
+	// 254-char email: floor of 10px applies, must not blow up (text can exceed width at the floor).
+	m.Email = strings.Repeat("a", 254)
+	if _, err := Apply(whiteImg(w, 800), m); err != nil {
+		t.Fatal(err)
+	}
+	// the chosen size for the 60-char case must make the rotated row fit
+	m.Email = strings.Repeat("a", 60) + "@example.com"
+	size := wmSize(w, m.Text())
+	f, _ := opentype.NewFace(wmFont, &opentype.FaceOptions{Size: size, DPI: 72})
+	if tw := float64(font.MeasureString(f, m.Text()).Ceil()) * 0.866; tw > float64(w) {
+		t.Fatalf("size %v: rotated width %v > %d", size, tw, w)
+	}
+}
+
+func TestTraceConcurrentSameSession(t *testing.T) {
+	pool, owner := newPool(t)
+	f := addFile(t, pool, owner, "a.png", 1, []byte{1}, 1, "")
+	const n = 8
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	codes := make([]string, n)
+	made := make([]bool, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			c, cr, err := Trace(ctx, pool, f, uuid.Nil, uuid.Nil, []byte("same-session"), "1.1.1.1")
+			if err != nil {
+				t.Error(err)
+			}
+			codes[i], made[i] = c, cr
+		}()
+	}
+	close(start)
+	wg.Wait()
+	created := 0
+	for i := range codes {
+		if codes[i] != codes[0] || codes[i] == "" {
+			t.Fatalf("codes differ: %v", codes)
+		}
+		if made[i] {
+			created++
+		}
+	}
+	if created != 1 {
+		t.Fatalf("created=%d", created)
 	}
 }

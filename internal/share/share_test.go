@@ -264,6 +264,18 @@ func TestAddRecipientsToRevokedShare(t *testing.T) {
 	}
 }
 
+func TestAddRecipientsToExpiredShare(t *testing.T) {
+	e := setup(t)
+	sh, _ := e.svc.Create(context.Background(), e.owner, e.input(t))
+	e.now = sh.ExpiresAt
+	if _, err := e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"d@z.com"}); !errors.Is(err, ErrExpired) {
+		t.Fatalf("got %v", err)
+	}
+	if n := count(t, e, `SELECT count(*) FROM share_recipients WHERE email = 'd@z.com'`); n != 0 {
+		t.Fatalf("recipients %d", n)
+	}
+}
+
 func TestAddRecipientsLimit(t *testing.T) {
 	e := setup(t)
 	in := e.input(t)

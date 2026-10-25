@@ -31,6 +31,7 @@ const (
 var (
 	ErrNotFound = errors.New("share: not found")
 	ErrRevoked  = errors.New("share: revoked")
+	ErrExpired  = errors.New("share: expired")
 )
 
 // ValidationError names the offending JSON field and a machine-readable code
@@ -382,6 +383,9 @@ func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID u
 	}
 	if revoked != nil {
 		return nil, ErrRevoked
+	}
+	if !s.now().Before(expires) {
+		return nil, ErrExpired
 	}
 	tok, err := s.keys.Open(sealed, []byte("sharetoken:"+shareID.String()))
 	if err != nil {

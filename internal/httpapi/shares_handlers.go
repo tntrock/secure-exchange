@@ -30,6 +30,8 @@ func shareErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 	case errors.Is(err, share.ErrRevoked):
 		writeJSON(w, http.StatusConflict, errBody("revoked"))
+	case errors.Is(err, share.ErrExpired):
+		writeJSON(w, http.StatusConflict, errBody("expired"))
 	default:
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 	}

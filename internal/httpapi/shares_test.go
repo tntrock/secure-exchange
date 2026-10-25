@@ -152,3 +152,18 @@ func TestRevokeAndRecipientAPI(t *testing.T) {
 }
 
 const uuidZero = "00000000-0000-0000-0000-000000000000"
+
+func TestAddRecipientsExpiredAPI(t *testing.T) {
+	e := newEnv(t)
+	a := e.user(t, "a@x.com")
+	f := e.putFile(t, a.ID, "doc", []byte("x"))
+	e.login(t, "a@x.com", pw)
+	id := e.mkShare(t, []string{f.String()}, "r@y.com")["id"].(string)
+	if _, err := e.pool.Exec(context.Background(), `UPDATE shares SET expires_at = now() - interval '1 second' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	resp, b := e.do(t, "POST", "/api/shares/"+id+"/recipients", map[string]any{"emails": []string{"late@y.com"}})
+	if resp.StatusCode != http.StatusConflict || string(b) != `{"error":"expired"}`+"\n" {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+}

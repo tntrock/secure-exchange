@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/tntrock/secure-exchange/internal/audit"
+	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -236,5 +237,28 @@ func TestUnknownAPIIsJSON404AndSPAServed(t *testing.T) {
 	}
 	if resp, _ := e.get(t, "/files"); resp.StatusCode == 405 || strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
 		t.Fatal("SPA route not served by webui", resp.StatusCode)
+	}
+}
+
+func TestDeleteFileDeletesItems(t *testing.T) {
+	e := newEnv(t)
+	u := e.user(t, "a@x.com")
+	id := e.putFile(t, u.ID, "f", []byte("data"))
+	it, err := preview.PutItem(context.Background(), e.pool, e.store, e.keys, id, "page", 0, bytes.NewReader([]byte("img")), 3, preview.Item{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.login(t, "a@x.com", pw)
+	if resp, _ := e.do(t, "DELETE", "/api/files/"+id.String(), nil); resp.StatusCode != 204 {
+		t.Fatal(resp.StatusCode)
+	}
+	var n int
+	e.pool.QueryRow(context.Background(), "SELECT count(*) FROM preview_items WHERE file_id=$1", id).Scan(&n)
+	if n != 0 {
+		t.Fatal("rows remain")
+	}
+	if rc, err := e.store.OpenRange(context.Background(), it.ID.String(), 0, 1); err == nil {
+		rc.Close()
+		t.Fatal("item blob remains")
 	}
 }

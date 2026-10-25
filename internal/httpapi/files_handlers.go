@@ -15,6 +15,7 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
+	"github.com/tntrock/secure-exchange/internal/preview"
 )
 
 func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +110,9 @@ func (s *server) deleteFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.Store.Delete(context.WithoutCancel(r.Context()), f.key); err != nil { // the row is already marked deleted
 		slog.Error("blob delete", "file", f.id, "err", err)
+	}
+	if err := preview.DeleteItems(context.WithoutCancel(r.Context()), s.Pool, s.Store, f.id); err != nil {
+		slog.Error("preview items delete", "file", f.id, "err", err)
 	}
 	s.record(r, audit.Event{ActorID: u.ID.String(), Action: audit.ActDelete, TargetType: "file", TargetID: f.id.String(), Result: "ok"})
 	w.WriteHeader(http.StatusNoContent)

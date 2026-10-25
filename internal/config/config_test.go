@@ -121,6 +121,7 @@ func TestLoadShareMaxDaysRange(t *testing.T) {
 
 func TestLoadSMTPTLSValues(t *testing.T) {
 	m := required()
+	m["SX_SMTP_HOST"] = "localhost"
 	for _, v := range []string{"tls", "none", "starttls"} {
 		m["SX_SMTP_TLS"] = v
 		if c, err := Load(env(m)); err != nil || c.SMTP.TLS != v {
@@ -134,6 +135,21 @@ func TestLoadSMTPTLSValues(t *testing.T) {
 	m["SX_SMTP_TLS"] = "tls"
 	m["SX_SMTP_PORT"] = "70000"
 	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SMTP_PORT") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLoadSMTPTLSNoneLocalOnly(t *testing.T) {
+	m := required()
+	m["SX_SMTP_TLS"] = "none"
+	for _, h := range []string{"localhost", "127.0.0.1", "mailpit"} {
+		m["SX_SMTP_HOST"] = h
+		if _, err := Load(env(m)); err != nil {
+			t.Fatalf("%s: %v", h, err)
+		}
+	}
+	m["SX_SMTP_HOST"] = "smtp.example"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SMTP_TLS") {
 		t.Fatalf("got %v", err)
 	}
 }

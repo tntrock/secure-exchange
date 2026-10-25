@@ -69,7 +69,7 @@ func (s *SMTP) Send(ctx context.Context, m Message) error {
 	switch s.cfg.TLS {
 	case "starttls", "tls":
 	case "none":
-		if h := s.cfg.Host; h != "localhost" && h != "127.0.0.1" && h != "mailpit" {
+		if h := s.cfg.Host; !config.LocalSMTPHost(h) {
 			return fmt.Errorf("mail: TLS none is only allowed for local hosts, not %q", h)
 		}
 	default:

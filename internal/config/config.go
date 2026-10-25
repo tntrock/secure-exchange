@@ -151,7 +151,11 @@ func Load(getenv func(string) string) (*Config, error) {
 		}
 	}
 	switch c.SMTP.TLS {
-	case "starttls", "tls", "none":
+	case "starttls", "tls":
+	case "none":
+		if !LocalSMTPHost(c.SMTP.Host) {
+			errs = append(errs, fmt.Errorf("SX_SMTP_TLS: none is only allowed for localhost, 127.0.0.1 or mailpit, not %q", c.SMTP.Host))
+		}
 	default:
 		errs = append(errs, fmt.Errorf("SX_SMTP_TLS: %q must be starttls, tls or none", c.SMTP.TLS))
 	}
@@ -170,3 +174,6 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	return c, nil
 }
+
+// LocalSMTPHost reports whether h may be used with SX_SMTP_TLS=none (unencrypted, local testing only).
+func LocalSMTPHost(h string) bool { return h == "localhost" || h == "127.0.0.1" || h == "mailpit" }

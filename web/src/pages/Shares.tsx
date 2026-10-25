@@ -23,7 +23,7 @@ export default function Shares() {
         <table>
           <thead>
             <tr>
-              <th>{t("share.createdAt")}</th><th>{t("share.expiresAt")}</th><th>{t("share.settings")}</th>
+              <th>{t("share.createdAt")}</th><th>{t("share.expiresAt")}</th><th>{t("share.statusLabel")}</th>
               <th>{t("share.files")}</th><th>{t("share.recipientCount")}</th><th>{t("share.views")}</th>
             </tr>
           </thead>

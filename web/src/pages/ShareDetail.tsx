@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { api, fmtDate, fmtSize, type ShareDetailInfo } from "../api";
+import { api, ApiError, fmtDate, fmtSize, type ShareDetailInfo } from "../api";
 
 export default function ShareDetail() {
   const { id = "" } = useParams();
@@ -20,8 +20,8 @@ export default function ShareDetail() {
     try {
       await p;
       refresh();
-    } catch {
-      setErr(t("app.error"));
+    } catch (e) {
+      setErr(t(e instanceof ApiError && e.message === "expired" ? "share.error.expired" : "app.error"));
     }
   };
 
@@ -39,7 +39,7 @@ export default function ShareDetail() {
       <ul>
         <li>{t("share.createdAt")}: {date(d.created_at)}</li>
         <li>{t("share.expiresAt")}: {date(d.expires_at)}</li>
-        <li>{t("share.settings")}: {status}</li>
+        <li>{t("share.statusLabel")}: {status}</li>
         <li>{t("share.allowDownload")}: {yn(d.allow_download)}</li>
         <li>{t("share.watermark")}: {yn(d.watermark)}</li>
         <li>{t("share.views")}: {d.max_views == null ? `${d.view_count} (${t("share.unlimited")})` : `${d.view_count} / ${d.max_views}`}</li>
@@ -58,7 +58,7 @@ export default function ShareDetail() {
       <h2>{t("share.recipientList")}</h2>
       <table>
         <thead>
-          <tr><th>{t("share.email")}</th><th>{t("share.firstOpened")}</th><th>{t("share.lastAccess")}</th><th>{t("share.settings")}</th><th /></tr>
+          <tr><th>{t("share.email")}</th><th>{t("share.firstOpened")}</th><th>{t("share.lastAccess")}</th><th>{t("share.statusLabel")}</th><th /></tr>
         </thead>
         <tbody>
           {d.recipients.map((r) => (

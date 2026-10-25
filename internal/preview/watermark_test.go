@@ -74,12 +74,12 @@ func TestApplyCoversWholeImage(t *testing.T) {
 }
 
 func TestMarkText(t *testing.T) {
-	if got, want := testMark.Text(), "a@example.com · 1.2.3.4 · 2026-10-25 09:05 UTC · ABCDEFGHJK"; got != want {
+	if got, want := testMark.Text(), "ABCDEFGHJK · 2026-10-25 09:05 UTC · 1.2.3.4 · a@example.com"; got != want {
 		t.Fatalf("got %q", got)
 	}
 	m := testMark
 	m.Email = strings.Repeat("x", 300)
-	if got := strings.SplitN(m.Text(), " · ", 2)[0]; len(got) != 254 {
+	if got := strings.SplitN(m.Text(), " · ", 4)[3]; len(got) != 254 {
 		t.Fatalf("email len %d", len(got))
 	}
 }
@@ -160,7 +160,7 @@ func TestApplyVisibleOnWhiteAndBlack(t *testing.T) {
 func TestMarkTextCutsOnRuneBoundary(t *testing.T) {
 	m := testMark
 	m.Email = strings.Repeat("é", 200) // 400 bytes, 2 each
-	e := strings.SplitN(m.Text(), " · ", 2)[0]
+	e := strings.SplitN(m.Text(), " · ", 4)[3]
 	if len(e) > 254 || !utf8.ValidString(e) {
 		t.Fatalf("len %d valid %v", len(e), utf8.ValidString(e))
 	}
@@ -220,5 +220,44 @@ func TestTraceConcurrentSameSession(t *testing.T) {
 	}
 	if created != 1 {
 		t.Fatalf("created=%d", created)
+	}
+}
+
+func TestLongEmailKeepsCodeAndIPVisible(t *testing.T) {
+	m := testMark
+	m.Email = strings.Repeat("a", 254)
+	w := 600
+	size := wmSize(w, m.Text())
+	f, _ := opentype.NewFace(wmFont, &opentype.FaceOptions{Size: size, DPI: 72})
+	prefix := strings.TrimSuffix(m.Text(), m.Email) // code, time, ip
+	if pw := float64(font.MeasureString(f, prefix).Ceil()) * 0.866; pw > float64(w) {
+		t.Fatalf("prefix rotated width %v > %d", pw, w)
+	}
+}
+
+func TestApplyNoCleanWindow(t *testing.T) {
+	for _, d := range [][2]int{{800, 1000}, {1600, 2000}} {
+		out, err := Apply(whiteImg(d[0], d[1]), testMark)
+		if err != nil {
+			t.Fatal(err)
+		}
+		const win = 150
+		for _, off := range []int{0, win / 2} { // aligned and half-shifted grids
+			for y := off; y+win <= d[1]; y += win {
+				for x := off; x+win <= d[0]; x += win {
+					n := 0
+					for yy := y; yy < y+win; yy++ {
+						for xx := x; xx < x+win; xx++ {
+							if out.RGBAAt(xx, yy).R != 255 {
+								n++
+							}
+						}
+					}
+					if n == 0 {
+						t.Fatalf("%dx%d: clean window at %d,%d", d[0], d[1], x, y)
+					}
+				}
+			}
+		}
 	}
 }

@@ -43,7 +43,7 @@ func (m Mark) Text() string {
 		}
 		e = e[:n]
 	}
-	return e + " · " + m.IP + " · " + m.At.UTC().Format("2006-01-02 15:04") + " UTC · " + m.Code
+	return m.Code + " · " + m.At.UTC().Format("2006-01-02 15:04") + " UTC · " + m.IP + " · " + e
 }
 
 var wmFont = func() *opentype.Font {
@@ -116,9 +116,11 @@ func Apply(img image.Image, m Mark) (*image.RGBA, error) {
 		-sin, cos, rcy + sin*cx - cos*cy,
 	}, tile, tile.Bounds(), draw.Over, nil)
 
-	// rotated text is a thin diagonal, so rows can overlap in bbox: step 1.6x wide, 0.6x tall.
-	stepX, stepY := int(float64(rw)*1.6), int(float64(rh)*0.6)
-	mask := image.NewUniform(color.Alpha{watermarkAlpha})
+	// Dense: tiles nearly end to end, rows ~110px apart, so no 150px window is clean.
+	stepX, stepY := int(float64(rw)*1.05), min(110, int(float64(rh)*0.4))
+	for i := range rot.Pix { // premultiplied, so scaling all channels applies the global alpha
+		rot.Pix[i] = uint8(int(rot.Pix[i]) * int(watermarkAlpha) / 255)
+	}
 	row := 0
 	for y := b.Min.Y - rh; y < b.Max.Y; y += stepY {
 		off := 0
@@ -127,7 +129,7 @@ func Apply(img image.Image, m Mark) (*image.RGBA, error) {
 		}
 		for x := b.Min.X - off; x < b.Max.X; x += stepX {
 			r := image.Rect(x, y, x+rw, y+rh)
-			stddraw.DrawMask(out, r, rot, image.Point{}, mask, image.Point{}, stddraw.Over)
+			stddraw.Draw(out, r, rot, image.Point{}, stddraw.Over)
 		}
 		row++
 	}

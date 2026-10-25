@@ -34,12 +34,21 @@ func (s *server) previewRoutes(mux *http.ServeMux) {
 		})
 	}
 	recip := func(h previewHandler) http.Handler {
-		return s.requireRecipient(func(w http.ResponseWriter, r *http.Request) {
+		inner := s.requireRecipient(func(w http.ResponseWriter, r *http.Request) {
 			a := accessFrom(r.Context())
 			if fid, ok := s.sharedFile(w, r, a); ok {
 				viewHeaders(w)
 				h(w, r, fid, a)
 			}
+		})
+		// a HEAD would trace, audit and burn like a GET while showing nothing
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodHead {
+				w.Header().Set("Allow", "GET")
+				writeJSON(w, http.StatusMethodNotAllowed, errBody("method_not_allowed"))
+				return
+			}
+			inner.ServeHTTP(w, r)
 		})
 	}
 	for prefix, wrap := range map[string]func(previewHandler) http.Handler{"/api/files/{id}": own, "/api/s/{token}/files/{fid}": recip} {
@@ -260,6 +269,11 @@ func (s *server) previewSegment(w http.ResponseWriter, r *http.Request, fid uuid
 	var buf bytes.Buffer
 	if err := s.burnSegment(r.Context(), &buf, rs, m); err != nil {
 		w.Header().Del("Content-Type")
+		if errors.Is(err, errBusy) {
+			w.Header().Set("Retry-After", "2")
+			writeJSON(w, http.StatusServiceUnavailable, errBody("busy"))
+			return
+		}
 		s.viewErr(w, r, fid, err)
 		return
 	}

@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -13,6 +15,13 @@ import (
 )
 
 const burnTimeout = 30 * time.Second
+
+// burnSlots bounds concurrent ffmpeg burns to one per CPU.
+// ponytail: per-process semaphore, single node only; share it (or pre-render) when scaling out
+var burnSlots = make(chan struct{}, runtime.NumCPU())
+
+// errBusy means every burn slot stayed taken until the request ended.
+var errBusy = errors.New("burn segment: busy")
 
 // filterQuote makes s one literal option value in an ffmpeg filtergraph: backslash-escapes the
 // option parser's specials (backslash, quote, colon), then single-quotes it for the graph parser,
@@ -30,6 +39,12 @@ func drawtextEscape(s string) string {
 // burnSegment re-encodes one MPEG-TS segment from src with m drawn on three rows, into w.
 // ponytail: 每次請求都重新燒入，同時觀看人數多時需改為快取或預先轉檔
 func (s *server) burnSegment(ctx context.Context, w io.Writer, src io.Reader, m preview.Mark) error {
+	select {
+	case burnSlots <- struct{}{}:
+		defer func() { <-burnSlots }()
+	case <-ctx.Done():
+		return errBusy
+	}
 	// ffmpeg's fontconfig lookup would silently substitute another font for a missing file
 	if _, err := os.Stat(s.FontFile); err != nil {
 		return fmt.Errorf("burn segment: font: %w", err)
@@ -37,7 +52,7 @@ func (s *server) burnSegment(ctx context.Context, w io.Writer, src io.Reader, m 
 	ctx, cancel := context.WithTimeout(ctx, burnTimeout)
 	defer cancel()
 	dt := "drawtext=fontfile=" + filterQuote(s.FontFile) + ":text=" + drawtextEscape(m.Text()) +
-		":fontsize=h/22:fontcolor=white@0.22:x=(w-tw)/2:y="
+		":fontsize=h/22:fontcolor=white@0.22:x=max((w-tw)/2\\,0):y=" // max: long text keeps its left end (the trace code); \, escapes the graph's filter separator
 	vf := dt + "(h-th)/2," + dt + "h/5," + dt + "4*h/5"
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-loglevel", "error",
 		"-protocol_whitelist", "pipe", "-format_whitelist", "mpegts", "-f", "mpegts", "-copyts", "-i", "pipe:0",

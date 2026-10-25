@@ -8,8 +8,12 @@ import (
 	"image/jpeg"
 	"image/png"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -242,10 +246,9 @@ func TestPreviewNotReady(t *testing.T) {
 	}
 }
 
-func TestPlaylist(t *testing.T) {
-	e := newEnv(t)
-	a := e.user(t, "a@x.com")
-	f := e.putFile(t, a.ID, "v.mp4", []byte("x"))
+// seedVideo records a ready video preview of fid with segments "segment-0".."segment-2" (6/6/2 s).
+func (e *env) seedVideo(t *testing.T, f uuid.UUID) {
+	t.Helper()
 	ctx := context.Background()
 	if _, err := e.pool.Exec(ctx, `INSERT INTO file_previews (file_id, kind, status, duration_ms) VALUES ($1,'video','ready',14000)`, f); err != nil {
 		t.Fatal(err)
@@ -256,6 +259,13 @@ func TestPlaylist(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+func TestPlaylist(t *testing.T) {
+	e := newEnv(t)
+	a := e.user(t, "a@x.com")
+	f := e.putFile(t, a.ID, "v.mp4", []byte("x"))
+	e.seedVideo(t, f)
 	e.login(t, "a@x.com", pw)
 	resp, b := e.get(t, "/api/files/"+f.String()+"/preview/video.m3u8")
 	viewHeadersOK(t, resp, "application/vnd.apple.mpegurl")
@@ -296,5 +306,72 @@ func TestDrawtextEscape(t *testing.T) {
 	}
 	if got := filterQuote(`/f:o'n.ttf`); got != `'/f\:o\'\''n.ttf'` {
 		t.Fatal(got)
+	}
+}
+
+// wmVideoShare seeds a video for a fresh owner and logs a recipient into a watermark=true share of it.
+func wmVideoShare(t *testing.T, mods ...func(*Deps)) (*env, uuid.UUID, string) {
+	t.Helper()
+	e := newEnv(t, mods...)
+	a := e.user(t, "a@x.com")
+	f := e.putFile(t, a.ID, "v.mp4", []byte("x"))
+	e.seedVideo(t, f)
+	e.login(t, "a@x.com", pw)
+	_, tok := e.recipShareWM(t, true, true, []uuid.UUID{f}, "r@y.com")
+	e.recipVerify(t, tok, "r@y.com")
+	return e, f, "/api/s/" + tok + "/files/" + f.String() + "/preview/"
+}
+
+func TestRecipientPreviewHeadNotAllowed(t *testing.T) {
+	e, f, base := wmVideoShare(t)
+	for _, p := range []string{"", "segments/0.ts", "video.m3u8"} {
+		req, _ := http.NewRequest("HEAD", e.ts.URL+strings.TrimSuffix(base+p, "/"), nil)
+		resp, err := e.c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 405 || resp.Header.Get("Allow") != "GET" {
+			t.Fatal(p, resp.StatusCode, resp.Header)
+		}
+	}
+	if n := e.traces(t, f); n != 0 {
+		t.Fatalf("%d traces", n)
+	}
+	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActFileView, Limit: 5}); err != nil || len(ents) != 0 {
+		t.Fatal(err, ents)
+	}
+}
+
+// Without a usable font (or ffmpeg) a watermarked segment must fail closed, never fall back to the bare one.
+func TestSegmentBurnFailsClosed(t *testing.T) {
+	e, _, base := wmVideoShare(t, func(d *Deps) { d.FontFile = filepath.Join(t.TempDir(), "missing.ttf") })
+	resp, b := e.get(t, base+"segments/0.ts")
+	if resp.StatusCode != 500 || bytes.Contains(b, []byte("segment-0")) {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+}
+
+func TestSegmentBurnBusy(t *testing.T) {
+	e, _, base := wmVideoShare(t)
+	for range cap(burnSlots) {
+		burnSlots <- struct{}{}
+	}
+	defer func() {
+		for range cap(burnSlots) {
+			<-burnSlots
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequestWithContext(ctx, "GET", e.ts.URL+base+"segments/0.ts", nil)
+	u, _ := url.Parse(e.ts.URL)
+	for _, c := range e.c.Jar.Cookies(u) {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	e.ts.Config.Handler.ServeHTTP(rec, req)
+	if rec.Code != 503 || rec.Header().Get("Retry-After") != "2" || strings.TrimSpace(rec.Body.String()) != `{"error":"busy"}` {
+		t.Fatal(rec.Code, rec.Header(), rec.Body.String())
 	}
 }

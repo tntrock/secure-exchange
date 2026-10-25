@@ -24,6 +24,8 @@ import (
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
+	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -39,7 +41,7 @@ type env struct {
 	store blob.Store
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T, mods ...func(*Deps)) *env {
 	t.Helper()
 	pool := testdb.New(t)
 	k := make([]byte, 32)
@@ -53,10 +55,14 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e := &env{users: auth.NewUsers(pool, kr), audit: audit.New(pool), pool: pool, keys: kr, store: store}
-	e.ts = httptest.NewTLSServer(NewServer(Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour, Pool: pool, Keys: kr, Store: store,
+	d := Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour, Pool: pool, Keys: kr, Store: store, Shares: share.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", 30),
 		Uploads: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, auth.UserFrom(r.Context()).ID.String())
-		})}))
+		})}
+	for _, m := range mods {
+		m(&d)
+	}
+	e.ts = httptest.NewTLSServer(NewServer(d))
 	t.Cleanup(e.ts.Close)
 	e.c = e.ts.Client()
 	e.c.Jar, _ = cookiejar.New(nil)

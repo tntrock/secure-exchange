@@ -1,0 +1,16 @@
+# Override used by scripts/smoke.sh: adds a catch-all mail server and points the app at it.
+#   docker compose -f docker-compose.yml -f docker-compose.smoke.yml up
+services:
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "58025:8025" # API / web UI on the host
+    networks: [sx]
+  app:
+    environment:
+      SX_SMTP_HOST: mailpit
+      SX_SMTP_PORT: "1025"
+      SX_SMTP_TLS: none
+    depends_on:
+      mailpit:
+        condition: service_started

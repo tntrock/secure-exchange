@@ -19,6 +19,7 @@ jobs:
     env:
       SX_TEST_DATABASE_URL: postgres://sx:sx@localhost:5432/sx?sslmode=disable
       SX_TEST_S3_ENDPOINT: localhost:59000
+      SX_TEST_SMTP_ADDR: localhost:51025
     steps:
       - uses: actions/checkout@v7
       # A service container cannot take a command, so run minio by hand.
@@ -28,6 +29,10 @@ jobs:
             -e MINIO_ROOT_USER=sxminio -e MINIO_ROOT_PASSWORD=sxminio123 \
             cgr.dev/chainguard/minio server /data
           curl --retry 30 --retry-delay 1 --retry-all-errors -fsS http://localhost:59000/minio/health/ready
+      - name: Start mailpit
+        run: |
+          docker run -d --name mailpit -p 51025:1025 -p 58025:8025 axllent/mailpit:v1.27
+          curl --retry 30 --retry-delay 1 --retry-all-errors -fsS http://localhost:58025/livez
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod

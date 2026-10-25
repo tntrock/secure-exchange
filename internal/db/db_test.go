@@ -52,3 +52,14 @@ func TestParallelTestDB(t *testing.T) {
 		})
 	}
 }
+
+func TestMigration0002Applies(t *testing.T) {
+	pool := testdb.New(t)
+	var n int
+	if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM shares").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("shares count = %d, want 0", n)
+	}
+}

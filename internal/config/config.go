@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -13,6 +14,14 @@ import (
 type S3Config struct {
 	Endpoint, Bucket, AccessKey, SecretKey, Region string
 	UseSSL                                         bool
+}
+
+type SMTPConfig struct {
+	Host               string
+	Port               int
+	Username, Password string
+	From               string
+	TLS                string // "starttls", "tls" or "none"
 }
 
 type Config struct {
@@ -30,6 +39,8 @@ type Config struct {
 	SessionTTL        time.Duration
 	InitAdminEmail    string
 	InitAdminPassword string
+	SMTP              SMTPConfig
+	ShareMaxDays      int
 }
 
 // Load reads configuration via getenv (e.g. os.Getenv). All problems are
@@ -63,6 +74,15 @@ func Load(getenv func(string) string) (*Config, error) {
 		SessionTTL:        12 * time.Hour,
 		InitAdminEmail:    get("SX_INIT_ADMIN_EMAIL", ""),
 		InitAdminPassword: get("SX_INIT_ADMIN_PASSWORD", ""),
+		ShareMaxDays:      30,
+		SMTP: SMTPConfig{
+			Host:     req("SX_SMTP_HOST"),
+			Port:     587,
+			Username: get("SX_SMTP_USERNAME", ""),
+			Password: get("SX_SMTP_PASSWORD", ""),
+			From:     req("SX_SMTP_FROM"),
+			TLS:      get("SX_SMTP_TLS", "starttls"),
+		},
 		S3: S3Config{
 			Endpoint:  get("SX_S3_ENDPOINT", ""),
 			Bucket:    get("SX_S3_BUCKET", ""),
@@ -111,6 +131,34 @@ func Load(getenv func(string) string) (*Config, error) {
 		}
 		c.TrustedProxies = append(c.TrustedProxies, pf)
 	}
+	if s := get("SX_SMTP_PORT", ""); s != "" {
+		if n, err := strconv.ParseUint(s, 10, 16); err != nil || n == 0 {
+			bad("SX_SMTP_PORT", errors.New("must be an integer from 1 to 65535"))
+		} else {
+			c.SMTP.Port = int(n)
+		}
+	}
+	if s := get("SX_SHARE_MAX_DAYS", ""); s != "" {
+		if n, err := strconv.Atoi(s); err != nil || n < 1 || n > 365 {
+			bad("SX_SHARE_MAX_DAYS", errors.New("must be an integer from 1 to 365"))
+		} else {
+			c.ShareMaxDays = n
+		}
+	}
+	if c.SMTP.From != "" {
+		if _, err := mail.ParseAddress(c.SMTP.From); err != nil {
+			bad("SX_SMTP_FROM", err)
+		}
+	}
+	switch c.SMTP.TLS {
+	case "starttls", "tls":
+	case "none":
+		if !LocalSMTPHost(c.SMTP.Host) {
+			errs = append(errs, fmt.Errorf("SX_SMTP_TLS: none is only allowed for localhost, 127.0.0.1 or mailpit, not %q", c.SMTP.Host))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("SX_SMTP_TLS: %q must be starttls, tls or none", c.SMTP.TLS))
+	}
 	switch c.Storage {
 	case "local":
 	case "s3":
@@ -126,3 +174,6 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	return c, nil
 }
+
+// LocalSMTPHost reports whether h may be used with SX_SMTP_TLS=none (unencrypted, local testing only).
+func LocalSMTPHost(h string) bool { return h == "localhost" || h == "127.0.0.1" || h == "mailpit" }

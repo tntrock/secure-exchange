@@ -171,3 +171,61 @@ func TestRotateErrorsWhenResidualPersists(t *testing.T) {
 		t.Fatalf("err = %v, want residual error naming files=1", err)
 	}
 }
+
+func TestRotateCoversMailOutbox(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	k1 := ring(t, "1:"+b64key(1), 1)
+	k12 := ring(t, "1:"+b64key(1)+",2:"+b64key(2), 2)
+	k2 := ring(t, "2:"+b64key(2), 2)
+	id := uuid.New()
+	aad := []byte("mail:" + id.String())
+	sealed, err := k1.Seal([]byte("secret body"), aad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO mail_outbox (id, to_addr, body_sealed) VALUES ($1,'a@b.com',$2)`, id, sealed); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := sxcrypto.RotateAll(ctx, pool, k12); err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v, want 1 nil", n, err)
+	}
+	var got []byte
+	if err := pool.QueryRow(ctx, `SELECT body_sealed FROM mail_outbox WHERE id=$1`, id).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := k2.Open(got, aad); err != nil || string(p) != "secret body" {
+		t.Fatalf("open with key 2 only: %q %v", p, err)
+	}
+}
+
+func TestRotateCoversShareToken(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	k1 := ring(t, "1:"+b64key(1), 1)
+	k12 := ring(t, "1:"+b64key(1)+",2:"+b64key(2), 2)
+	k2 := ring(t, "2:"+b64key(2), 2)
+	uid, sid := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id,email,role) VALUES ($1,'o@x.com','staff')`, uid); err != nil {
+		t.Fatal(err)
+	}
+	aad := []byte("sharetoken:" + sid.String())
+	sealed, err := k1.Seal([]byte("tok"), aad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO shares (id,owner_id,token_hash,token_sealed,allow_download,watermark,expires_at)
+		VALUES ($1,$2,'\x01',$3,true,false,now()+interval '1 day')`, sid, uid, sealed); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := sxcrypto.RotateAll(ctx, pool, k12); err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v, want 1 nil", n, err)
+	}
+	var got []byte
+	if err := pool.QueryRow(ctx, `SELECT token_sealed FROM shares WHERE id=$1`, sid).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := k2.Open(got, aad); err != nil || string(p) != "tok" {
+		t.Fatalf("open with key 2 only: %q %v", p, err)
+	}
+}

@@ -14,3 +14,6 @@ code { font-size: .85em; }
 .drop.over { background: #8883; }
 .upload { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
 .upload progress { flex: 1; }
+.modal { position: fixed; inset: 0; background: #0008; display: grid; place-items: center; overflow: auto; }
+.modal form { background: Canvas; color: CanvasText; padding: 1rem; max-width: 28rem; width: calc(100% - 2rem); border-radius: .5rem; }
+.check { display: flex; gap: .5rem; align-items: center; }

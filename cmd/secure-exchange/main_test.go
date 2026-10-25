@@ -46,6 +46,8 @@ func TestRunRotateKeys(t *testing.T) {
 	t.Setenv("SX_BASE_URL", "https://sx.example.com")
 	t.Setenv("SX_MASTER_KEYS", "1:"+key(1)+",2:"+key(2))
 	t.Setenv("SX_ACTIVE_KEY_ID", "2")
+	t.Setenv("SX_SMTP_HOST", "smtp.example")
+	t.Setenv("SX_SMTP_FROM", "noreply@sx.example.com")
 
 	if got := run([]string{"rotate-keys"}); got != 0 {
 		t.Fatalf("exit %d, want 0", got)

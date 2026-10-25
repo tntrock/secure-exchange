@@ -69,6 +69,24 @@ func TestOutboxLastErrorUTF8(t *testing.T) {
 	}
 }
 
+type nulErrSender struct{}
+
+func (nulErrSender) Send(context.Context, Message) error { return errors.New("bad" + string(rune(0)) + "reply") }
+
+func TestOutboxLastErrorStripsNUL(t *testing.T) {
+	o, col := newOutbox(t, nulErrSender{})
+	ctx := context.Background()
+	if err := o.Enqueue(ctx, o.pool, Message{To: "a@b.com", Subject: "s", Body: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.runOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if le := col("last_error"); le != "badreply" || col("attempts").(int32) != 1 {
+		t.Fatalf("last_error=%q attempts=%v", le, col("attempts"))
+	}
+}
+
 // A server that drops the connection right after accepting DATA must not make Send fail.
 func TestSMTPQuitFailureIgnored(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

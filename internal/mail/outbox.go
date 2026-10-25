@@ -124,8 +124,8 @@ func (o *Outbox) runOnce(ctx context.Context) (int, error) {
 			sent++
 			_, err = sp.Exec(dctx, `UPDATE mail_outbox SET sent_at = now(), last_error = '' WHERE id = $1`, r.id)
 		} else {
-			// cut on a rune boundary: Postgres rejects invalid UTF-8
-			msg := strings.ToValidUTF8(truncate(sendErr.Error(), 500), "")
+			// cut on a rune boundary and drop NULs: Postgres text rejects both
+			msg := strings.ReplaceAll(strings.ToValidUTF8(truncate(sendErr.Error(), 500), ""), "\x00", "")
 			slog.Warn("mail send failed", "id", r.id, "attempts", r.attempts+1, "err", sendErr)
 			_, err = sp.Exec(dctx, `UPDATE mail_outbox SET attempts = attempts + 1, last_error = $2,
 				next_attempt_at = now() + least(power(2, attempts + 1) * interval '1 minute', interval '6 hours')

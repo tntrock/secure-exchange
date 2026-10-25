@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,7 +63,7 @@ func docPipeline(e *jobEnv) (Result, error) {
 		return Result{}, toolErr("pdfinfo", err, sizes)
 	}
 	// -cropbox: render the box pdfinfo reports sizes for (poppler clips it to the media box)
-	args := append(renderScale(sizes, e.cfg.DPI), "-cropbox", "-f", "1", "-l", strconv.Itoa(pages), "-png", pdf, filepath.Join(e.dir, "p"))
+	args := append(renderScale(sizes, e.cfg.DPI, pages), "-cropbox", "-f", "1", "-l", strconv.Itoa(pages), "-png", pdf, filepath.Join(e.dir, "p"))
 	if o, err := Run(e.ctx, e.dir, pdftoppmTimeout, "pdftoppm", args...); err != nil {
 		return Result{}, toolErr("pdftoppm", err, o)
 	}
@@ -132,22 +133,29 @@ func parsePages(out []byte) (int, error) {
 	return n, nil
 }
 
-var pageSizeRE = regexp.MustCompile(`(?m)^Page\s+\d+\s+size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts`)
+var (
+	pageSizeLineRE = regexp.MustCompile(`(?m)^Page\s+\d+\s+size:`)
+	pageSizeRE     = regexp.MustCompile(`(?m)^Page\s+\d+\s+size:\s+(\S+)\s+x\s+(\S+)\s+pts`)
+)
 
 // renderScale picks pdftoppm's resolution flags from `pdfinfo -f 1 -l N` output:
-// -r DPI unless the largest page would exceed maxPageSide pixels, then -scale-to.
-// Taking the max over every line means a spoofed line can only make it stricter.
-func renderScale(pdfinfo []byte, dpi int) []string {
-	largest := 0.0
-	for _, m := range pageSizeRE.FindAllSubmatch(pdfinfo, -1) {
+// -r DPI only when every one of the pages has a readable size and none would
+// exceed maxPageSide pixels; anything else (a huge page, %g exponent sizes that
+// do not parse as finite, a listing cut short by Run's output tail, a spoofed
+// extra line) fails closed to -scale-to.
+func renderScale(pdfinfo []byte, dpi, pages int) []string {
+	scaleTo := []string{"-scale-to", strconv.Itoa(maxPageSide)}
+	ms := pageSizeRE.FindAllSubmatch(pdfinfo, -1)
+	if len(pageSizeLineRE.FindAll(pdfinfo, -1)) != pages || len(ms) != pages {
+		return scaleTo
+	}
+	for _, m := range ms {
 		for _, s := range m[1:] {
-			if v, err := strconv.ParseFloat(string(s), 64); err == nil {
-				largest = max(largest, v)
+			v, err := strconv.ParseFloat(string(s), 64)
+			if err != nil || math.IsInf(v, 0) || math.IsNaN(v) || v <= 0 || v/72*float64(dpi) > maxPageSide {
+				return scaleTo
 			}
 		}
-	}
-	if largest <= 0 || largest/72*float64(dpi) > maxPageSide {
-		return []string{"-scale-to", strconv.Itoa(maxPageSide)}
 	}
 	return []string{"-r", strconv.Itoa(dpi)}
 }

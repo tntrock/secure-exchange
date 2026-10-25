@@ -116,10 +116,16 @@ func onePagePDF(w, h int, extra string) []byte {
 }
 
 func TestHugePageBounded(t *testing.T) {
+	for _, s := range [][2]int{{5000, 5000}, {1000000, 300}} { // the second prints in %g exponent form
+		hugePage(t, s[0], s[1])
+	}
+}
+
+func hugePage(t *testing.T, w, h int) {
 	dir := t.TempDir()
 	in := filepath.Join(dir, "in.pdf")
-	os.WriteFile(in, onePagePDF(5000, 5000, ""), 0o600)
-	// at 110 DPI this page would be 7639 px square; pdftoppm itself must stay ≤ 2000
+	os.WriteFile(in, onePagePDF(w, h, ""), 0o600)
+	// at 110 DPI these would be 7639 px square / 1.5M px wide; pdftoppm itself must stay ≤ 2000
 	cfg := config.PreviewConfig{MaxPages: 5, DPI: 110}
 	var rendered image.Config // pdftoppm's own output, before any Go downscale
 	e := &jobEnv{ctx: ctx, cfg: cfg, dir: dir, in: in, put: func(string, int, io.Reader, int64, Item) error {
@@ -134,7 +140,7 @@ func TestHugePageBounded(t *testing.T) {
 	if _, err := docPipeline(e); err != nil {
 		t.Fatal(err)
 	}
-	if rendered.Width > 2000 || rendered.Height > 2000 || rendered.Width < 1900 {
+	if rendered.Width > 2000 || rendered.Height > 2000 || max(rendered.Width, rendered.Height) < 1900 {
 		t.Fatalf("rendered %dx%d", rendered.Width, rendered.Height)
 	}
 }

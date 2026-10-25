@@ -23,6 +23,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/secure-exchange /secure-exchange
 USER 65532:65532
+# exec form: the worker is PID 1 and makes itself non-dumpable; don't add an init (init: true), which would hold the env readable.
 ENTRYPOINT ["/secure-exchange", "worker"]
 
 # worker + Go toolchain for the //go:build tools tests (source mounted at /src).

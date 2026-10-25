@@ -83,3 +83,6 @@ export const fmtSize = (n: number, lng: string) => {
 
 export const fmtDate = (s: string, lng: string) =>
   new Intl.DateTimeFormat(lng, { dateStyle: "medium", timeStyle: "short" }).format(new Date(s));
+
+// full-page navigation, behind an object so tests can stub it (jsdom's location.assign is not spyable)
+export const nav = { go: (href: string) => window.location.assign(href) };

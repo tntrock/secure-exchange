@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import LangSwitch from "../../components/LangSwitch";
-import { api, ApiError, fmtDate, fmtSize, type RecipientFiles, type RecipientLanding } from "../../api";
+import { api, ApiError, fmtDate, fmtSize, nav, type RecipientFiles, type RecipientLanding } from "../../api";
 
 type Step = "loading" | "email" | "code" | "files" | "fatal";
 
@@ -30,33 +30,45 @@ export default function Access() {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // reports whether the landing loaded; on failure the fatal reason is already set
   const loadLanding = useCallback(async () => {
     try {
       setLanding(await api.recipientLanding(token));
       setStep("email");
+      return true;
     } catch (e) {
       setErr(errKey(e));
       setStep("fatal");
+      return false;
     }
   }, [token]);
 
   // initial: page load (401 = not signed in yet, quietly show landing); otherwise a 401 means the session ended.
+  // Reports whether the file list loaded.
   const loadFiles = useCallback(async (initial: boolean) => {
     try {
       setData(await api.recipientFiles(token));
       setStep("files");
+      return true;
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        await loadLanding();
-        if (!initial) setErr("sessionEnded");
-        return;
+        if ((await loadLanding()) && !initial) setErr("sessionEnded");
+      } else {
+        setErr(errKey(e));
+        setStep("fatal");
       }
-      setErr(errKey(e));
-      setStep("fatal");
+      return false;
     }
   }, [token, loadLanding]);
 
   useEffect(() => { void loadFiles(true); }, [loadFiles]);
+
+  // re-check the session first so an ended or revoked one shows its reason instead of a raw error download
+  const download = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    const href = e.currentTarget.getAttribute("href") ?? "";
+    if (await loadFiles(false)) nav.go(href);
+  };
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -151,7 +163,7 @@ export default function Access() {
                     <td>
                       {!f.available ? t("recipient.fileUnavailable")
                         : data.allow_download && (
-                          <a href={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(f.id)}/content`} download>
+                          <a href={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(f.id)}/content`} download onClick={download}>
                             {t("files.download")}
                           </a>
                         )}

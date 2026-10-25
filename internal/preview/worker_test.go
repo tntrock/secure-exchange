@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"image"
 	"os"
 	"testing"
@@ -133,5 +134,25 @@ func TestWorkerDeletedFile(t *testing.T) {
 	}
 	if items, _ := ListItems(ctx, e.pool, f, "image"); len(items) != 0 {
 		t.Fatal("items kept for deleted file")
+	}
+}
+
+func TestWorkerFailureDropsPartialItems(t *testing.T) {
+	e := newItemEnv(t)
+	orig := pipelines[KindImage]
+	pipelines[KindImage] = func(j *jobEnv) (Result, error) {
+		if err := j.put("image", 0, bytes.NewReader([]byte("x")), 1, Item{}); err != nil {
+			return Result{}, err
+		}
+		return Result{}, errors.New("later step failed")
+	}
+	defer func() { pipelines[KindImage] = orig }()
+	f := e.storeFile(t, "pic.png", encodePNG(t, image.NewGray(image.Rect(0, 0, 4, 4))), KindImage)
+	runUntil(t, e, e.worker(t), f)
+	if p, _ := GetStatus(ctx, e.pool, f); p.Status != StatusFailed {
+		t.Fatalf("%+v", p)
+	}
+	if items, _ := ListItems(ctx, e.pool, f, "image"); len(items) != 0 {
+		t.Fatal("partial items kept")
 	}
 }

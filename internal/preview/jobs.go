@@ -28,6 +28,9 @@ var ErrNoPreview = errors.New("preview: no preview row")
 // ErrLeaseLost means the job was reclaimed (or finished) since this worker claimed it.
 var ErrLeaseLost = errors.New("preview: job lease lost")
 
+// ErrFileDeleted means the file was deleted while its preview was rendering.
+var ErrFileDeleted = errors.New("preview: file deleted")
+
 // Querier is satisfied by pgx.Tx and *pgxpool.Pool.
 type Querier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
@@ -175,13 +178,20 @@ func Renew(ctx context.Context, pool *pgxpool.Pool, j *Job, lease time.Duration)
 	return err
 }
 
-// Complete marks the preview ready and the job done in one transaction.
+// Complete marks the preview ready and the job done in one transaction, or
+// returns ErrFileDeleted (changing nothing) if the file has been deleted.
 func Complete(ctx context.Context, pool *pgxpool.Pool, j *Job, r Result) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var one int
+	if err := tx.QueryRow(ctx, `SELECT 1 FROM files WHERE id = $1 AND deleted_at IS NULL FOR SHARE`, j.FileID).Scan(&one); errors.Is(err, pgx.ErrNoRows) {
+		return ErrFileDeleted
+	} else if err != nil {
+		return err
+	}
 	if err := finishJob(ctx, tx, j, "done", ""); err != nil {
 		return err
 	}

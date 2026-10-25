@@ -43,12 +43,12 @@ func TestRunCleanEnv(t *testing.T) {
 	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		k, v, _ := strings.Cut(l, "=")
 		keys = append(keys, k)
-		if k == "HOME" && v != dir {
-			t.Fatalf("HOME = %q", v)
+		if k != "PATH" && v != dir {
+			t.Fatalf("%s = %q", k, v)
 		}
 	}
 	sort.Strings(keys)
-	if strings.Join(keys, ",") != "HOME,PATH" {
+	if strings.Join(keys, ",") != "HOME,PATH,TEMP,TMP,TMPDIR" {
 		t.Fatalf("env = %q", out)
 	}
 }

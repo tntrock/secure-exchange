@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,8 +56,14 @@ func docPipeline(e *jobEnv) (Result, error) {
 	if pages > e.cfg.MaxPages {
 		return Result{}, fmt.Errorf("%w: %d pages", errTooLarge, pages)
 	}
-	if o, err := Run(e.ctx, e.dir, pdftoppmTimeout, "pdftoppm", "-r", strconv.Itoa(e.cfg.DPI), "-f", "1", "-l", strconv.Itoa(pages),
-		"-png", pdf, filepath.Join(e.dir, "p")); err != nil {
+	// page sizes bound pdftoppm's bitmap: a hostile page box must not allocate unbounded memory
+	sizes, err := Run(e.ctx, e.dir, pdfinfoTimeout, "pdfinfo", "-f", "1", "-l", strconv.Itoa(pages), pdf)
+	if err != nil {
+		return Result{}, toolErr("pdfinfo", err, sizes)
+	}
+	// -cropbox: render the box pdfinfo reports sizes for (poppler clips it to the media box)
+	args := append(renderScale(sizes, e.cfg.DPI), "-cropbox", "-f", "1", "-l", strconv.Itoa(pages), "-png", pdf, filepath.Join(e.dir, "p"))
+	if o, err := Run(e.ctx, e.dir, pdftoppmTimeout, "pdftoppm", args...); err != nil {
 		return Result{}, toolErr("pdftoppm", err, o)
 	}
 	files, err := pageFiles(e.dir)
@@ -103,19 +112,44 @@ func putPage(e *jobEnv, idx int, path string) (w, h int, err error) {
 	return b.Dx(), b.Dy(), e.put("page", idx, f, st.Size(), Item{Width: b.Dx(), Height: b.Dy()})
 }
 
-// parsePages reads the "Pages:" line of pdfinfo output.
+// parsePages reads the last "Pages:" line of pdfinfo output (metadata such as
+// the Title, printed earlier, may contain a spoofed one).
 func parsePages(out []byte) (int, error) {
+	v, found := "", false
 	s := bufio.NewScanner(bytes.NewReader(out))
 	for s.Scan() {
-		if v, ok := strings.CutPrefix(s.Text(), "Pages:"); ok {
-			n, err := strconv.Atoi(strings.TrimSpace(v))
-			if err != nil || n <= 0 {
-				return 0, errors.New("pdfinfo: bad page count")
-			}
-			return n, nil
+		if rest, ok := strings.CutPrefix(s.Text(), "Pages:"); ok {
+			v, found = rest, true
 		}
 	}
-	return 0, errors.New("pdfinfo: no page count")
+	if !found {
+		return 0, errors.New("pdfinfo: no page count")
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n <= 0 {
+		return 0, errors.New("pdfinfo: bad page count")
+	}
+	return n, nil
+}
+
+var pageSizeRE = regexp.MustCompile(`(?m)^Page\s+\d+\s+size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts`)
+
+// renderScale picks pdftoppm's resolution flags from `pdfinfo -f 1 -l N` output:
+// -r DPI unless the largest page would exceed maxPageSide pixels, then -scale-to.
+// Taking the max over every line means a spoofed line can only make it stricter.
+func renderScale(pdfinfo []byte, dpi int) []string {
+	largest := 0.0
+	for _, m := range pageSizeRE.FindAllSubmatch(pdfinfo, -1) {
+		for _, s := range m[1:] {
+			if v, err := strconv.ParseFloat(string(s), 64); err == nil {
+				largest = max(largest, v)
+			}
+		}
+	}
+	if largest <= 0 || largest/72*float64(dpi) > maxPageSide {
+		return []string{"-scale-to", strconv.Itoa(maxPageSide)}
+	}
+	return []string{"-r", strconv.Itoa(dpi)}
 }
 
 // pageFiles lists pdftoppm's p-N.png outputs in page order (the zero padding varies with page count).
@@ -132,15 +166,17 @@ func pageFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
-// toolErr describes a failed external program by its error and the tail of its
-// output (diagnostics, never the document itself).
+// toolErr names a failed external program by its exit status or timeout only:
+// the error is stored in file_previews, and tool output can echo document text.
+// The output tail goes to the debug log.
 func toolErr(name string, err error, out []byte) error {
 	if errors.Is(err, ErrTimeout) {
 		return fmt.Errorf("%s: %w", name, err)
 	}
-	msg := strings.TrimSpace(string(out))
-	if len(msg) > 300 {
-		msg = msg[len(msg)-300:]
+	slog.Debug("preview: tool failed", "tool", name, "err", err, "output", string(out))
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return fmt.Errorf("%s: %s", name, exit.ProcessState)
 	}
-	return fmt.Errorf("%s: %w: %s", name, err, msg)
+	return fmt.Errorf("%s: %w", name, err)
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -118,6 +119,13 @@ func worker() error {
 	keys, err := sxcrypto.ParseKeyring(cfg.MasterKeys, cfg.ActiveKeyID)
 	if err != nil {
 		return fmt.Errorf("master keys: %w", err)
+	}
+	// non-dumpable: sandboxed children run as this uid and must not read /proc/<pid>/environ (keys)
+	if err := preview.NoDump(); err != nil {
+		return fmt.Errorf("prctl PR_SET_DUMPABLE: %w", err)
+	}
+	if cfg.WorkerTmp, err = filepath.Abs(cfg.WorkerTmp); err != nil {
+		return fmt.Errorf("SX_WORKER_TMP: %w", err)
 	}
 	if fi, err := os.Stat(cfg.WorkerTmp); err != nil || !fi.IsDir() {
 		return fmt.Errorf("SX_WORKER_TMP %q must be an existing directory (tmpfs)", cfg.WorkerTmp)

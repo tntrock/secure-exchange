@@ -2,9 +2,16 @@ package db_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tntrock/secure-exchange/internal/db"
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
 )
 
@@ -70,6 +77,48 @@ func TestMigration0003Applies(t *testing.T) {
 		var n int
 		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM "+tbl).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("%s: n=%d err=%v", tbl, n, err)
+		}
+	}
+}
+
+// serve and worker may start together against a fresh database.
+func TestConcurrentOpen(t *testing.T) {
+	url := os.Getenv("SX_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("SX_TEST_DATABASE_URL not set")
+	}
+	ctx := context.Background()
+	b := make([]byte, 8)
+	rand.Read(b)
+	schema := "t_" + hex.EncodeToString(b)
+	admin, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
+	var wg sync.WaitGroup
+	errs := make([]error, 10)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cfg, _ := pgxpool.ParseConfig(url)
+			cfg.ConnConfig.RuntimeParams["search_path"] = schema
+			pool, err := db.OpenConfig(ctx, cfg)
+			if err == nil {
+				pool.Close()
+			}
+			errs[i] = err
+		}()
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("open %d: %v", i, err)
 		}
 	}
 }

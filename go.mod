@@ -10,6 +10,7 @@ require (
 	github.com/pressly/goose/v3 v3.29.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/image v0.47.0
+	golang.org/x/sys v0.49.0
 	golang.org/x/time v0.16.0
 )
 
@@ -35,7 +36,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 )

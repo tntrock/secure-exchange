@@ -114,41 +114,30 @@ func (w *Worker) runJob(ctx context.Context, j *Job) {
 		return // shutting down: the lease expires and the job is retried
 	}
 	if err == nil {
-		err = w.complete(ctx, j, res)
-		if err == nil {
+		if err = Complete(ctx, w.Pool, j, res); err == nil {
+			return
+		}
+		if errors.Is(err, ErrLeaseLost) {
+			slog.Warn("preview: lease lost at complete, result dropped", "job", j.ID)
 			return
 		}
 	}
-	status := StatusFailed
-	if errors.Is(err, errTooLarge) {
+	status, msg := StatusFailed, err.Error()
+	switch {
+	case errors.Is(err, errTooLarge):
 		status = StatusTooLarge
+	case errors.Is(err, ErrFileDeleted):
+		msg = "file deleted"
 	}
-	slog.Info("preview: job failed", "job", j.ID, "file", j.FileID, "status", status, "err", err)
-	if ferr := Fail(ctx, w.Pool, j, status, err.Error()); ferr != nil {
+	slog.Info("preview: job failed", "job", j.ID, "file", j.FileID, "status", status, "err", msg)
+	if ferr := Fail(ctx, w.Pool, j, status, msg); ferr != nil {
 		slog.Error("preview: record failure", "job", j.ID, "err", ferr)
+		return // not ours any more: leave the items to the current attempt
 	}
-}
-
-// complete marks the job done unless the file was deleted meanwhile.
-func (w *Worker) complete(ctx context.Context, j *Job, res Result) error {
-	var deleted bool
-	if err := w.Pool.QueryRow(ctx, `SELECT deleted_at IS NOT NULL FROM files WHERE id = $1`, j.FileID).Scan(&deleted); err != nil {
-		return err
+	// a failed (or deleted) file keeps no partial artifacts
+	if derr := DeleteItems(ctx, w.Pool, w.Store, j.FileID); derr != nil {
+		slog.Error("preview: delete items of failed job", "job", j.ID, "err", derr)
 	}
-	if deleted {
-		if err := DeleteItems(ctx, w.Pool, w.Store, j.FileID); err != nil {
-			return err
-		}
-		return errors.New("file deleted")
-	}
-	if err := Complete(ctx, w.Pool, j, res); err != nil {
-		slog.Error("preview: complete", "job", j.ID, "err", err)
-		if errors.Is(err, ErrLeaseLost) {
-			return nil // another attempt owns the job now
-		}
-		return err
-	}
-	return nil
 }
 
 var safeExt = regexp.MustCompile(`^\.[a-z0-9]{1,10}$`)

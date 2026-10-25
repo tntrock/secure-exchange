@@ -9,7 +9,7 @@ import (
 )
 
 // ErrTimeout means an external program ran past its time limit and was killed.
-var ErrTimeout = errors.New("preview: external program timed out")
+var ErrTimeout = errors.New("timeout")
 
 // outputTail is how much of a program's combined stdout+stderr Run keeps.
 const outputTail = 4 << 10
@@ -26,7 +26,7 @@ func (s Sandbox) NewDir() (dir string, cleanup func(), err error) {
 	return dir, func() { os.RemoveAll(dir) }, nil
 }
 
-// Run executes name in dir with an empty environment (PATH, HOME=dir), killing
+// Run executes name in dir with an empty environment (PATH; HOME and the temp dir vars = dir), killing
 // it (and on unix its whole process group) after timeout. It returns the last
 // 4 KiB of combined output.
 func Run(ctx context.Context, dir string, timeout time.Duration, name string, args ...string) ([]byte, error) {
@@ -34,7 +34,8 @@ func Run(ctx context.Context, dir string, timeout time.Duration, name string, ar
 	defer cancel()
 	cmd := exec.CommandContext(tctx, name, args...)
 	cmd.Dir = dir
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir}
+	// TMPDIR etc.: LibreOffice writes document copies to the temp dir, which must be the tmpfs.
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "TMPDIR=" + dir, "TMP=" + dir, "TEMP=" + dir}
 	out := &tail{}
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.WaitDelay = 5 * time.Second

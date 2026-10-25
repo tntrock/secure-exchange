@@ -302,3 +302,19 @@ func TestBackfillSkipsBadFile(t *testing.T) {
 		t.Fatalf("good file: %+v", p)
 	}
 }
+
+func TestCompleteDeletedFile(t *testing.T) {
+	pool, owner := newPool(t)
+	file := pending(t, pool, owner, 1)[0]
+	j, _ := Claim(ctx, pool, time.Minute)
+	pool.Exec(ctx, `UPDATE files SET deleted_at = now() WHERE id = $1`, file)
+	if err := Complete(ctx, pool, j, Result{Kind: KindPages, PageCount: 1}); !errors.Is(err, ErrFileDeleted) {
+		t.Fatalf("err = %v", err)
+	}
+	if p, _ := GetStatus(ctx, pool, file); p.Status != StatusPending {
+		t.Fatalf("%+v", p)
+	}
+	if err := Fail(ctx, pool, j, StatusFailed, "file deleted"); err != nil {
+		t.Fatal("job no longer running:", err)
+	}
+}

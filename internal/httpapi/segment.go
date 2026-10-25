@@ -20,7 +20,10 @@ const burnTimeout = 30 * time.Second
 // ponytail: per-process semaphore, single node only; share it (or pre-render) when scaling out
 var burnSlots = make(chan struct{}, runtime.NumCPU())
 
-// errBusy means every burn slot stayed taken until the request ended.
+// burnWait is how long a request waits for a burn slot before it gets 503 busy (a var for tests).
+var burnWait = 3 * time.Second
+
+// errBusy means every burn slot stayed taken for burnWait (or until the request ended).
 var errBusy = errors.New("burn segment: busy")
 
 // filterQuote makes s one literal option value in an ffmpeg filtergraph: backslash-escapes the
@@ -39,10 +42,15 @@ func drawtextEscape(s string) string {
 // burnSegment re-encodes one MPEG-TS segment from src with m drawn on three rows, into w.
 // ponytail: 每次請求都重新燒入，同時觀看人數多時需改為快取或預先轉檔
 func (s *server) burnSegment(ctx context.Context, w io.Writer, src io.Reader, m preview.Mark) error {
+	// the request ctx ends only on disconnect (no server WriteTimeout), so the wait has its own bound
+	timer := time.NewTimer(burnWait)
+	defer timer.Stop()
 	select {
 	case burnSlots <- struct{}{}:
 		defer func() { <-burnSlots }()
 	case <-ctx.Done():
+		return errBusy
+	case <-timer.C:
 		return errBusy
 	}
 	// ffmpeg's fontconfig lookup would silently substitute another font for a missing file

@@ -8,8 +8,6 @@ import (
 	"image/jpeg"
 	"image/png"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -354,6 +352,9 @@ func TestSegmentBurnFailsClosed(t *testing.T) {
 
 func TestSegmentBurnBusy(t *testing.T) {
 	e, _, base := wmVideoShare(t)
+	old := burnWait
+	burnWait = 300 * time.Millisecond
+	defer func() { burnWait = old }()
 	for range cap(burnSlots) {
 		burnSlots <- struct{}{}
 	}
@@ -362,16 +363,12 @@ func TestSegmentBurnBusy(t *testing.T) {
 			<-burnSlots
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	req := httptest.NewRequestWithContext(ctx, "GET", e.ts.URL+base+"segments/0.ts", nil)
-	u, _ := url.Parse(e.ts.URL)
-	for _, c := range e.c.Jar.Cookies(u) {
-		req.AddCookie(c)
+	start := time.Now()
+	resp, b := e.get(t, base+"segments/0.ts") // a live client: only burnWait can end the wait
+	if took := time.Since(start); took < burnWait || took > burnWait+time.Second {
+		t.Fatalf("answered after %v", took)
 	}
-	rec := httptest.NewRecorder()
-	e.ts.Config.Handler.ServeHTTP(rec, req)
-	if rec.Code != 503 || rec.Header().Get("Retry-After") != "2" || strings.TrimSpace(rec.Body.String()) != `{"error":"busy"}` {
-		t.Fatal(rec.Code, rec.Header(), rec.Body.String())
+	if resp.StatusCode != 503 || resp.Header.Get("Retry-After") != "2" || strings.TrimSpace(string(b)) != `{"error":"busy"}` {
+		t.Fatal(resp.StatusCode, resp.Header, string(b))
 	}
 }

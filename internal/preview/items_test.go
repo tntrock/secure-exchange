@@ -2,6 +2,7 @@ package preview
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -155,5 +156,36 @@ func TestOpenItemMissing(t *testing.T) {
 	e := newItemEnv(t)
 	if _, _, err := OpenItem(ctx, e.pool, e.store, e.keys, e.file, "page", 9); !errors.Is(err, ErrNoItem) {
 		t.Fatal(err)
+	}
+}
+
+// exactStore mimics S3 multipart: Put reads exactly size bytes and succeeds.
+type exactStore struct {
+	blob.Store
+	deleted []string
+}
+
+func (s *exactStore) Put(_ context.Context, _ string, r io.Reader, size int64) error {
+	_, err := io.CopyN(io.Discard, r, size)
+	return err
+}
+
+func (s *exactStore) Delete(_ context.Context, key string) error {
+	s.deleted = append(s.deleted, key)
+	return nil
+}
+
+func TestPutItemTooLongDespitePutSuccess(t *testing.T) {
+	e := newItemEnv(t)
+	fs := &exactStore{Store: e.store}
+	_, err := PutItem(ctx, e.pool, fs, e.keys, e.file, "page", 0, bytes.NewReader(make([]byte, 11)), 10, Item{})
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if items, _ := ListItems(ctx, e.pool, e.file, "page"); len(items) != 0 {
+		t.Fatal("row inserted")
+	}
+	if len(fs.deleted) != 1 {
+		t.Fatalf("deleted %v", fs.deleted)
 	}
 }

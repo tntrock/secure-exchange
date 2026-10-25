@@ -17,6 +17,8 @@ import (
 
 var ErrNoItem = errors.New("preview: no such item")
 
+var errStopped = errors.New("preview: put finished")
+
 // Item is one encrypted preview artifact (a page image, an image, a video segment).
 type Item struct {
 	ID                 uuid.UUID
@@ -38,35 +40,57 @@ func PutItem(ctx context.Context, pool *pgxpool.Pool, store blob.Store, keys *sx
 	count := sxcrypto.ChunkCount(size)
 
 	pr, pw := io.Pipe()
+	errc := make(chan error, 1) // the writer's terminal error (nil = whole item sealed and r exhausted)
 	go func() {
 		buf := make([]byte, sxcrypto.ChunkSize)
 		for i := int64(0); i < count; i++ {
 			n := min(size-i*sxcrypto.ChunkSize, sxcrypto.ChunkSize)
 			if _, err := io.ReadFull(r, buf[:n]); err != nil {
-				pw.CloseWithError(fmt.Errorf("preview: item shorter than %d bytes: %w", size, err))
+				err = fmt.Errorf("preview: item shorter than %d bytes: %w", size, err)
+				pw.CloseWithError(err)
+				errc <- err
 				return
 			}
 			if _, err := pw.Write(sxcrypto.SealChunk(dek, id, uint64(i), i == count-1, buf[:n])); err != nil {
+				errc <- err
 				return
 			}
 		}
 		if n, _ := r.Read(buf[:1]); n > 0 {
-			pw.CloseWithError(fmt.Errorf("preview: item longer than %d bytes", size))
+			err := fmt.Errorf("preview: item longer than %d bytes", size)
+			pw.CloseWithError(err)
+			errc <- err
 			return
 		}
 		pw.Close()
+		errc <- nil
 	}()
+	del := func() {
+		if err := store.Delete(context.WithoutCancel(ctx), key); err != nil {
+			slog.Error("preview: delete partial blob", "key", key, "err", err)
+		}
+	}
 	err = store.Put(ctx, key, pr, size+16*count)
+	if err == nil {
+		err = errStopped
+	}
 	pr.CloseWithError(err) // unblock the writer if Put stopped early
+	werr := <-errc         // join: r is no longer used after this
+	if err == errStopped {
+		err = nil
+	}
+	if err == nil {
+		err = werr // Put may succeed on a truncated read (S3 multipart reads exact sizes)
+	}
 	if err != nil {
-		store.Delete(context.WithoutCancel(ctx), key)
+		del()
 		return Item{}, err
 	}
 
 	it := Item{ID: id, Kind: kind, Idx: idx, Width: meta.Width, Height: meta.Height, Size: size, DurationMs: meta.DurationMs}
 	oldKey, err := replaceRow(ctx, pool, fileID, it, key, wrapped, keyID)
 	if err != nil {
-		store.Delete(context.WithoutCancel(ctx), key)
+		del()
 		return Item{}, err
 	}
 	if oldKey != "" {

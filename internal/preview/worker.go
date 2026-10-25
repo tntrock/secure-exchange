@@ -45,7 +45,7 @@ type jobEnv struct {
 
 type pipeline func(*jobEnv) (Result, error)
 
-var pipelines = map[Kind]pipeline{KindPages: docPipeline, KindImage: imagePipeline}
+var pipelines = map[Kind]pipeline{KindPages: docPipeline, KindImage: imagePipeline, KindVideo: videoPipeline}
 
 // Worker drains the render queue.
 type Worker struct {

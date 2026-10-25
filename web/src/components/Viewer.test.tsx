@@ -1,11 +1,11 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import i18n from "../i18n";
-import Viewer from "./Viewer";
+import Viewer, { lowestVisible } from "./Viewer";
 
 const loadSource = vi.fn(), attachMedia = vi.fn(), destroy = vi.fn();
 vi.mock("hls.js", () => ({
-  default: class { static isSupported() { return true; } loadSource = loadSource; attachMedia = attachMedia; destroy = destroy; },
+  default: class { static isSupported() { return true; } static Events = { ERROR: "hlsError" }; on = vi.fn(); loadSource = loadSource; attachMedia = attachMedia; destroy = destroy; },
 }));
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
@@ -51,4 +51,25 @@ test("401 calls onSessionEnded", async () => {
   const ended = vi.fn();
   render(<Viewer base="/b" onClose={() => {}} onSessionEnded={ended} />);
   await waitFor(() => expect(ended).toHaveBeenCalled());
+});
+
+test("403 view_limit / ip_denied and 422 not_previewable have own messages", async () => {
+  stub(403, { error: "view_limit" });
+  render(<Viewer base="/b" onClose={() => {}} />);
+  expect(await screen.findByText(i18n.t("viewer.view_limit"))).toBeTruthy();
+  cleanup();
+  stub(422, { error: "not_previewable" });
+  render(<Viewer base="/b" onClose={() => {}} />);
+  expect(await screen.findByText(i18n.t("viewer.notReady"))).toBeTruthy();
+});
+
+test("staff 401 shows re-login message", async () => {
+  stub(401, { error: "unauthorized" });
+  render(<Viewer base="/b" onClose={() => {}} />);
+  expect(await screen.findByText(i18n.t("viewer.reLogin"))).toBeTruthy();
+});
+
+test("lowestVisible picks the lowest page", () => {
+  expect(lowestVisible([])).toBeNull();
+  expect(lowestVisible(new Set([5, 3, 4]))).toBe(3);
 });

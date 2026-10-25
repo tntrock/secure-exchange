@@ -48,6 +48,7 @@ type Config struct {
 	ShareMaxDays      int
 	Preview           PreviewConfig
 	WorkerTmp         string
+	FontFile          string // drawtext font for video watermarks
 }
 
 // Load reads configuration via getenv (e.g. os.Getenv). All problems are
@@ -94,6 +95,7 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 		InitAdminPassword: get("SX_INIT_ADMIN_PASSWORD", ""),
 		ShareMaxDays:      30,
 		WorkerTmp:         get("SX_WORKER_TMP", "/work"),
+		FontFile:          get("SX_FONT_FILE", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
 		Preview:           PreviewConfig{MaxBytes: 2 << 30, MaxPages: 500, MaxVideoBytes: 20 << 30, MaxVideoSeconds: 7200, DPI: 110},
 		SMTP: SMTPConfig{
 			Host:     web("SX_SMTP_HOST"),

@@ -41,8 +41,13 @@ func (e *env) lastMail(t *testing.T, to string) mail.Message {
 // recipShare has the logged-in owner share files without IP limits; it returns the share id and link token.
 func (e *env) recipShare(t *testing.T, allowDownload bool, files []uuid.UUID, emails ...string) (string, string) {
 	t.Helper()
+	return e.recipShareWM(t, allowDownload, false, files, emails...)
+}
+
+func (e *env) recipShareWM(t *testing.T, allowDownload, watermark bool, files []uuid.UUID, emails ...string) (string, string) {
+	t.Helper()
 	resp, b := e.do(t, "POST", "/api/shares", map[string]any{"file_ids": files, "emails": emails, "allow_download": allowDownload,
-		"expires_at": time.Now().Add(48 * time.Hour).Format(time.RFC3339), "message": "hi"})
+		"watermark": watermark, "expires_at": time.Now().Add(48 * time.Hour).Format(time.RFC3339), "message": "hi"})
 	if resp.StatusCode != 201 {
 		t.Fatal(resp.StatusCode, string(b))
 	}

@@ -36,8 +36,9 @@ var (
 
 // Access is a verified recipient's view of one share.
 type Access struct {
-	Share     *Share
-	Recipient Recipient
+	Share       *Share
+	Recipient   Recipient
+	SessionHash []byte // sha256 of the session token, as stored in share_sessions
 }
 
 func ipAllowed(list []netip.Prefix, ip netip.Addr) bool {
@@ -241,7 +242,7 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 	if err := s.loadFiles(ctx, sh); err != nil {
 		return "", nil, err
 	}
-	return session, &Access{Share: sh, Recipient: r}, nil
+	return session, &Access{Share: sh, Recipient: r, SessionHash: hashString(session)}, nil
 }
 
 // Authorize resolves a recipient session and rechecks the recipient and share on every call.
@@ -275,7 +276,7 @@ func (s *Service) Authorize(ctx context.Context, sessionToken string, ip netip.A
 		WHERE id = $1 AND (last_access_at IS NULL OR last_access_at < now() - interval '1 minute')`, r.ID); err != nil {
 		return nil, err
 	}
-	return &Access{Share: sh, Recipient: r}, nil
+	return &Access{Share: sh, Recipient: r, SessionHash: hashString(sessionToken)}, nil
 }
 
 // RecordDownload notes a recipient's first download of a file and tells the owner once per file.

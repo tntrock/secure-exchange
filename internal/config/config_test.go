@@ -160,8 +160,8 @@ func TestLoadPreviewDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := PreviewConfig{MaxBytes: 2 << 30, MaxPages: 500, MaxVideoBytes: 20 << 30, MaxVideoSeconds: 7200, DPI: 110}
-	if c.Preview != want || c.WorkerTmp != "/work" {
-		t.Fatalf("preview = %+v tmp=%q", c.Preview, c.WorkerTmp)
+	if c.Preview != want || c.WorkerTmp != "/work" || c.FontFile != "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" {
+		t.Fatalf("preview = %+v tmp=%q font=%q", c.Preview, c.WorkerTmp, c.FontFile)
 	}
 }
 

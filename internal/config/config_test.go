@@ -153,3 +153,24 @@ func TestLoadSMTPTLSNoneLocalOnly(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestLoadPreviewDefaults(t *testing.T) {
+	c, err := Load(env(required()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := PreviewConfig{MaxBytes: 2 << 30, MaxPages: 500, MaxVideoBytes: 20 << 30, MaxVideoSeconds: 7200, DPI: 110}
+	if c.Preview != want || c.WorkerTmp != "/work" {
+		t.Fatalf("preview = %+v tmp=%q", c.Preview, c.WorkerTmp)
+	}
+}
+
+func TestLoadPreviewInvalid(t *testing.T) {
+	for _, kv := range [][2]string{{"SX_PREVIEW_MAX_PAGES", "0"}, {"SX_RENDER_DPI", "abc"}, {"SX_PREVIEW_MAX_BYTES", "-1"}, {"SX_PREVIEW_MAX_VIDEO_BYTES", "0"}, {"SX_PREVIEW_MAX_VIDEO_SECONDS", "x"}} {
+		m := required()
+		m[kv[0]] = kv[1]
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), kv[0]) {
+			t.Fatalf("%s=%s: err = %v", kv[0], kv[1], err)
+		}
+	}
+}

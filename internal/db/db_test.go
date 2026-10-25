@@ -63,3 +63,13 @@ func TestMigration0002Applies(t *testing.T) {
 		t.Fatalf("shares count = %d, want 0", n)
 	}
 }
+
+func TestMigration0003Applies(t *testing.T) {
+	pool := testdb.New(t)
+	for _, tbl := range []string{"file_previews", "preview_items", "render_jobs", "view_traces"} {
+		var n int
+		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM "+tbl).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("%s: n=%d err=%v", tbl, n, err)
+		}
+	}
+}

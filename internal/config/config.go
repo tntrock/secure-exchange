@@ -24,6 +24,11 @@ type SMTPConfig struct {
 	TLS                string // "starttls", "tls" or "none"
 }
 
+type PreviewConfig struct {
+	MaxBytes, MaxVideoBytes        int64
+	MaxPages, MaxVideoSeconds, DPI int
+}
+
 type Config struct {
 	Listen            string
 	BaseURL           string
@@ -41,6 +46,8 @@ type Config struct {
 	InitAdminPassword string
 	SMTP              SMTPConfig
 	ShareMaxDays      int
+	Preview           PreviewConfig
+	WorkerTmp         string
 }
 
 // Load reads configuration via getenv (e.g. os.Getenv). All problems are
@@ -75,6 +82,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		InitAdminEmail:    get("SX_INIT_ADMIN_EMAIL", ""),
 		InitAdminPassword: get("SX_INIT_ADMIN_PASSWORD", ""),
 		ShareMaxDays:      30,
+		WorkerTmp:         get("SX_WORKER_TMP", "/work"),
+		Preview:           PreviewConfig{MaxBytes: 2 << 30, MaxPages: 500, MaxVideoBytes: 20 << 30, MaxVideoSeconds: 7200, DPI: 110},
 		SMTP: SMTPConfig{
 			Host:     req("SX_SMTP_HOST"),
 			Port:     587,
@@ -145,6 +154,29 @@ func Load(getenv func(string) string) (*Config, error) {
 			c.ShareMaxDays = n
 		}
 	}
+	posInt := func(k string, dst *int) {
+		if s := get(k, ""); s != "" {
+			if n, err := strconv.ParseInt(s, 10, 31); err != nil || n <= 0 {
+				bad(k, errors.New("must be a positive integer"))
+			} else {
+				*dst = int(n)
+			}
+		}
+	}
+	posInt64 := func(k string, dst *int64) {
+		if s := get(k, ""); s != "" {
+			if n, err := strconv.ParseInt(s, 10, 64); err != nil || n <= 0 {
+				bad(k, errors.New("must be a positive integer"))
+			} else {
+				*dst = n
+			}
+		}
+	}
+	posInt64("SX_PREVIEW_MAX_BYTES", &c.Preview.MaxBytes)
+	posInt("SX_PREVIEW_MAX_PAGES", &c.Preview.MaxPages)
+	posInt64("SX_PREVIEW_MAX_VIDEO_BYTES", &c.Preview.MaxVideoBytes)
+	posInt("SX_PREVIEW_MAX_VIDEO_SECONDS", &c.Preview.MaxVideoSeconds)
+	posInt("SX_RENDER_DPI", &c.Preview.DPI)
 	if c.SMTP.From != "" {
 		if _, err := mail.ParseAddress(c.SMTP.From); err != nil {
 			bad("SX_SMTP_FROM", err)

@@ -71,7 +71,9 @@ func TestOutboxLastErrorUTF8(t *testing.T) {
 
 type nulErrSender struct{}
 
-func (nulErrSender) Send(context.Context, Message) error { return errors.New("bad" + string(rune(0)) + "reply") }
+func (nulErrSender) Send(context.Context, Message) error {
+	return errors.New("bad" + string(rune(0)) + "reply")
+}
 
 func TestOutboxLastErrorStripsNUL(t *testing.T) {
 	o, col := newOutbox(t, nulErrSender{})

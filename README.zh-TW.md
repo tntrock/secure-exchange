@@ -4,13 +4,14 @@
 
 自架的安全檔案交換系統，開源（AGPL-3.0）。單一 Go 執行檔（內嵌網頁介面）、以 PostgreSQL 存放中繼資料、檔案內容存放於本機磁碟或 S3 相容儲存。
 
-## 功能（第一至二階段）
+## 功能（第一至三階段）
 
 - 支援超大檔案的可續傳上傳（tus）；檔案在寫入磁碟或 S3 之前一律先加密（AES-256-GCM，每個檔案一把金鑰，再由主金鑰包裝）。
 - argon2id 密碼登入、可選的 TOTP 雙因素驗證、速率限制、雜湊鏈稽核紀錄。
 - 網頁介面支援繁體中文與英文。
 - `rotate-keys` 子命令，可將已存資料換到新的主金鑰。
 - 一次性分享：將檔案分享給指定收件人，每位收件人以 email 一次性驗證碼驗證；支援期限、檢視次數、IP 限制、撤銷與通知。
+- 線上檢視：文件、圖片與影片以伺服器端產生的頁面圖片與影片片段呈現，可依收件人加上浮水印；轉檔在隔離的 worker 容器中進行。
 
 ## 快速部署
 
@@ -23,7 +24,7 @@ openssl rand -base64 32      # 輸出值填入 SX_MASTER_KEYS=1:<金鑰>
 docker compose up -d
 ```
 
-開啟 `https://<SX_DOMAIN>`，以 `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD` 登入。本機試用可設 `SX_DOMAIN=localhost`（使用 Caddy 本機 CA，`curl` 請加 `-k`）。`scripts/smoke.sh` 會在用完即丟的環境做上傳／續傳／下載／分享的端對端檢查（需 Docker；已有 `.env` 時拒絕執行）。
+開啟 `https://<SX_DOMAIN>`，以 `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD` 登入。本機試用可設 `SX_DOMAIN=localhost`（使用 Caddy 本機 CA，`curl` 請加 `-k`）。`scripts/smoke.sh` 會在用完即丟的環境做上傳／續傳／下載／分享／線上檢視的端對端檢查（需 Docker；已有 `.env` 時拒絕執行）。
 
 所有設定皆為環境變數；每個 `SX_*` 設定都在 `.env.example` 中說明。
 
@@ -51,9 +52,36 @@ SX_SMTP_TLS=starttls        # starttls（預設）、tls（隱式 TLS，通常�
 5. 可隨時撤銷整個分享或單一收件人，已開啟的連線會立即失效。也可對既有分享追加收件人（對方會收到自己的邀請信）。
 6. 每位收件人第一次開啟分享（通過驗證）、以及第一次下載每個檔案時，你會收到通知信；之後的開啟與下載不再寄信。每個步驟都記錄於稽核紀錄。
 
-目前限制：設為「僅線上檢視」的分享只會列出檔案，尚無內容可看（線上檢視功能尚未提供），下載按鈕與下載 API 對其停用。
+設為「僅線上檢視」的分享，收件人以線上檢視（見下節）觀看檔案；下載按鈕與下載 API 對其停用。
 
 本機開發時，`docker-compose.dev.yml` 內含 mailpit（SMTP 在 `:51025`，網頁介面在 `http://localhost:58025`）；`scripts/smoke.sh` 會在一個用完即丟的環境跑完整流程。
+
+## 線上檢視
+
+檔案可直接在瀏覽器中檢視，不必下載。瀏覽器收到的只有伺服器端產生的圖片與影片片段；檢視功能從不送出原始檔、PDF 或 Office 檔。
+
+- **支援格式：** 文件逐頁轉成圖片（PDF、Word／Excel／PowerPoint 與 OpenDocument、RTF、CSV、純文字、Markdown、JSON／XML／YAML、記錄檔與常見原始碼、HTML）；圖片（JPEG、PNG、GIF、WebP、BMP、TIFF）；影片（MP4、MOV、M4V、MKV、WebM、AVI）轉為 H.264／AAC、最高 720p，以 HLS 串流。其他檔案仍可用允許下載的分享傳送。
+- **預覽上限**（環境變數，見 `.env.example`）：`SX_PREVIEW_MAX_BYTES`（文件與圖片，預設 2 GiB）、`SX_PREVIEW_MAX_PAGES`（500）、`SX_PREVIEW_MAX_VIDEO_BYTES`（20 GiB）、`SX_PREVIEW_MAX_VIDEO_SECONDS`（7200）、`SX_RENDER_DPI`（110）。超過上限的檔案視為無法預覽。
+- **僅線上檢視的分享**需要預覽已完成：預覽仍在產生時不能加入該檔案；無法預覽的檔案只能放在允許下載的分享。
+- **浮水印：** 分享開啟「浮水印」後，收件人看到的每一頁、每一個影片片段都帶有平鋪、半透明的一行文字：追蹤碼、時間（UTC）、IP 與收件人 email。浮水印於每次請求時繪製，不會快取。檢視自己的檔案時不加浮水印。
+
+預覽由獨立的 **worker** 容器產生（`docker compose up -d` 會一併啟動）。它要以 LibreOffice、poppler 與 FFmpeg 處理不受信任的檔案，因此有以下隔離：
+
+- **無對外網路：** 只接內部網路 `backend`（與 PostgreSQL、app 相連），無法連上網際網路。
+- **根檔案系統唯讀；** 解密後的檔案與中間檔只放在 `/work` 的 tmpfs（`SX_WORKER_TMP`，4 GiB），每個工作結束即刪除。產生的頁面與片段在儲存前一律加密。
+- **資源上限：** 記憶體 4 GiB、2 顆 CPU、512 個 process；移除所有 capabilities、`no-new-privileges`、以 uid 65532 執行。每個外部程式都有逾時。
+
+**外部 S3：** 使用 `SX_STORAGE=s3` 且 S3 位於 compose 之外時，worker 需要能連到它。以 `docker-compose.override.yml` 讓它多接一個網路：
+
+```yaml
+services:
+  worker:
+    networks: [backend, s3]
+networks:
+  s3: {}
+```
+
+這個網路會讓 worker 重新能對外連線，請在防火牆上限制為只能連到 S3 端點。
 
 ## 備份
 
@@ -84,7 +112,7 @@ SX_SMTP_TLS=starttls        # starttls（預設）、tls（隱式 TLS，通常�
 
 1. 產生新金鑰：`openssl rand -base64 32`。
 2. 把新金鑰加到 `SX_MASTER_KEYS`，與舊金鑰並列（`1:<舊>,2:<新>`），並設 `SX_ACTIVE_KEY_ID=2`。
-3. 在進行下一步**之前**，先把**所有**應用程式實例重啟到新的使用中金鑰（`docker compose up -d`），避免仍有實例以舊金鑰寫入。
+3. 在進行下一步**之前**，先把**所有** app 與 worker 實例重啟到新的使用中金鑰（`docker compose up -d`），避免仍有實例以舊金鑰寫入。
 4. 執行 `docker compose exec app /secure-exchange rotate-keys`。此命令會載入完整設定（資料庫、金鑰、SMTP 等），因此請在已有 `.env` 設定的 app 容器內執行，而不是在主機上。重複執行，直到回報 `rotated 0 values`。
 5. 這時才從 `SX_MASTER_KEYS` 移除舊金鑰並重啟。確認下載仍正常之前，請保留舊金鑰備份。
 
@@ -99,6 +127,14 @@ go vet ./... && go test ./...
 ```
 
 未設定 `SX_TEST_DATABASE_URL` 時，資料庫測試會跳過。CI 以 `-race` 執行全部測試。
+
+`//go:build tools` 測試（LibreOffice、poppler、FFmpeg）在 worker-test 映像中執行；它加入開發用 compose 網路，以服務名稱連到 PostgreSQL 與 MinIO（原始碼掛載於 `/src`）：
+
+```sh
+docker compose -f docker-compose.dev.yml --profile tools run --rm worker-test
+```
+
+CI 以獨立的 `tools` job 執行這些測試。
 
 ## 授權
 

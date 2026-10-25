@@ -4,13 +4,14 @@ English | [繁體中文](README.zh-TW.md)
 
 Self-hosted secure file exchange, open source (AGPL-3.0). One Go binary with the web UI embedded, PostgreSQL for metadata, and local disk or S3-compatible storage for file contents.
 
-## Features (phase 1-2)
+## Features (phase 1-3)
 
 - Resumable uploads (tus) of very large files; files are encrypted (AES-256-GCM, per-file key wrapped by your master key) before anything touches disk or S3.
 - Password login with argon2id, optional TOTP two-factor authentication, rate limiting, hash-chained audit log.
 - Web UI in Traditional Chinese and English.
 - `rotate-keys` subcommand to move stored data to a new master key.
 - One-time shares: send files to named recipients, each verified by an emailed one-time code; expiry, view limit, IP restriction, revocation and notifications.
+- Online viewer: documents, images and videos are shown as server-rendered pages and video segments, optionally watermarked per recipient; rendering happens in an isolated worker container.
 
 ## Quick deployment
 
@@ -23,7 +24,7 @@ openssl rand -base64 32      # use the output as the key in SX_MASTER_KEYS=1:<ke
 docker compose up -d
 ```
 
-Open `https://<SX_DOMAIN>` and sign in with `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD`. For a local trial use `SX_DOMAIN=localhost` (Caddy's local CA; use `curl -k`). `scripts/smoke.sh` runs an end-to-end upload, resume, download and share check on a throwaway stack (needs Docker; refuses to run if a `.env` exists).
+Open `https://<SX_DOMAIN>` and sign in with `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD`. For a local trial use `SX_DOMAIN=localhost` (Caddy's local CA; use `curl -k`). `scripts/smoke.sh` runs an end-to-end upload, resume, download, share and online-viewer check on a throwaway stack (needs Docker; refuses to run if a `.env` exists).
 
 Configuration is entirely through environment variables; every `SX_*` setting is documented in `.env.example`.
 
@@ -51,9 +52,36 @@ SX_SMTP_TLS=starttls        # starttls (default), tls (implicit TLS, usually por
 5. Revoke a whole share, or a single recipient, at any time; open sessions end immediately. You can also add recipients to an existing share (they get their own invitation).
 6. You are notified by email the first time each recipient opens the share (passes verification) and the first time they download each file; later opens and downloads are not mailed. Every step is recorded in the audit log.
 
-Current limitation: shares set to view-only list the files but show no content ("online viewing" is not available yet), and the download button and API are disabled for them.
+For view-only shares the recipient sees the files in the online viewer (below); the download button and API are disabled.
 
 For local development, `docker-compose.dev.yml` includes mailpit (SMTP on `:51025`, web UI on `http://localhost:58025`); `scripts/smoke.sh` runs the whole flow against a throwaway stack.
+
+## Online viewer
+
+Files can be viewed in the browser without downloading them. The browser only ever receives images and video segments the server rendered; the original file, PDF or Office document is never sent by the viewer.
+
+- **Formats:** documents are rendered page by page (PDF, Word/Excel/PowerPoint and OpenDocument, RTF, CSV, plain text, Markdown, JSON/XML/YAML, logs and common source code, HTML); images (JPEG, PNG, GIF, WebP, BMP, TIFF); video (MP4, MOV, M4V, MKV, WebM, AVI) is transcoded to H.264/AAC, up to 720p, streamed as HLS. Other files can still be shared for download.
+- **Limits** (environment variables, see `.env.example`): `SX_PREVIEW_MAX_BYTES` (documents/images, default 2 GiB), `SX_PREVIEW_MAX_PAGES` (500), `SX_PREVIEW_MAX_VIDEO_BYTES` (20 GiB), `SX_PREVIEW_MAX_VIDEO_SECONDS` (7200), `SX_RENDER_DPI` (110). Larger files are marked as not previewable.
+- **View-only shares** require a ready preview: while it is still rendering, the share cannot include the file; files that cannot be previewed can only go in shares that allow download.
+- **Watermark:** turn on *watermark* for a share and every page and video segment the recipient sees carries a tiled, semi-transparent line with a tracking code, the time (UTC), their IP and their email address. It is drawn per request and never cached. Your own previews have no watermark.
+
+Previews are rendered by a separate **worker** container (`docker compose up -d` starts it). It runs LibreOffice, poppler and FFmpeg on untrusted files, so it is locked down:
+
+- **No outbound network:** it is attached only to the internal `backend` network (with PostgreSQL and the app); it cannot reach the internet.
+- **Read-only root filesystem;** decrypted files and intermediates live only on a tmpfs at `/work` (`SX_WORKER_TMP`, 4 GiB) and are deleted after each job. Rendered pages and segments are encrypted before they are stored.
+- **Resource limits:** 4 GiB memory, 2 CPUs, 512 processes; all capabilities dropped, `no-new-privileges`, runs as uid 65532. Every external program has a timeout.
+
+**External S3:** with `SX_STORAGE=s3` and an S3 endpoint outside the compose stack, the worker needs a route to it. Attach it to an additional network in a `docker-compose.override.yml`:
+
+```yaml
+services:
+  worker:
+    networks: [backend, s3]
+networks:
+  s3: {}
+```
+
+That network gives the worker outbound access again, so restrict it at your firewall to the S3 endpoint only.
 
 ## Backup
 
@@ -84,7 +112,7 @@ Restoring requires the **same `SX_MASTER_KEYS` and `SX_ACTIVE_KEY_ID`** as when 
 
 1. Generate a new key: `openssl rand -base64 32`.
 2. Add it to `SX_MASTER_KEYS` next to the old one (`1:<old>,2:<new>`) and set `SX_ACTIVE_KEY_ID=2`.
-3. Restart **all** app instances onto the new active key (`docker compose up -d`) **before** the next step, so nothing keeps writing under the old key.
+3. Restart **all** app and worker instances onto the new active key (`docker compose up -d`) **before** the next step, so nothing keeps writing under the old key.
 4. Run `docker compose exec app /secure-exchange rotate-keys`. It loads the full configuration (database, keys, SMTP and the rest), so run it inside the app container, where the `.env` settings are present, not on the host. Re-run it until it reports `rotated 0 values`.
 5. Only then remove the old key from `SX_MASTER_KEYS` and restart. Keep a backup of the old key until you have verified downloads still work.
 
@@ -99,6 +127,14 @@ go vet ./... && go test ./...
 ```
 
 DB tests are skipped when `SX_TEST_DATABASE_URL` is unset. CI runs everything with `-race`.
+
+The `//go:build tools` tests (LibreOffice, poppler, FFmpeg) run inside the worker-test image, which joins the dev compose network and reaches PostgreSQL and MinIO by service name (source mounted at `/src`):
+
+```sh
+docker compose -f docker-compose.dev.yml --profile tools run --rm worker-test
+```
+
+CI runs them in a separate `tools` job.
 
 ## License
 

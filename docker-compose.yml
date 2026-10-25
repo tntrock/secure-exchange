@@ -1,18 +1,43 @@
 services:
   app:
-    build: .
+    build: {context: ., target: app}
     restart: unless-stopped
     env_file: .env
     environment:
       SX_BASE_URL: https://${SX_DOMAIN:?set SX_DOMAIN in .env}
       SX_DATABASE_URL: postgres://sx:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/sx?sslmode=disable
-      SX_TRUSTED_PROXIES: 172.30.0.0/24 # the compose network below (Caddy's source address)
+      SX_TRUSTED_PROXIES: 172.30.0.0/24 # the sx network below (Caddy's source address)
     volumes:
       - sxdata:/data
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [sx]
+    networks: [sx, backend]
+
+  # Renders previews of untrusted files (LibreOffice/poppler/ffmpeg). Locked down: no outbound
+  # network (backend is internal), read-only root, plaintext only on the /work tmpfs.
+  worker:
+    build: {context: ., target: worker}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SX_DATABASE_URL: postgres://sx:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/sx?sslmode=disable
+    read_only: true
+    tmpfs:
+      - /work:size=4g,mode=0700,uid=65532,gid=65532
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 4g
+    cpus: 2
+    pids_limit: 512
+    volumes:
+      - sxdata:/data # local blob store (SX_STORAGE=local)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # backend only. With external S3, also attach a network that can reach it (see README).
+    networks: [backend]
 
   postgres:
     image: postgres:17
@@ -27,7 +52,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U sx -d sx"]
       interval: 5s
       retries: 10
-    networks: [sx]
+    networks: [backend]
 
   caddy:
     image: caddy:2
@@ -53,3 +78,5 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+  backend:
+    internal: true # no route out: the worker cannot reach the internet

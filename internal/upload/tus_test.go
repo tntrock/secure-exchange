@@ -554,3 +554,23 @@ func TestUploadEnqueuesPreview(t *testing.T) {
 		}
 	}
 }
+
+func TestUploadSurvivesClassifyFailure(t *testing.T) {
+	e := newEnv(t)
+	data := []byte("%PDF-1.4 tiny")
+	id := e.create("a", int64(len(data)))
+	e.failPut.Store(true) // complete the upload but stop before finish commits
+	e.patch("a", id, 0, data)
+	e.failPut.Store(false)
+	path := filepath.Join(e.staging, id)
+	b, _ := os.ReadFile(path)
+	b[0] ^= 0xff // corrupt chunk 0 so decryption fails
+	os.WriteFile(path, b, 0o600)
+	if resp := e.head("a", id); resp.StatusCode != 200 || resp.Header.Get("X-SX-File-ID") != id {
+		t.Fatalf("head: %d", resp.StatusCode)
+	}
+	var kind, status string
+	if err := e.pool.QueryRow(context.Background(), `SELECT kind, status FROM file_previews WHERE file_id = $1`, id).Scan(&kind, &status); err != nil || kind != "none" || status != "failed" {
+		t.Fatalf("preview %s/%s %v", kind, status, err)
+	}
+}

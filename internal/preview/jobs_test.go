@@ -165,7 +165,7 @@ func TestRenew(t *testing.T) {
 	pending(t, pool, owner, 1)
 	j, _ := Claim(ctx, pool, time.Minute)
 	expire(t, pool, j.ID)
-	if err := Renew(ctx, pool, j.ID, time.Minute); err != nil {
+	if err := Renew(ctx, pool, j, time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	if again, _ := Claim(ctx, pool, time.Minute); again != nil {
@@ -177,7 +177,7 @@ func TestCompleteAndFail(t *testing.T) {
 	pool, owner := newPool(t)
 	files := pending(t, pool, owner, 3)
 	j1, _ := Claim(ctx, pool, time.Minute)
-	if err := Complete(ctx, pool, j1.ID, j1.FileID, Result{Kind: KindPages, PageCount: 7, Width: 800, Height: 1000}); err != nil {
+	if err := Complete(ctx, pool, j1, Result{Kind: KindPages, PageCount: 7, Width: 800, Height: 1000}); err != nil {
 		t.Fatal(err)
 	}
 	if p, err := GetStatus(ctx, pool, files[0]); err != nil || p.Status != StatusReady || p.PageCount != 7 || p.Width != 800 || p.Height != 1000 {
@@ -189,7 +189,7 @@ func TestCompleteAndFail(t *testing.T) {
 		t.Fatalf("job status %s", js)
 	}
 	j2, _ := Claim(ctx, pool, time.Minute)
-	if err := Fail(ctx, pool, j2.ID, j2.FileID, StatusTooLarge, "too big"); err != nil {
+	if err := Fail(ctx, pool, j2, StatusTooLarge, "too big"); err != nil {
 		t.Fatal(err)
 	}
 	if p, _ := GetStatus(ctx, pool, files[1]); p.Status != StatusTooLarge {
@@ -197,7 +197,7 @@ func TestCompleteAndFail(t *testing.T) {
 	}
 	// hostile error text: NUL, invalid UTF-8, over-long
 	j3, _ := Claim(ctx, pool, time.Minute)
-	if err := Fail(ctx, pool, j3.ID, j3.FileID, StatusFailed, "a\x00b\xff"+strings.Repeat("é", 600)); err != nil {
+	if err := Fail(ctx, pool, j3, StatusFailed, "a\x00b\xff"+strings.Repeat("é", 600)); err != nil {
 		t.Fatal(err)
 	}
 	var msg string
@@ -245,5 +245,60 @@ func TestBackfill(t *testing.T) {
 	}
 	if n, err := Backfill(ctx, pool, store, keys, cfg); err != nil || n != 0 {
 		t.Fatalf("second backfill = %d, %v", n, err)
+	}
+}
+
+func TestStaleWorkerFenced(t *testing.T) {
+	pool, owner := newPool(t)
+	file := pending(t, pool, owner, 1)[0]
+	old, _ := Claim(ctx, pool, time.Minute)
+	expire(t, pool, old.ID)
+	cur, _ := Claim(ctx, pool, time.Minute)
+	if cur == nil || cur.Attempts != 2 {
+		t.Fatalf("reclaim: %+v", cur)
+	}
+	if err := Renew(ctx, pool, old, time.Minute); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("stale Renew: %v", err)
+	}
+	if err := Complete(ctx, pool, old, Result{Kind: KindPages, PageCount: 3}); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("stale Complete: %v", err)
+	}
+	if err := Fail(ctx, pool, old, StatusFailed, "x"); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("stale Fail: %v", err)
+	}
+	if p, _ := GetStatus(ctx, pool, file); p.Status != StatusPending || p.PageCount != 0 {
+		t.Fatalf("file_previews touched by stale worker: %+v", p)
+	}
+	if err := Fail(ctx, pool, cur, StatusReady, "x"); err == nil {
+		t.Fatal("Fail accepted status ready")
+	}
+	if err := Complete(ctx, pool, cur, Result{Kind: KindPages, PageCount: 3}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBackfillSkipsBadFile(t *testing.T) {
+	pool, owner := newPool(t)
+	k := make([]byte, 32)
+	rand.Read(k)
+	keys, _ := sxcrypto.ParseKeyring("1:"+base64.StdEncoding.EncodeToString(k), 1)
+	store, _ := blob.NewLocal(t.TempDir())
+	dek, wrapped, keyID, _ := keys.NewDEK()
+	plain := []byte("%PDF-1.7 hello")
+	good := uuid.New()
+	store.Put(ctx, good.String(), bytes.NewReader(sxcrypto.SealChunk(dek, good, 0, true, plain)), int64(len(plain))+16)
+	// the bad file is older, so it is listed first or not; either order must work
+	bad := addFile(t, pool, owner, "missing.pdf", 10, wrapped, keyID, "")
+	pool.Exec(ctx, `INSERT INTO files (id, owner_id, name, content_type, size, sha256, wrapped_dek, key_id, storage_key)
+		VALUES ($1,$2,'good.pdf','x',$3,'\x00',$4,$5,$1::text)`, good, owner, len(plain), wrapped, keyID)
+	cfg := config.PreviewConfig{MaxBytes: 1 << 20, MaxVideoBytes: 1 << 20}
+	if n, err := Backfill(ctx, pool, store, keys, cfg); err != nil || n != 2 {
+		t.Fatalf("backfill = %d, %v", n, err)
+	}
+	if p, _ := GetStatus(ctx, pool, bad); p == nil || p.Status != StatusFailed || p.Kind != KindNone {
+		t.Fatalf("bad file: %+v", p)
+	}
+	if p, _ := GetStatus(ctx, pool, good); p == nil || p.Status != StatusPending {
+		t.Fatalf("good file: %+v", p)
 	}
 }

@@ -72,11 +72,13 @@ func serve() error {
 	if err := os.MkdirAll(cfg.StagingDir, 0o700); err != nil {
 		return fmt.Errorf("staging dir: %w", err)
 	}
-	if n, err := preview.Backfill(ctx, pool, store, keys, cfg.Preview); err != nil {
-		slog.Error("preview backfill", "err", err)
-	} else {
-		slog.Info("preview backfill", "files", n)
-	}
+	go func() {
+		if n, err := preview.Backfill(ctx, pool, store, keys, cfg.Preview); err != nil {
+			slog.Error("preview backfill", "err", err)
+		} else {
+			slog.Info("preview backfill", "files", n)
+		}
+	}()
 	auditLog := audit.New(pool)
 	outbox := mail.NewOutbox(pool, keys, mail.NewSMTP(cfg.SMTP))
 	go outbox.Run(ctx)

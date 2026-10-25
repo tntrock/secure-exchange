@@ -3,7 +3,9 @@ package preview
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,6 +24,9 @@ import (
 const maxAttempts = 3
 
 var ErrNoPreview = errors.New("preview: no preview row")
+
+// ErrLeaseLost means the job was reclaimed (or finished) since this worker claimed it.
+var ErrLeaseLost = errors.New("preview: job lease lost")
 
 // Querier is satisfied by pgx.Tx and *pgxpool.Pool.
 type Querier interface {
@@ -88,26 +93,34 @@ func Backfill(ctx context.Context, pool *pgxpool.Pool, store blob.Store, keys *s
 	}
 	n := 0
 	for _, f := range files {
-		dek, err := keys.UnwrapDEK(f.wrapped, f.keyID)
-		if err != nil {
-			return n, err
+		kind, status := KindNone, StatusFailed
+		if head, err := readHead(ctx, store, keys, f.id, f.key, f.wrapped, f.keyID, f.size); err != nil {
+			slog.Error("preview backfill: read file", "id", f.id, "err", err)
+		} else {
+			kind, status = Classify(f.name, head, f.size, cfg)
 		}
-		r := sxcrypto.OpenPlain(ctx, func(ctx context.Context, off, length int64) (io.ReadCloser, error) {
-			return store.OpenRange(ctx, f.key, off, length)
-		}, dek, f.id, f.size)
-		head := make([]byte, min(HeadLen, f.size))
-		_, err = io.ReadFull(r, head)
-		r.Close()
-		if err != nil {
-			return n, err
-		}
-		kind, status := Classify(f.name, head, f.size, cfg)
 		if err := Enqueue(ctx, pool, f.id, kind, status); err != nil {
 			return n, err
 		}
 		n++
 	}
 	return n, nil
+}
+
+func readHead(ctx context.Context, store blob.Store, keys *sxcrypto.Keyring, id uuid.UUID, key string, wrapped []byte, keyID int, size int64) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	dek, err := keys.UnwrapDEK(wrapped, keyID)
+	if err != nil {
+		return nil, err
+	}
+	r := sxcrypto.OpenPlain(ctx, func(ctx context.Context, off, length int64) (io.ReadCloser, error) {
+		return store.OpenRange(ctx, key, off, length)
+	}, dek, id, size)
+	defer r.Close()
+	head := make([]byte, min(HeadLen, size))
+	_, err = io.ReadFull(r, head)
+	return head, err
 }
 
 // Claim leases the next job (queued, or running with an expired lease), or
@@ -152,47 +165,73 @@ func claimOne(ctx context.Context, pool *pgxpool.Pool, lease time.Duration) (*Jo
 	return j, true, tx.Commit(ctx)
 }
 
-func Renew(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, lease time.Duration) error {
-	_, err := pool.Exec(ctx, `UPDATE render_jobs SET lease_until = now() + make_interval(secs => $2), updated_at = now() WHERE id = $1 AND status = 'running'`,
-		jobID, lease.Seconds())
+// Renew extends the lease; ErrLeaseLost if the job is no longer this worker's attempt.
+func Renew(ctx context.Context, pool *pgxpool.Pool, j *Job, lease time.Duration) error {
+	tag, err := pool.Exec(ctx, `UPDATE render_jobs SET lease_until = now() + make_interval(secs => $3), updated_at = now()
+		WHERE id = $1 AND status = 'running' AND attempts = $2`, j.ID, j.Attempts, lease.Seconds())
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrLeaseLost
+	}
 	return err
 }
 
 // Complete marks the preview ready and the job done in one transaction.
-func Complete(ctx context.Context, pool *pgxpool.Pool, jobID, fileID uuid.UUID, r Result) error {
+func Complete(ctx context.Context, pool *pgxpool.Pool, j *Job, r Result) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE file_previews SET kind = $2, status = 'ready', page_count = $3, width = $4, height = $5, duration_ms = $6, error = '', updated_at = now() WHERE file_id = $1`,
-		fileID, r.Kind, r.PageCount, r.Width, r.Height, r.DurationMs); err != nil {
+	if err := finishJob(ctx, tx, j, "done", ""); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE render_jobs SET status = 'done', lease_until = NULL, updated_at = now() WHERE id = $1`, jobID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE file_previews SET kind = $2, status = 'ready', page_count = $3, width = $4, height = $5, duration_ms = $6, error = '', updated_at = now() WHERE file_id = $1`,
+		j.FileID, r.Kind, r.PageCount, r.Width, r.Height, r.DurationMs); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
 // Fail ends a job with preview status failed or too_large.
-func Fail(ctx context.Context, pool *pgxpool.Pool, jobID, fileID uuid.UUID, status Status, msg string) error {
+func Fail(ctx context.Context, pool *pgxpool.Pool, j *Job, status Status, msg string) error {
+	if status != StatusFailed && status != StatusTooLarge {
+		return fmt.Errorf("preview: Fail with status %q", status)
+	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := fail(ctx, tx, jobID, fileID, status, msg); err != nil {
+	msg = cleanMsg(msg)
+	if err := finishJob(ctx, tx, j, "failed", msg); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE file_previews SET status = $2, error = $3, updated_at = now() WHERE file_id = $1`, j.FileID, status, msg); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func fail(ctx context.Context, q Querier, jobID, fileID uuid.UUID, status Status, msg string) error {
+// finishJob moves the job from this worker's running attempt to a final status.
+func finishJob(ctx context.Context, q Querier, j *Job, status, msg string) error {
+	tag, err := q.Exec(ctx, `UPDATE render_jobs SET status = $3, error = $4, lease_until = NULL, updated_at = now()
+		WHERE id = $1 AND status = 'running' AND attempts = $2`, j.ID, j.Attempts, status, msg)
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrLeaseLost
+	}
+	return err
+}
+
+func cleanMsg(msg string) string {
 	msg = strings.ReplaceAll(strings.ToValidUTF8(msg, "�"), "\x00", "")
 	if utf8.RuneCountInString(msg) > 500 {
 		msg = string([]rune(msg)[:500])
 	}
+	return msg
+}
+
+// fail marks an exhausted job whose row the caller holds locked.
+func fail(ctx context.Context, q Querier, jobID, fileID uuid.UUID, status Status, msg string) error {
 	if _, err := q.Exec(ctx, `UPDATE file_previews SET status = $2, error = $3, updated_at = now() WHERE file_id = $1`, fileID, status, msg); err != nil {
 		return err
 	}

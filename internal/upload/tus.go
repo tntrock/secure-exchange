@@ -447,11 +447,13 @@ func (h *handler) finish(r *http.Request, u *upload, sum hash.Hash) error {
 	}
 	// Classify from chunk 0 of the staging file: the upload may have spanned
 	// several requests or a restart, so no first segment is kept in memory.
-	head, err := h.stagingHead(u)
-	if err != nil {
-		return err
+	// A classify failure must not fail an otherwise complete upload.
+	kind, status := preview.KindNone, preview.StatusFailed
+	if head, err := h.stagingHead(u); err != nil {
+		slog.Error("upload: classify", "id", key, "err", err)
+	} else {
+		kind, status = preview.Classify(u.name, head, u.size, h.preview)
 	}
-	kind, status := preview.Classify(u.name, head, u.size, h.preview)
 	if err := preview.Enqueue(ctx, tx, u.id, kind, status); err != nil {
 		return err
 	}

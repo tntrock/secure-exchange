@@ -23,6 +23,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
+	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
@@ -64,7 +65,7 @@ func newEnv(t *testing.T) *env {
 		}
 		e.users[name] = u
 	}
-	e.h = NewHandler(pool, keys, flakyStore{store, &e.failPut}, audit.New(pool), e.staging, testMax, nil).(*handler)
+	e.h = NewHandler(pool, keys, flakyStore{store, &e.failPut}, audit.New(pool), e.staging, testMax, nil, config.PreviewConfig{MaxBytes: testMax, MaxVideoBytes: testMax}).(*handler)
 	h := e.h
 	// stands in for httpapi's requireUser
 	e.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -447,6 +448,7 @@ func TestFinishUsesRotatedDEK(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	e.h.keys = both // the running server holds the rotated keyring too; finish classifies with the re-read DEK
 	r := httptest.NewRequest("PATCH", "/", nil)
 	if err := e.h.finish(r, stale, sha256.New()); err != nil {
 		t.Fatal(err)
@@ -502,5 +504,53 @@ func TestJanitorDeletesOrphanBlob(t *testing.T) {
 	if r, err := e.store.OpenRange(ctx, id, 0, 1); err == nil {
 		r.Close()
 		t.Fatal("orphan blob survived")
+	}
+}
+
+// createNamed uploads data under name in one PATCH and returns the file id.
+func (e *env) createNamed(name string, data []byte) string {
+	e.t.Helper()
+	meta := "filename " + base64.StdEncoding.EncodeToString([]byte(name))
+	resp := e.req("a", "POST", "/api/uploads/", nil, "Upload-Length", strconv.Itoa(len(data)), "Upload-Metadata", meta)
+	if resp.StatusCode != 201 {
+		e.t.Fatalf("create: %d", resp.StatusCode)
+	}
+	id := resp.Header.Get("Location")
+	id = id[strings.LastIndex(id, "/")+1:]
+	if len(data) > 0 {
+		if resp := e.patch("a", id, 0, data); resp.StatusCode != 204 {
+			e.t.Fatalf("patch: %d", resp.StatusCode)
+		}
+	}
+	return id
+}
+
+func TestUploadEnqueuesPreview(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	state := func(id string) (kind, status string, jobs int) {
+		e.t.Helper()
+		if err := e.pool.QueryRow(ctx, `SELECT kind, status FROM file_previews WHERE file_id = $1`, id).Scan(&kind, &status); err != nil {
+			e.t.Fatalf("file_previews: %v", err)
+		}
+		e.pool.QueryRow(ctx, `SELECT count(*) FROM render_jobs WHERE file_id = $1 AND status = 'queued'`, id).Scan(&jobs)
+		return
+	}
+	// multi-chunk upload: classification must read chunk 0 back from staging
+	big := append([]byte("%PDF-1.7\n"), make([]byte, sxcrypto.ChunkSize+5)...)
+	for name, tc := range map[string]struct {
+		data         []byte
+		kind, status string
+		jobs         int
+	}{
+		"a.pdf":     {[]byte("%PDF-1.4 tiny"), "pages", "pending", 1},
+		"b.pdf":     {big, "pages", "pending", 1},
+		"c.zip":     {[]byte("PK\x03\x04zip"), "none", "unsupported", 0},
+		"empty.txt": {nil, "none", "unsupported", 0},
+	} {
+		k, s, j := state(e.createNamed(name, tc.data))
+		if k != tc.kind || s != tc.status || j != tc.jobs {
+			t.Errorf("%s: got %s/%s jobs=%d, want %s/%s jobs=%d", name, k, s, j, tc.kind, tc.status, tc.jobs)
+		}
 	}
 }

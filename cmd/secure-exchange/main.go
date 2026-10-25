@@ -18,6 +18,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/db"
 	"github.com/tntrock/secure-exchange/internal/httpapi"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/upload"
@@ -71,6 +72,11 @@ func serve() error {
 	if err := os.MkdirAll(cfg.StagingDir, 0o700); err != nil {
 		return fmt.Errorf("staging dir: %w", err)
 	}
+	if n, err := preview.Backfill(ctx, pool, store, keys, cfg.Preview); err != nil {
+		slog.Error("preview backfill", "err", err)
+	} else {
+		slog.Info("preview backfill", "files", n)
+	}
 	auditLog := audit.New(pool)
 	outbox := mail.NewOutbox(pool, keys, mail.NewSMTP(cfg.SMTP))
 	go outbox.Run(ctx)
@@ -79,7 +85,7 @@ func serve() error {
 		Users: users, Sessions: auth.NewSessions(pool), Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL, CodeDelay: 300 * time.Millisecond,
-		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies),
+		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies, cfg.Preview),
 	})
 	srv := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 

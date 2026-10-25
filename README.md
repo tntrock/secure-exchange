@@ -49,7 +49,7 @@ SX_SMTP_TLS=starttls        # starttls (default), tls (implicit TLS, usually por
 3. The recipient opens the link, enters their email address and receives a 6-digit code (valid 10 minutes, single use, 5 attempts). After entering it they see the files for one hour. Addresses not on the list get exactly the same response, so the list cannot be probed.
 4. The view limit counts successful code verifications. IP restrictions and revocation are checked on every request.
 5. Revoke a whole share, or a single recipient, at any time; open sessions end immediately. You can also add recipients to an existing share (they get their own invitation).
-6. You are notified by email when a recipient passes verification and when they download a file. Every step is recorded in the audit log.
+6. You are notified by email the first time each recipient opens the share (passes verification) and the first time they download each file; later opens and downloads are not mailed. Every step is recorded in the audit log.
 
 Current limitation: shares set to view-only list the files but show no content ("online viewing" is not available yet), and the download button and API are disabled for them.
 
@@ -85,7 +85,7 @@ Restoring requires the **same `SX_MASTER_KEYS` and `SX_ACTIVE_KEY_ID`** as when 
 1. Generate a new key: `openssl rand -base64 32`.
 2. Add it to `SX_MASTER_KEYS` next to the old one (`1:<old>,2:<new>`) and set `SX_ACTIVE_KEY_ID=2`.
 3. Restart **all** app instances onto the new active key (`docker compose up -d`) **before** the next step, so nothing keeps writing under the old key.
-4. Run `docker compose exec app /secure-exchange rotate-keys`. Re-run it until it reports `rotated 0 values`.
+4. Run `docker compose exec app /secure-exchange rotate-keys`. It loads the full configuration (database, keys, SMTP and the rest), so run it inside the app container, where the `.env` settings are present, not on the host. Re-run it until it reports `rotated 0 values`.
 5. Only then remove the old key from `SX_MASTER_KEYS` and restart. Keep a backup of the old key until you have verified downloads still work.
 
 ## Development

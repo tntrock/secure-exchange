@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { api, fmtDate, fmtSize, type FileInfo } from "../api";
 import Uploader from "../components/Uploader";
 import ShareDialog from "../components/ShareDialog";
+import Viewer from "../components/Viewer";
 
 export default function Files() {
   const { t, i18n } = useTranslation();
@@ -11,6 +12,7 @@ export default function Files() {
   const [err, setErr] = useState("");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [dlg, setDlg] = useState(false);
+  const [viewing, setViewing] = useState("");
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (!n.delete(id)) n.add(id); return n; });
 
   const refresh = useCallback(() => {
@@ -41,6 +43,7 @@ export default function Files() {
       <Uploader onDone={refresh} />
       {sel.size > 0 && <p><button onClick={() => setDlg(true)}>{t("share.create")} ({t("share.selected", { count: sel.size })})</button></p>}
       {dlg && <ShareDialog fileIds={[...sel]} notReady={files.some((f) => sel.has(f.id) && f.preview_status !== "ready")} onClose={() => setDlg(false)} />}
+      {viewing && <Viewer base={`/api/files/${viewing}/preview`} onClose={() => setViewing("")} />}
       {err && <p className="error" role="alert">{err}</p>}
       {files.length === 0 ? (
         <p>{t("files.empty")}</p>
@@ -67,6 +70,7 @@ export default function Files() {
                 <td><code>{f.sha256.slice(0, 12)}</code></td>
                 <td>{t(`files.preview.${f.preview_status}`)}</td>
                 <td>
+                  {f.preview_status === "ready" && <><button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>{" "}</>}
                   <a href={`/api/files/${f.id}/content`} download>{t("files.download")}</a>{" "}
                   <button onClick={() => del(f)}>{t("files.delete")}</button>
                 </td>

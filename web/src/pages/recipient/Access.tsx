@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import Viewer from "../../components/Viewer";
 import LangSwitch from "../../components/LangSwitch";
 import { api, ApiError, fmtDate, fmtSize, nav, type RecipientFiles, type RecipientLanding } from "../../api";
 
@@ -29,6 +30,7 @@ export default function Access() {
   const [err, setErr] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [viewing, setViewing] = useState("");
 
   // reports whether the landing loaded; on failure the fatal reason is already set
   const loadLanding = useCallback(async () => {
@@ -106,6 +108,12 @@ export default function Access() {
     await loadLanding();
   };
 
+  const sessionEnded = async () => {
+    setViewing("");
+    setData(null);
+    if (await loadLanding()) setErr("sessionEnded");
+  };
+
   const lng = i18n.language;
   const busyLabel = (s: string) => (busy ? t("app.loading") : s);
   return (
@@ -154,6 +162,10 @@ export default function Access() {
             {data.message && <blockquote style={{ whiteSpace: "pre-wrap" }}>{data.message}</blockquote>}
             <p>{t("recipient.expires", { at: fmtDate(data.expires_at, lng) })}</p>
             {!data.allow_download && <p>{t("share.viewOnlyNote")}</p>}
+            {viewing && (
+              <Viewer base={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(viewing)}/preview`}
+                onClose={() => setViewing("")} onSessionEnded={sessionEnded} />
+            )}
             <table>
               <tbody>
                 {data.files.map((f) => (
@@ -161,12 +173,14 @@ export default function Access() {
                     <td>{f.name}</td>
                     <td>{fmtSize(f.size, lng)}</td>
                     <td>
-                      {!f.available ? t("recipient.fileUnavailable")
-                        : data.allow_download && (
-                          <a href={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(f.id)}/content`} download onClick={download}>
+                      {!f.available ? t("recipient.fileUnavailable") : (
+                        <>
+                          <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>{" "}
+                          {data.allow_download && <a href={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(f.id)}/content`} download onClick={download}>
                             {t("files.download")}
-                          </a>
-                        )}
+                          </a>}
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}

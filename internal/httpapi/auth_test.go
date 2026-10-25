@@ -112,7 +112,7 @@ func TestLoginSuccessNoTOTP(t *testing.T) {
 			t.Fatalf("cookie %q missing %q", sc, want)
 		}
 	}
-	if resp.Header.Get("Content-Security-Policy") != "default-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'" ||
+	if resp.Header.Get("Content-Security-Policy") != "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; frame-ancestors 'none'" ||
 		resp.Header.Get("X-Content-Type-Options") != "nosniff" || resp.Header.Get("Referrer-Policy") != "no-referrer" ||
 		resp.Header.Get("Strict-Transport-Security") != "max-age=31536000" {
 		t.Fatal("security headers", resp.Header)

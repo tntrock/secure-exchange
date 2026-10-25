@@ -114,7 +114,7 @@ func (w *Worker) runJob(ctx context.Context, j *Job) {
 	close(stop)
 	<-stopped
 	switch {
-	case lost.Load():
+	case lost.Load(), errors.Is(err, ErrLeaseLost):
 		slog.Warn("preview: lease lost, result dropped", "job", j.ID)
 		return
 	case ctx.Err() != nil:
@@ -185,7 +185,10 @@ func (w *Worker) process(ctx context.Context, j *Job) (res Result, err error) {
 		return Result{}, retryable(err)
 	}
 	// leftovers of an earlier attempt (requeued, or a worker that died) would clash on (file, kind, idx)
-	if err := DeleteItems(ctx, w.Pool, w.Store, j.FileID); err != nil {
+	if err := deleteJobItems(ctx, w.Pool, w.Store, j); err != nil {
+		if errors.Is(err, ErrLeaseLost) {
+			return Result{}, err
+		}
 		return Result{}, retryable(err)
 	}
 	p := pipelines[kind]

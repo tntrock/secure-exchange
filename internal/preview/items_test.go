@@ -189,3 +189,29 @@ func TestPutItemTooLongDespitePutSuccess(t *testing.T) {
 		t.Fatalf("deleted %v", fs.deleted)
 	}
 }
+
+func TestDeleteJobItemsFenced(t *testing.T) {
+	e := newItemEnv(t)
+	if err := Enqueue(ctx, e.pool, e.file, KindPages, StatusPending); err != nil {
+		t.Fatal(err)
+	}
+	var j Job
+	if err := e.pool.QueryRow(ctx, `UPDATE render_jobs SET status='running', attempts=2 WHERE file_id=$1 RETURNING id, file_id`, e.file).Scan(&j.ID, &j.FileID); err != nil {
+		t.Fatal(err)
+	}
+	e.put(t, 0, []byte("a"))
+	j.Attempts = 1 // stale attempt
+	if err := deleteJobItems(ctx, e.pool, e.store, &j); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("stale: %v", err)
+	}
+	if items, _ := ListItems(ctx, e.pool, e.file, "page"); len(items) != 1 || e.blobCount() != 1 {
+		t.Fatal("stale attempt deleted items")
+	}
+	j.Attempts = 2
+	if err := deleteJobItems(ctx, e.pool, e.store, &j); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := ListItems(ctx, e.pool, e.file, "page"); len(items) != 0 || e.blobCount() != 0 {
+		t.Fatal("leftovers")
+	}
+}

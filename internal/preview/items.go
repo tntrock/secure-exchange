@@ -171,18 +171,51 @@ func ListItems(ctx context.Context, pool *pgxpool.Pool, fileID uuid.UUID, kind s
 
 // DeleteItems removes every item row of a file, then its blobs (best-effort, logged).
 func DeleteItems(ctx context.Context, pool *pgxpool.Pool, store blob.Store, fileID uuid.UUID) error {
-	rows, err := pool.Query(ctx, `DELETE FROM preview_items WHERE file_id=$1 RETURNING storage_key`, fileID)
+	keys, err := deleteItemRows(ctx, pool, fileID)
 	if err != nil {
 		return err
 	}
-	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	deleteBlobs(ctx, store, keys)
+	return nil
+}
+
+// deleteJobItems is DeleteItems fenced to j's running attempt (ErrLeaseLost otherwise), so a stalled
+// stale worker can't wipe the items of the attempt that reclaimed the job.
+func deleteJobItems(ctx context.Context, pool *pgxpool.Pool, store blob.Store, j *Job) error {
+	var keys []string
+	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		var one int
+		err := tx.QueryRow(ctx, `SELECT 1 FROM render_jobs WHERE id = $1 AND status = 'running' AND attempts = $2 FOR UPDATE`, j.ID, j.Attempts).Scan(&one)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrLeaseLost
+		}
+		if err != nil {
+			return err
+		}
+		keys, err = deleteItemRows(ctx, tx, j.FileID)
+		return err
+	})
 	if err != nil {
 		return err
 	}
+	deleteBlobs(ctx, store, keys)
+	return nil
+}
+
+func deleteItemRows(ctx context.Context, q interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, fileID uuid.UUID) ([]string, error) {
+	rows, err := q.Query(ctx, `DELETE FROM preview_items WHERE file_id=$1 RETURNING storage_key`, fileID)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+func deleteBlobs(ctx context.Context, store blob.Store, keys []string) {
 	for _, k := range keys {
 		if err := store.Delete(ctx, k); err != nil {
 			slog.Error("preview: delete item blob", "key", k, "err", err)
 		}
 	}
-	return nil
 }

@@ -83,7 +83,7 @@ func docPipeline(e *jobEnv) (Result, error) {
 		if i == 0 {
 			res.Width, res.Height = w, h
 		}
-		os.Remove(f) // keep tmpfs use to about one page
+		os.Remove(f) // pdftoppm has already written every page; this only frees them as they are stored
 	}
 	return res, nil
 }
@@ -178,6 +178,9 @@ func pageFiles(dir string) ([]string, error) {
 // the error is stored in file_previews, and tool output can echo document text.
 // The output tail goes to the debug log.
 func toolErr(name string, err error, out []byte) error {
+	if bytes.Contains(out, []byte("No space left on device")) {
+		return fmt.Errorf("%w: %s: work dir full", errTooLarge, name)
+	}
 	if errors.Is(err, ErrTimeout) {
 		return fmt.Errorf("%s: %w", name, err)
 	}

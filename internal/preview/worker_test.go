@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"image"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -154,5 +156,58 @@ func TestWorkerFailureDropsPartialItems(t *testing.T) {
 	}
 	if items, _ := ListItems(ctx, e.pool, f, "image"); len(items) != 0 {
 		t.Fatal("partial items kept")
+	}
+}
+
+func TestWorkerTransientErrorRequeues(t *testing.T) {
+	e := newItemEnv(t)
+	defer func(d time.Duration) { retryDelay = d }(retryDelay)
+	retryDelay = 0
+	orig := pipelines[KindImage]
+	defer func() { pipelines[KindImage] = orig }()
+	calls := 0
+	pipelines[KindImage] = func(j *jobEnv) (Result, error) {
+		calls++
+		if calls == 1 {
+			// a partial item from the failed attempt must not clash with the retry
+			if err := j.put("image", 0, bytes.NewReader([]byte("x")), 1, Item{}); err != nil {
+				return Result{}, err
+			}
+			return Result{}, retryable(errors.New("blob store down"))
+		}
+		return orig(j)
+	}
+	f := e.storeFile(t, "pic.png", encodePNG(t, image.NewGray(image.Rect(0, 0, 4, 4))), KindImage)
+	runUntil(t, e, e.worker(t), f)
+	if p, _ := GetStatus(ctx, e.pool, f); p.Status != StatusReady || calls != 2 {
+		t.Fatalf("%+v calls=%d", p, calls)
+	}
+
+	// always transient: maxAttempts ends it as failed
+	calls = 0
+	pipelines[KindImage] = func(*jobEnv) (Result, error) { calls++; return Result{}, retryable(errors.New("db down")) }
+	g := e.storeFile(t, "pic2.png", encodePNG(t, image.NewGray(image.Rect(0, 0, 4, 4))), KindImage)
+	runUntil(t, e, e.worker(t), g)
+	if p, _ := GetStatus(ctx, e.pool, g); p.Status != StatusFailed || calls != maxAttempts {
+		t.Fatalf("%+v calls=%d", p, calls)
+	}
+
+	// fenced like Fail/Complete
+	if err := Requeue(ctx, e.pool, &Job{ID: uuid.New(), Attempts: 1}, "x"); !errors.Is(err, ErrLeaseLost) {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkerWorkDirFullIsTooLarge(t *testing.T) {
+	e := newItemEnv(t)
+	orig := pipelines[KindImage]
+	defer func() { pipelines[KindImage] = orig }()
+	// as render reports a full tmpfs while writing the decrypted input
+	enospc := retryable(fmt.Errorf("decrypt input: %w", &os.PathError{Op: "write", Path: "in", Err: syscall.ENOSPC}))
+	pipelines[KindImage] = func(*jobEnv) (Result, error) { return Result{}, enospc }
+	f := e.storeFile(t, "pic.png", encodePNG(t, image.NewGray(image.Rect(0, 0, 4, 4))), KindImage)
+	runUntil(t, e, e.worker(t), f)
+	if p, _ := GetStatus(ctx, e.pool, f); p.Status != StatusTooLarge {
+		t.Fatalf("%+v", p)
 	}
 }

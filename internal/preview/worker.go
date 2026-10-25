@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,6 +26,12 @@ import (
 var errTooLarge = errors.New("preview: over the preview limit")
 
 var errInternal = errors.New("internal error")
+
+// errRetry marks a transient error (database, blob store, decrypt): the job goes
+// back to the queue instead of failing; maxAttempts still ends it.
+var errRetry = errors.New("preview: transient")
+
+func retryable(err error) error { return fmt.Errorf("%w: %w", errRetry, err) }
 
 const (
 	pollInterval  = 2 * time.Second
@@ -121,10 +128,25 @@ func (w *Worker) runJob(ctx context.Context, j *Job) {
 			slog.Warn("preview: lease lost at complete, result dropped", "job", j.ID)
 			return
 		}
+		if !errors.Is(err, ErrFileDeleted) {
+			err = retryable(err)
+		}
+	}
+	if errors.Is(err, errRetry) && !errors.Is(err, syscall.ENOSPC) {
+		slog.Warn("preview: job requeued", "job", j.ID, "file", j.FileID, "attempt", j.Attempts, "err", err)
+		if rerr := Requeue(ctx, w.Pool, j, err.Error()); rerr != nil {
+			slog.Error("preview: requeue", "job", j.ID, "err", rerr)
+			return
+		}
+		// also done when the next attempt starts; here so a job that then hits maxAttempts keeps no partial artifacts
+		if derr := DeleteItems(ctx, w.Pool, w.Store, j.FileID); derr != nil {
+			slog.Error("preview: delete items of requeued job", "job", j.ID, "err", derr)
+		}
+		return
 	}
 	status, msg := StatusFailed, err.Error()
 	switch {
-	case errors.Is(err, errTooLarge):
+	case errors.Is(err, errTooLarge), errors.Is(err, syscall.ENOSPC):
 		status = StatusTooLarge
 	case errors.Is(err, ErrFileDeleted):
 		msg = "file deleted"
@@ -160,7 +182,11 @@ func (w *Worker) process(ctx context.Context, j *Job) (res Result, err error) {
 	if err := w.Pool.QueryRow(ctx, `SELECT f.name, f.size, f.wrapped_dek, f.key_id, f.storage_key, p.kind
 		FROM files f JOIN file_previews p ON p.file_id = f.id WHERE f.id = $1`, j.FileID).
 		Scan(&name, &size, &wrapped, &keyID, &key, &kind); err != nil {
-		return Result{}, err
+		return Result{}, retryable(err)
+	}
+	// leftovers of an earlier attempt (requeued, or a worker that died) would clash on (file, kind, idx)
+	if err := DeleteItems(ctx, w.Pool, w.Store, j.FileID); err != nil {
+		return Result{}, retryable(err)
 	}
 	p := pipelines[kind]
 	if p == nil {
@@ -168,7 +194,7 @@ func (w *Worker) process(ctx context.Context, j *Job) (res Result, err error) {
 	}
 	dek, err := w.Keys.UnwrapDEK(wrapped, keyID)
 	if err != nil {
-		return Result{}, err
+		return Result{}, retryable(err)
 	}
 	src := sxcrypto.OpenPlain(ctx, func(ctx context.Context, off, length int64) (io.ReadCloser, error) {
 		return w.Store.OpenRange(ctx, key, off, length)
@@ -179,8 +205,10 @@ func (w *Worker) process(ctx context.Context, j *Job) (res Result, err error) {
 		ext = ""
 	}
 	put := func(kind string, idx int, r io.Reader, size int64, meta Item) error {
-		_, err := PutItem(ctx, w.Pool, w.Store, w.Keys, j.FileID, kind, idx, r, size, meta)
-		return err
+		if _, err := PutItem(ctx, w.Pool, w.Store, w.Keys, j.FileID, kind, idx, r, size, meta); err != nil {
+			return retryable(err)
+		}
+		return nil
 	}
 	return w.render(ctx, p, ext, src, put)
 }
@@ -191,7 +219,7 @@ func (w *Worker) render(ctx context.Context, p pipeline, ext string, src io.Read
 	dir, cleanup, err := w.Sandbox.NewDir()
 	defer cleanup()
 	if err != nil {
-		return Result{}, err
+		return Result{}, retryable(err)
 	}
 	in := filepath.Join(dir, "in"+ext)
 	f, err := os.OpenFile(in, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -203,7 +231,7 @@ func (w *Worker) render(ctx context.Context, p pipeline, ext string, src io.Read
 		err = cerr
 	}
 	if err != nil {
-		return Result{}, fmt.Errorf("decrypt input: %w", err)
+		return Result{}, retryable(fmt.Errorf("decrypt input: %w", err)) // ENOSPC: too_large, see runJob
 	}
 	return p(&jobEnv{ctx: ctx, cfg: w.Cfg, dir: dir, in: in, put: put})
 }

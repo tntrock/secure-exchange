@@ -126,7 +126,7 @@ func readHead(ctx context.Context, store blob.Store, keys *sxcrypto.Keyring, id 
 	return head, err
 }
 
-// Claim leases the next job (queued, or running with an expired lease), or
+// Claim leases the next job (queued and past any retry delay, or running with an expired lease), or
 // returns nil, nil when there is none. Jobs out of attempts are failed.
 func Claim(ctx context.Context, pool *pgxpool.Pool, lease time.Duration) (*Job, error) {
 	for {
@@ -146,7 +146,7 @@ func claimOne(ctx context.Context, pool *pgxpool.Pool, lease time.Duration) (*Jo
 	defer tx.Rollback(ctx)
 	j := &Job{}
 	err = tx.QueryRow(ctx, `SELECT id, file_id, attempts FROM render_jobs
-		WHERE status = 'queued' OR (status = 'running' AND lease_until < now())
+		WHERE status = 'queued' AND (lease_until IS NULL OR lease_until < now()) OR (status = 'running' AND lease_until < now())
 		ORDER BY (status = 'queued') DESC, created_at LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&j.ID, &j.FileID, &j.Attempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, true, nil
@@ -220,6 +220,20 @@ func Fail(ctx context.Context, pool *pgxpool.Pool, j *Job, status Status, msg st
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// retryDelay is how long a requeued job waits before it can be claimed again.
+var retryDelay = 30 * time.Second
+
+// Requeue hands a job that hit a transient error back to the queue; it is
+// claimable again after retryDelay, and maxAttempts still ends it.
+func Requeue(ctx context.Context, pool *pgxpool.Pool, j *Job, msg string) error {
+	tag, err := pool.Exec(ctx, `UPDATE render_jobs SET status = 'queued', error = $3, lease_until = now() + make_interval(secs => $4), updated_at = now()
+		WHERE id = $1 AND status = 'running' AND attempts = $2`, j.ID, j.Attempts, cleanMsg(msg), retryDelay.Seconds())
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrLeaseLost
+	}
+	return err
 }
 
 // finishJob moves the job from this worker's running attempt to a final status.

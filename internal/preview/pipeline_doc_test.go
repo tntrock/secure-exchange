@@ -82,4 +82,7 @@ func TestToolErrOmitsOutput(t *testing.T) {
 	if err := toolErr("pdftoppm", ErrTimeout, nil); err.Error() != "pdftoppm: timeout" || !errors.Is(err, ErrTimeout) {
 		t.Fatal(err)
 	}
+	if err := toolErr("ffmpeg", errors.New("exit status 1"), []byte("x: No space left on device")); !errors.Is(err, errTooLarge) {
+		t.Fatal(err)
+	}
 }

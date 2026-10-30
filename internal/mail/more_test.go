@@ -62,34 +62,46 @@ func TestTemplates(t *testing.T) {
 func TestOutboxRunDeliversOnWakeAndStops(t *testing.T) {
 	rec := &Recorder{}
 	o, col := newOutbox(t, rec)
+	sent := func() int {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		return len(rec.Sent)
+	}
+	waitSent := func(n int, msg string) {
+		deadline := time.Now().Add(4 * time.Second) // well under the 5s ticker
+		for sent() != n {
+			if time.Now().After(deadline) {
+				t.Fatal(msg)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	// A message queued before Run is delivered by Run's initial pass; seeing it sent proves
+	// that pass already selected its rows, so the second message can only come from the wake.
+	if err := o.Enqueue(context.Background(), o.pool, Message{To: "first@b.com", Subject: "s", Body: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	<-o.wake // drop its wake: only the second Enqueue may wake Run
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { o.Run(ctx); close(done) }()
+	waitSent(1, "initial pass did not deliver")
 
 	if err := o.Enqueue(context.Background(), o.pool, Message{To: "a@b.com", Subject: "s", Body: "b"}); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(4 * time.Second) // well under the 5s ticker: the wake must trigger it
-	for {
-		rec.mu.Lock()
-		n := len(rec.Sent)
-		rec.mu.Unlock()
-		if n == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("enqueued mail not delivered after wake")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitSent(2, "enqueued mail not delivered after wake")
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not return after cancel")
 	}
-	if col("sent_at") == nil {
-		t.Fatal("sent_at not set")
+	if rec.Sent[1].To != "a@b.com" {
+		t.Fatalf("second delivery to %q", rec.Sent[1].To)
+	}
+	if n := col("count(*) FILTER (WHERE sent_at IS NULL)"); n != int64(0) {
+		t.Fatalf("%v rows without sent_at", n)
 	}
 }
 

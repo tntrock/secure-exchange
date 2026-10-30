@@ -18,7 +18,7 @@ services:
     ports:
       - "59000:9000"
   mailpit:
-    image: axllent/mailpit:v1.27
+    image: axllent/mailpit:v1.32
     ports:
       - "51025:1025"
       - "58025:8025"

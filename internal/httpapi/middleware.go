@@ -61,6 +61,9 @@ func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 	return peer.String()
 }
 
+// limiterSweepAt is the bucket count above which allow drops fully refilled buckets.
+const limiterSweepAt = 10000
+
 // limiter is a keyed token-bucket set.
 // ponytail: 單機記憶體限流，多實例部署時改存 PostgreSQL
 type limiter struct {
@@ -77,7 +80,7 @@ func newLimiter(r rate.Limit, burst int) *limiter {
 func (l *limiter) allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if len(l.m) > 10000 { // drop buckets that have fully refilled; they equal fresh ones
+	if len(l.m) > limiterSweepAt { // drop buckets that have fully refilled; they equal fresh ones
 		for k, v := range l.m {
 			if v.Tokens() >= float64(l.burst) {
 				delete(l.m, k)

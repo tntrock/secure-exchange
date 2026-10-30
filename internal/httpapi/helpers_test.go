@@ -29,14 +29,14 @@ func TestClientIPOddRemoteAddr(t *testing.T) {
 
 func TestLimiterDropsRefilledBuckets(t *testing.T) {
 	l := newLimiter(rate.Every(time.Hour), 2)
-	for i := range 10001 {
+	for i := range limiterSweepAt + 1 {
 		l.allow(fmt.Sprint("full", i)) // one token left each: not dropped
 	}
 	l.m["fresh"] = rate.NewLimiter(l.r, l.burst) // a full bucket: equal to a fresh one
 	if !l.allow("new") {
 		t.Fatal("new key limited")
 	}
-	if _, ok := l.m["fresh"]; ok || len(l.m) != 10002 {
+	if _, ok := l.m["fresh"]; ok || len(l.m) != limiterSweepAt+2 {
 		t.Fatalf("fresh kept=%v, %d buckets", ok, len(l.m))
 	}
 	// a dropped bucket must not reset a used one

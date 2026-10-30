@@ -163,28 +163,44 @@ func TestPreviewEdges(t *testing.T) {
 	none := e.putFile(t, a.ID, "x.bin", []byte("x"))
 	short := e.putFile(t, a.ID, "short.pdf", []byte("x"))
 	e.seedPreview(t, short, preview.KindPages, preview.StatusReady, 1)
-	e.pool.Exec(ctx, `UPDATE file_previews SET page_count = 2 WHERE file_id = $1`, short) // page 1 listed but never stored
+	// page_count 2 puts page 1 in range, but only page 0 was stored
+	if tag, err := e.pool.Exec(ctx, `UPDATE file_previews SET page_count = 2 WHERE file_id = $1`, short); err != nil || tag.RowsAffected() != 1 {
+		t.Fatal(tag, err)
+	}
 	junk := e.putFile(t, a.ID, "junk.png", []byte("x"))
-	e.pool.Exec(ctx, `INSERT INTO file_previews (file_id, kind, status) VALUES ($1,'image','ready')`, junk)
+	if _, err := e.pool.Exec(ctx, `INSERT INTO file_previews (file_id, kind, status) VALUES ($1,'image','ready')`, junk); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := preview.PutItem(ctx, e.pool, e.store, e.keys, junk, "image", 0, strings.NewReader("not a png"), 9, preview.Item{}); err != nil {
 		t.Fatal(err)
 	}
 	empty := e.putFile(t, a.ID, "v.mp4", []byte("x"))
-	e.pool.Exec(ctx, `INSERT INTO file_previews (file_id, kind, status) VALUES ($1,'video','ready')`, empty)
+	if _, err := e.pool.Exec(ctx, `INSERT INTO file_previews (file_id, kind, status) VALUES ($1,'video','ready')`, empty); err != nil {
+		t.Fatal(err)
+	}
 	vid := e.putFile(t, a.ID, "v2.mp4", []byte("x"))
 	e.seedVideo(t, vid)
 	e.login(t, "a@x.com", pw)
 
+	// The handler answers "page out of range" and "item missing" with the same 404 not_found,
+	// so the two are told apart by setup: page 0 of short serves, page 1 is in range
+	// (page_count 2) but has no stored item, page 2 is out of range.
 	for p, want := range map[string]int{
 		none.String() + "/preview/pages/0":      404, // no preview row
-		short.String() + "/preview/pages/1":     404, // item missing
+		short.String() + "/preview/pages/0":     200, // stored page serves
+		short.String() + "/preview/pages/1":     404, // in range, item missing
+		short.String() + "/preview/pages/2":     404, // out of range
 		junk.String() + "/preview/pages/0":      500, // stored item is not a PNG
 		empty.String() + "/preview/video.m3u8":  404, // no segments
 		vid.String() + "/preview/segments/0":    404, // no .ts
 		vid.String() + "/preview/segments/x.ts": 404,
 	} {
-		if resp, b := e.get(t, "/api/files/"+p); resp.StatusCode != want {
+		resp, b := e.get(t, "/api/files/"+p)
+		if resp.StatusCode != want {
 			t.Fatal(p, resp.StatusCode, string(b))
+		}
+		if want == 404 && !strings.Contains(string(b), "not_found") {
+			t.Fatal(p, string(b))
 		}
 	}
 

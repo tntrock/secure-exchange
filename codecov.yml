@@ -9,3 +9,8 @@ comment:
 ignore:
   - "web/src/**/*.test.tsx"
   - "web/src/**/*.test.ts"
+  - "internal/db/testdb/**"
+  - "internal/mail/mailtest/**"
+  - "**/*_windows.go"
+  - "**/*_other.go"
+  - "web/src/main.tsx"

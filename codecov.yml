@@ -1,11 +1,15 @@
+codecov:
+  notify:
+    after_n_builds: 2 # test job + tools job; don't judge before both profiles arrive
 coverage:
   status:
     project:
-      default: {target: auto, threshold: 1%, informational: true}
+      default: {target: 90%, threshold: 0.5%}
     patch:
-      default: {informational: true}
+      default: {target: 80%, informational: true}
 comment:
   layout: "condensed_header, diff, flags"
+  after_n_builds: 2
 ignore:
   - "web/src/**/*.test.tsx"
   - "web/src/**/*.test.ts"

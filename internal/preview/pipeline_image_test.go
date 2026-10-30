@@ -142,3 +142,19 @@ func TestImageGarbage(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestImageTruncated(t *testing.T) {
+	// a valid header passes the size check; the pixel data then fails to decode
+	full := encodePNG(t, image.NewGray(image.Rect(0, 0, 64, 64)))
+	_, items, err := runPipeline(t, imagePipeline, config.PreviewConfig{}, "in.png", full[:len(full)-20])
+	if err == nil || errors.Is(err, errTooLarge) || len(items) != 0 {
+		t.Fatalf("err = %v items %d", err, len(items))
+	}
+}
+
+func TestImageInputMissing(t *testing.T) {
+	_, err := imagePipeline(&jobEnv{ctx: ctx, in: filepath.Join(t.TempDir(), "in.png")})
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("err = %v", err)
+	}
+}

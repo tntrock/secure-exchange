@@ -35,7 +35,7 @@ COPY --from=golang:1.27-bookworm /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:$PATH CGO_ENABLED=0
 WORKDIR /src
 ENTRYPOINT []
-CMD ["go", "test", "-tags", "tools", "-count=1", "./internal/preview/...", "./internal/httpapi/..."]
+CMD ["go", "test", "-tags", "tools", "-count=1", "-covermode=atomic", "-coverprofile=coverage-tools.out", "./internal/preview/...", "./internal/httpapi/..."]
 
 # The app (default, last stage). ffmpeg burns watermarks into video segments per request;
 # DejaVu is the watermark font (SX_FONT_FILE).

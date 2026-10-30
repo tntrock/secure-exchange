@@ -3,10 +3,8 @@
 [![CI](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/tntrock/secure-exchange/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/tntrock/secure-exchange/security/code-scanning)
 [![codecov](https://codecov.io/gh/tntrock/secure-exchange/graph/badge.svg)](https://codecov.io/gh/tntrock/secure-exchange)
-[![Go Report Card](https://goreportcard.com/badge/github.com/tntrock/secure-exchange)](https://goreportcard.com/report/github.com/tntrock/secure-exchange)
 [![Go version](https://img.shields.io/github/go-mod/go-version/tntrock/secure-exchange?logo=go)](go.mod)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](web/package.json)
-[![Dependabot](https://img.shields.io/badge/Dependabot-enabled-025E8C?logo=dependabot)](.github/dependabot.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/tntrock/secure-exchange)](LICENSE)
 
 English | [繁體中文](README.zh-TW.md)

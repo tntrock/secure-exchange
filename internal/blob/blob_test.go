@@ -39,6 +39,15 @@ func testStore(t *testing.T, s Store) {
 	if err != nil || !bytes.Equal(got, data[1:11]) {
 		t.Fatalf("range mismatch: %v", err)
 	}
+	rc, err = s.OpenRange(ctx, key, 5, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = io.ReadAll(rc)
+	rc.Close()
+	if err != nil || len(got) != 0 {
+		t.Fatalf("empty range: %d bytes, %v", len(got), err)
+	}
 	if rc, err := s.OpenRange(ctx, key, int64(len(data))-5, 10); err == nil {
 		rc.Close()
 		t.Fatal("out-of-range OpenRange should fail")

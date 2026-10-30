@@ -19,7 +19,7 @@ func key(b byte) string {
 }
 
 func TestRunUnknownCommand(t *testing.T) {
-	if got := run([]string{"bogus"}); got != 2 {
+	if got := run(context.Background(), []string{"bogus"}); got != 2 {
 		t.Fatalf("exit %d, want 2", got)
 	}
 }
@@ -49,7 +49,7 @@ func TestRunRotateKeys(t *testing.T) {
 	t.Setenv("SX_SMTP_HOST", "smtp.example")
 	t.Setenv("SX_SMTP_FROM", "noreply@sx.example.com")
 
-	if got := run([]string{"rotate-keys"}); got != 0 {
+	if got := run(context.Background(), []string{"rotate-keys"}); got != 0 {
 		t.Fatalf("exit %d, want 0", got)
 	}
 	var sealed []byte
@@ -62,7 +62,7 @@ func TestRunRotateKeys(t *testing.T) {
 	}
 
 	t.Setenv("SX_ACTIVE_KEY_ID", "9") // active key missing from keyring
-	if got := run([]string{"rotate-keys"}); got != 1 {
+	if got := run(context.Background(), []string{"rotate-keys"}); got != 1 {
 		t.Fatalf("bad keyring exit %d, want 1", got)
 	}
 }

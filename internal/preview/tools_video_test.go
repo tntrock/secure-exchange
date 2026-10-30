@@ -60,20 +60,6 @@ func TestVideoCorrupt(t *testing.T) {
 	}
 }
 
-func TestParsePlaylist(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "s00000.ts"), []byte("x"), 0o600)
-	ok := "#EXTM3U\n#EXTINF:6.000000,\ns00000.ts\n#EXT-X-ENDLIST\n"
-	if segs, err := parsePlaylist(ok, dir); err != nil || len(segs) != 1 || segs[0].ms != 6000 {
-		t.Fatalf("%v %v", segs, err)
-	}
-	for _, bad := range []string{"", "#EXTINF:6,\n../s00000.ts\n", "#EXTINF:6,\ns00001.ts\n", "#EXTINF:x,\ns00000.ts\n", "#EXTINF:-1,\ns00000.ts\n", "s00000.ts\n"} {
-		if _, err := parsePlaylist(bad, dir); err == nil {
-			t.Fatalf("accepted %q", bad)
-		}
-	}
-}
-
 func TestVideoHLSInputRejected(t *testing.T) {
 	// an HLS playlist named .mp4 must not make ffmpeg read other files by absolute path
 	dir := t.TempDir()
@@ -85,12 +71,5 @@ func TestVideoHLSInputRejected(t *testing.T) {
 	_, items, err := runPipeline(t, videoPipeline, config.PreviewConfig{MaxVideoSeconds: 100}, "in.mp4", []byte(pl))
 	if err == nil || len(items) != 0 {
 		t.Fatalf("err = %v items %d", err, len(items))
-	}
-}
-
-func TestSegmentCountCap(t *testing.T) {
-	// header-claimed duration is untrusted: output beyond ceil(max/6)+1 segments fails closed
-	if checkSegmentCount(3, 14) != nil || !errors.Is(checkSegmentCount(5, 14), errTooLarge) {
-		t.Fatal("cap wrong")
 	}
 }

@@ -25,28 +25,33 @@ import (
 	"github.com/tntrock/secure-exchange/internal/upload"
 )
 
-func main() { os.Exit(run(os.Args[1:])) }
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := run(ctx, os.Args[1:])
+	stop()
+	os.Exit(code)
+}
 
 // run dispatches a subcommand and returns the process exit code.
-func run(args []string) int {
+func run(ctx context.Context, args []string) int {
 	cmd := "serve"
 	if len(args) > 0 {
 		cmd = args[0]
 	}
-	cmds := map[string]func() error{"serve": serve, "rotate-keys": rotateKeys, "worker": worker}
+	cmds := map[string]func(context.Context) error{"serve": serve, "rotate-keys": rotateKeys, "worker": worker}
 	f, ok := cmds[cmd]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", cmd)
 		return 2
 	}
-	if err := f(); err != nil {
+	if err := f(ctx); err != nil {
 		slog.Error("fatal", "err", err)
 		return 1
 	}
 	return 0
 }
 
-func serve() error {
+func serve(ctx context.Context) error {
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		return err
@@ -55,8 +60,6 @@ func serve() error {
 	if err != nil {
 		return fmt.Errorf("master keys: %w", err)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -112,7 +115,7 @@ func serve() error {
 
 // worker drains the preview render queue. SX_WORKER_TMP must already exist (a tmpfs
 // mount): it is never created here, so plaintext cannot land on a real disk by accident.
-func worker() error {
+func worker(ctx context.Context) error {
 	cfg, err := config.LoadWorker(os.Getenv)
 	if err != nil {
 		return err
@@ -136,8 +139,6 @@ func worker() error {
 			return fmt.Errorf("SX_WORKER_TMP: %w (set SX_WORKER_ALLOW_NON_TMPFS=1 only for development)", err)
 		}
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -153,7 +154,7 @@ func worker() error {
 }
 
 // rotateKeys re-wraps/re-seals all stored secrets under the active master key.
-func rotateKeys() error {
+func rotateKeys(ctx context.Context) error {
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		return err
@@ -162,7 +163,6 @@ func rotateKeys() error {
 	if err != nil {
 		return fmt.Errorf("master keys: %w", err)
 	}
-	ctx := context.Background()
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err

@@ -116,6 +116,87 @@ test("download after the session ended goes back to the email step", async () =>
   expect(go).not.toHaveBeenCalled();
 });
 
+test.each([
+  [404, "x", "Share not found"],
+  [403, "view_limit", "This share has reached its view limit"],
+  [403, "ip_denied", "Access from your network location is not allowed"],
+  [500, "x", "Something went wrong, please try again"],
+])("initial files %i (%s) is fatal with its reason", async (status, error, msg) => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(status, { error })));
+  renderPage();
+  expect((await screen.findByRole("alert")).textContent).toBe(msg);
+  expect(screen.queryByLabelText("Your email")).toBeNull();
+});
+
+test("rate-limited code request shows the reason; resend and change email", async () => {
+  let codeStatus = 429;
+  const f = vi.fn(async (url: string) => {
+    if (url.endsWith("/files")) return json(401, { error: "unauthorized" });
+    if (url.endsWith("/code")) return json(codeStatus, { error: "rate" });
+    return json(200, { ...landing, message: "" });
+  });
+  vi.stubGlobal("fetch", f);
+  renderPage();
+  fireEvent.change(await screen.findByLabelText("Your email"), { target: { value: " bob@x.com " } });
+  fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Too many attempts, please try again later");
+  expect(screen.queryByRole("blockquote")).toBeNull();
+  codeStatus = 200;
+  fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+  expect((await screen.findByRole("status")).textContent).toBe("If you are on the recipient list, a code has been sent");
+  expect(f).toHaveBeenLastCalledWith("/api/s/tok/code", expect.objectContaining({ body: JSON.stringify({ email: "bob@x.com" }) }));
+  fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+  await waitFor(() => expect(f.mock.calls.filter(([u]) => String(u).endsWith("/code"))).toHaveLength(3));
+  expect(await screen.findByRole("status")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Use a different email" }));
+  expect(screen.getByLabelText("Your email")).toBeTruthy();
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+function mockSignedIn(files: typeof filesBody, onFiles: () => Response = () => json(200, files)) {
+  const f = vi.fn(async (url: string) => {
+    if (url.endsWith("/files")) return onFiles();
+    if (url.endsWith("/logout")) throw new TypeError("offline");
+    if (url.endsWith("/preview")) return json(401, { error: "session" });
+    return json(200, landing);
+  });
+  vi.stubGlobal("fetch", f);
+  return f;
+}
+
+test("view-only share: no download links, a note, and Leave returns to the landing", async () => {
+  let authed = true;
+  const f = mockSignedIn({ ...filesBody, allow_download: false, message: "" }, () => (authed ? json(200, { ...filesBody, allow_download: false, message: "" }) : json(401, {})));
+  renderPage();
+  expect(await screen.findByText("Recipients can only view the files in the browser")).toBeTruthy();
+  expect(screen.queryByRole("link")).toBeNull();
+  authed = false;
+  fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+  expect(await screen.findByLabelText("Your email")).toBeTruthy();
+  expect(f).toHaveBeenCalledWith("/api/s/tok/logout", expect.objectContaining({ method: "POST" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("viewer opens on the recipient preview URL; its 401 ends the session", async () => {
+  const f = mockSignedIn(filesBody);
+  renderPage();
+  fireEvent.click(await screen.findByRole("button", { name: "View" }));
+  expect(await screen.findByText("Your session has ended, please verify again")).toBeTruthy();
+  expect(f).toHaveBeenCalledWith("/api/s/tok/files/f1/preview", expect.anything());
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByLabelText("Your email")).toBeTruthy();
+});
+
+test("viewer Close returns to the file list", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+    url.endsWith("/preview") ? json(200, { kind: "pages", status: "pending", page_count: 0 }) : json(200, filesBody)));
+  renderPage();
+  fireEvent.click(await screen.findByRole("button", { name: "View" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByText("a.pdf")).toBeTruthy();
+});
+
 test("download after revoke shows the fatal reason", async () => {
   const { go } = await toFiles(() => json(410, { error: "gone" }));
   expect(await screen.findByText("This share has expired or been revoked")).toBeTruthy();

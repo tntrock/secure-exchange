@@ -3,6 +3,7 @@ package preview
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"image"
 	"image/color"
 	stddraw "image/draw"
@@ -119,7 +120,7 @@ func Apply(img image.Image, m Mark) (*image.RGBA, error) {
 	// Dense: tiles nearly end to end, rows ~110px apart, so no 150px window is clean.
 	stepX, stepY := int(float64(rw)*1.05), min(110, int(float64(rh)*0.4))
 	for i := range rot.Pix { // premultiplied, so scaling all channels applies the global alpha
-		rot.Pix[i] = uint8(int(rot.Pix[i]) * int(watermarkAlpha) / 255)
+		rot.Pix[i] = uint8(int(rot.Pix[i]) * int(watermarkAlpha) / 255) //nolint:gosec // G115: <= 255 since both factors are <= 255
 	}
 	row := 0
 	for y := b.Min.Y - rh; y < b.Max.Y; y += stepY {
@@ -170,7 +171,7 @@ func Trace(ctx context.Context, pool Querier, fileID, shareID, recipientID uuid.
 	if err == nil {
 		return code, true, nil
 	}
-	if err != pgx.ErrNoRows {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return "", false, err
 	}
 	err = pool.QueryRow(ctx, `SELECT code FROM view_traces WHERE session_hash=$1 AND file_id=$2`, sessionHash, fileID).Scan(&code)

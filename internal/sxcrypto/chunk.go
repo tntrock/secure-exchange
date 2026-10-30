@@ -164,7 +164,7 @@ func (r *plainReader) load(idx int64) error {
 		}
 		return fmt.Errorf("sxcrypto: chunk %d: %w", idx, err)
 	}
-	plain, err := openChunk(r.g, r.fileID, uint64(idx), last, r.sealed[:n])
+	plain, err := openChunk(r.g, r.fileID, uint64(idx), last, r.sealed[:n]) //nolint:gosec // G115: idx is a non-negative chunk index
 	if err != nil {
 		r.Close()
 		return err

@@ -16,6 +16,6 @@ func isolate(cmd *exec.Cmd) {
 // reap kills anything the command left running in its group (e.g. soffice.bin).
 func reap(cmd *exec.Cmd) {
 	if cmd.Process != nil {
-		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // group may already be gone
 	}
 }

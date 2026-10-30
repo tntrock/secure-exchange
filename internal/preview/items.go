@@ -76,7 +76,7 @@ func PutItem(ctx context.Context, pool *pgxpool.Pool, store blob.Store, keys *sx
 	}
 	pr.CloseWithError(err) // unblock the writer if Put stopped early
 	werr := <-errc         // join: r is no longer used after this
-	if err == errStopped {
+	if errors.Is(err, errStopped) {
 		err = nil
 	}
 	if err == nil {

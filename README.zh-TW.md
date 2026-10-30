@@ -132,6 +132,7 @@ export SX_TEST_DATABASE_URL='postgres://sx:sx@localhost:55432/sx?sslmode=disable
 export SX_TEST_S3_ENDPOINT=localhost:59000          # 選用；未設定時 S3 測試會跳過
 (cd web && npm ci && npm run build)                 # Go 執行檔會內嵌 internal/webui/dist
 go vet ./... && go test ./...
+docker run --rm -v "$PWD:/app" -w /app golangci/golangci-lint:v2.15.0 golangci-lint run --build-tags tools ./...
 ```
 
 未設定 `SX_TEST_DATABASE_URL` 時，資料庫測試會跳過。CI 以 `-race` 執行全部測試。

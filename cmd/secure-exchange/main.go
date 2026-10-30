@@ -105,9 +105,10 @@ func serve(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 	}
+	// ctx is already canceled here; shutdown needs its own deadline
 	sctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(sctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := srv.Shutdown(sctx); err != nil && !errors.Is(err, http.ErrServerClosed) { //nolint:contextcheck // see above
 		return err
 	}
 	return nil

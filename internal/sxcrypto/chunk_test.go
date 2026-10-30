@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"io"
 	"testing"
 
@@ -119,7 +120,7 @@ func TestOpenPlainSeek(t *testing.T) {
 		t.Error("negative position accepted")
 	}
 	r.Seek(size+10, io.SeekStart)
-	if n, err := r.Read(make([]byte, 1)); n != 0 || err != io.EOF {
+	if n, err := r.Read(make([]byte, 1)); n != 0 || !errors.Is(err, io.EOF) {
 		t.Errorf("past end: %d, %v", n, err)
 	}
 }

@@ -39,6 +39,6 @@ func newHandler(fsys fs.FS) http.Handler {
 		if name == "index.html" {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
-		http.ServeFileFS(w, r, fsys, name)
+		http.ServeFileFS(w, r, fsys, name) //nolint:gosec // G703: fs.FS rejects .. and absolute paths
 	})
 }

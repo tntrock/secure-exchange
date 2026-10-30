@@ -114,7 +114,7 @@ func (r *Keyring) Seal(plain, aad []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(binary.BigEndian.AppendUint32(nil, uint32(r.active)), body...), nil
+	return append(binary.BigEndian.AppendUint32(nil, uint32(r.active)), body...), nil //nolint:gosec // G115: key ids are validated positive and small at parse
 }
 
 func (r *Keyring) Open(sealed, aad []byte) ([]byte, error) {

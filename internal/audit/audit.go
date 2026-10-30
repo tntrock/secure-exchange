@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -113,7 +114,7 @@ func (l *Log) Append(ctx context.Context, e Event) error {
 	}
 	prev := make([]byte, 32)
 	err = tx.QueryRow(ctx, `SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1`).Scan(&prev)
-	if err != nil && err != pgx.ErrNoRows {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	at := time.Now().UTC().Truncate(time.Microsecond)

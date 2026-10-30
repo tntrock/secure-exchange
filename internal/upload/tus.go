@@ -339,7 +339,7 @@ func (h *handler) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc := http.NewResponseController(w)
-	defer rc.SetReadDeadline(time.Time{})
+	defer func() { _ = rc.SetReadDeadline(time.Time{}) }()
 	if err := h.appendChunks(ctx, rc, u, r.Body, sum); err != nil {
 		fail(w, "append", err)
 		return
@@ -396,7 +396,7 @@ func (h *handler) appendChunks(ctx context.Context, rc *http.ResponseController,
 		}
 		sum.Write(buf[:n])
 		next := u.offset + n
-		if _, err := f.Write(sxcrypto.SealChunk(dek, u.id, uint64(u.offset/sxcrypto.ChunkSize), next == u.size, buf[:n])); err != nil {
+		if _, err := f.Write(sxcrypto.SealChunk(dek, u.id, uint64(u.offset/sxcrypto.ChunkSize), next == u.size, buf[:n])); err != nil { //nolint:gosec // G115: offset is never negative
 			return err
 		}
 		if err := f.Sync(); err != nil {

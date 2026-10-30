@@ -3,10 +3,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import i18n from "../i18n";
 import Viewer, { lowestVisible } from "./Viewer";
 
-const loadSource = vi.fn(), attachMedia = vi.fn(), destroy = vi.fn(), on = vi.fn();
+const loadSource = vi.fn(), attachMedia = vi.fn(), destroy = vi.fn(), on = vi.fn(), isSupported = vi.fn();
 const supported = { value: true };
 vi.mock("hls.js", () => ({
-  default: class { static isSupported() { return supported.value; } static Events = { ERROR: "hlsError" }; on = on; loadSource = loadSource; attachMedia = attachMedia; destroy = destroy; },
+  default: class { static isSupported() { isSupported(); return supported.value; } static Events = { ERROR: "hlsError" }; on = on; loadSource = loadSource; attachMedia = attachMedia; destroy = destroy; },
 }));
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
@@ -208,7 +208,8 @@ test("video: hls.js unsupported leaves the player alone", async () => {
     stub(200, { kind: "video", status: "ready", page_count: 0 });
     const { container } = render(<Viewer base="/v" onClose={() => {}} />);
     await waitFor(() => expect(container.querySelector("video")).toBeTruthy());
-    await new Promise((r) => setTimeout(r, 10));
+    // isSupported() is the last step before loadSource: once it has answered, loadSource would have run
+    await waitFor(() => expect(isSupported).toHaveBeenCalled());
     expect(loadSource).not.toHaveBeenCalled();
   } finally {
     supported.value = true;
@@ -235,10 +236,14 @@ test("the page indicator follows the IntersectionObserver", async () => {
 
 test("unmount before the info request settles does not render a message", async () => {
   let resolve: (r: Response) => void = () => {};
-  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((r) => { resolve = r; })));
+  const pending = new Promise<Response>((r) => { resolve = r; });
+  vi.stubGlobal("fetch", vi.fn(() => pending));
   const { unmount } = render(<Viewer base="/b" onClose={() => {}} />);
   unmount();
-  resolve(new Response(JSON.stringify({ error: "x" }), { status: 500 }));
-  await new Promise((r) => setTimeout(r, 10));
+  const res = new Response(JSON.stringify({ error: "x" }), { status: 500 });
+  const json = vi.spyOn(res, "json");
+  resolve(res);
+  await pending; // the component awaited this promise first, so its continuation has run
+  expect(json).not.toHaveBeenCalled(); // it bailed out before reading the error body
   expect(document.body.textContent).toBe("");
 });

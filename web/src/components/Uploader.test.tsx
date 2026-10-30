@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 interface Opts { onProgress: (s: number, t: number) => void; onSuccess: () => void; onError: () => void }
 const { ctor, uploads, prev } = vi.hoisted(() => ({
   ctor: vi.fn(),
-  uploads: [] as { opts: Opts; start: ReturnType<typeof vi.fn>; abort: ReturnType<typeof vi.fn>; resumeFromPreviousUpload: ReturnType<typeof vi.fn> }[],
+  uploads: [] as { opts: Opts; start: ReturnType<typeof vi.fn>; abort: ReturnType<typeof vi.fn>; resumeFromPreviousUpload: ReturnType<typeof vi.fn>; found?: Promise<unknown[]> }[],
   prev: { list: [] as unknown[] },
 }));
 vi.mock("tus-js-client", () => ({
@@ -15,7 +15,8 @@ vi.mock("tus-js-client", () => ({
       this.opts = opts;
       uploads.push(this as never);
     }
-    findPreviousUploads = () => Promise.resolve(prev.list);
+    found?: Promise<unknown[]>;
+    findPreviousUploads = () => (this.found = Promise.resolve(prev.list));
     resumeFromPreviousUpload = vi.fn();
     start = vi.fn();
     abort = vi.fn();
@@ -98,8 +99,8 @@ test("unmount before the resume lookup settles never starts the upload", async (
   pick(container, "a.txt");
   const u = uploads[0];
   unmount();
-  await Promise.resolve();
-  await Promise.resolve();
+  expect(u.found).toBeDefined();
+  await u.found; // the component's .then on this promise was registered first, so it has run
   expect(u.abort).toHaveBeenCalled();
   expect(u.start).not.toHaveBeenCalled();
 });

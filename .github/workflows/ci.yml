@@ -37,7 +37,7 @@ jobs:
           curl --retry 30 --retry-delay 1 --retry-all-errors -fsS http://localhost:59000/minio/health/ready
       - name: Start mailpit
         run: |
-          docker run -d --name mailpit -p 51025:1025 -p 58025:8025 axllent/mailpit:v1.27
+          docker run -d --name mailpit -p 51025:1025 -p 58025:8025 axllent/mailpit:v1.32
           curl --retry 30 --retry-delay 1 --retry-all-errors -fsS http://localhost:58025/livez
       - uses: actions/setup-go@v7
         with:

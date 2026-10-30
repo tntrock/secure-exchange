@@ -1,5 +1,7 @@
 # secure-exchange
 
+[![ci](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml/badge.svg)](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/tntrock/secure-exchange/graph/badge.svg)](https://codecov.io/gh/tntrock/secure-exchange)
+
 [English](README.md) | 繁體中文
 
 自架的安全檔案交換系統，開源（AGPL-3.0）。單一 Go 執行檔（內嵌網頁介面）、以 PostgreSQL 存放中繼資料、檔案內容存放於本機磁碟或 S3 相容儲存。
@@ -136,6 +138,10 @@ docker compose -f docker-compose.dev.yml --profile tools run --rm worker-test
 ```
 
 CI 以獨立的 `tools` job 執行這些測試。
+
+## 安全性
+
+請以私下方式回報弱點，詳見 [SECURITY.md](SECURITY.md)。
 
 ## 授權
 

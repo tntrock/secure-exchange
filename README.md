@@ -1,5 +1,7 @@
 # secure-exchange
 
+[![ci](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml/badge.svg)](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/tntrock/secure-exchange/graph/badge.svg)](https://codecov.io/gh/tntrock/secure-exchange)
+
 English | [繁體中文](README.zh-TW.md)
 
 Self-hosted secure file exchange, open source (AGPL-3.0). One Go binary with the web UI embedded, PostgreSQL for metadata, and local disk or S3-compatible storage for file contents.
@@ -136,6 +138,10 @@ docker compose -f docker-compose.dev.yml --profile tools run --rm worker-test
 ```
 
 CI runs them in a separate `tools` job.
+
+## Security
+
+Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## License
 

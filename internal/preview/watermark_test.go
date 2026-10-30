@@ -172,10 +172,13 @@ func TestApplyVisibleOnWhiteAndBlack(t *testing.T) {
 
 func TestMarkTextCutsOnRuneBoundary(t *testing.T) {
 	m := testMark
-	m.Email = strings.Repeat("é", 200) // 400 bytes, 2 each
-	e := strings.SplitN(m.Text(), " · ", 4)[3]
-	if len(e) > 254 || !utf8.ValidString(e) {
-		t.Fatalf("len %d valid %v", len(e), utf8.ValidString(e))
+	// 400 bytes, 2 each; with the "a" prefix byte 254 falls inside an é
+	for _, email := range []string{strings.Repeat("é", 200), "a" + strings.Repeat("é", 200)} {
+		m.Email = email
+		e := strings.SplitN(m.Text(), " · ", 4)[3]
+		if len(e) > 254 || len(e) < 253 || !utf8.ValidString(e) {
+			t.Fatalf("len %d valid %v", len(e), utf8.ValidString(e))
+		}
 	}
 }
 

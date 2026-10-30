@@ -91,6 +91,22 @@ func TestVideoPipelinePutError(t *testing.T) {
 	}
 }
 
+func TestPipelinesOutDirTaken(t *testing.T) {
+	cfg := goodVideo()
+	cfg["pdfs"] = "1"
+	fakeToolsOnPath(t, cfg)
+	for name, p := range map[string]pipeline{"in.mp4": videoPipeline, "in.docx": docPipeline} {
+		dir := t.TempDir()
+		in := filepath.Join(dir, name)
+		os.WriteFile(in, []byte("x"), 0o600)
+		os.WriteFile(filepath.Join(dir, "out"), nil, 0o600) // something already holds the output name
+		_, err := p(&jobEnv{ctx: ctx, cfg: config.PreviewConfig{MaxVideoSeconds: 100, MaxPages: 5}, dir: dir, in: in})
+		if !errors.Is(err, os.ErrExist) {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+	}
+}
+
 func TestVideoProbeTimeout(t *testing.T) {
 	orig := ffprobeTimeout
 	ffprobeTimeout = 300 * time.Millisecond

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -198,11 +199,22 @@ func TestSweepSurvivesErrors(t *testing.T) {
 		t.Fatalf("stale row kept: %d", n)
 	}
 
-	// missing staging dir and canceled context only log
+	// a missing staging dir only logs: stale rows are still swept, fresh ones kept
+	stale2, fresh := e.create("a", 10), e.create("a", 10)
+	if _, err := e.pool.Exec(ctx, `UPDATE uploads SET updated_at = now() - interval '25 hours' WHERE id = $1`, stale2); err != nil {
+		t.Fatal(err)
+	}
 	sweep(ctx, e.pool, bs, filepath.Join(e.staging, "missing"), 24*time.Hour)
+	if n := e.count(`SELECT count(*) FROM uploads WHERE id = $1`, stale2); n != 0 {
+		t.Fatalf("stale row kept with missing staging dir: %d", n)
+	}
+	if n := e.count(`SELECT count(*) FROM uploads WHERE id = $1`, fresh); n != 1 {
+		t.Fatalf("fresh row swept: %d", n)
+	}
+
+	// a canceled context only logs
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
-	fresh := e.create("a", 10)
 	sweep(cctx, e.pool, bs, e.staging, 0)
 	if n := e.count(`SELECT count(*) FROM uploads WHERE id = $1`, fresh); n != 1 {
 		t.Fatalf("canceled sweep deleted rows: %d", n)
@@ -357,22 +369,25 @@ func TestFinishClassifyFallbacks(t *testing.T) {
 		hook func(e *env, id string)
 	}{
 		{"wrapped dek unreadable", func(e *env, id string) {
-			e.pool.Exec(context.Background(), `UPDATE uploads SET wrapped_dek = 'x' WHERE id = $1`, id)
+			if _, err := e.pool.Exec(context.Background(), `UPDATE uploads SET wrapped_dek = 'x' WHERE id = $1`, id); err != nil {
+				e.t.Error(err) // may run on the handler goroutine
+			}
 		}},
-		// finish still holds the file open; removal only succeeds where open files can be unlinked
-		{"staging file gone", func(e *env, id string) { os.Remove(filepath.Join(e.staging, id)) }},
+		{"staging file gone", func(e *env, id string) {
+			if err := os.Remove(filepath.Join(e.staging, id)); err != nil {
+				e.t.Error(err) // may run on the handler goroutine
+			}
+		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			if c.name == "staging file gone" && runtime.GOOS == "windows" {
+				t.Skip("finish still holds the staging file open; Windows cannot unlink an open file")
+			}
 			e := newEnv(t)
 			data := []byte("%PDF-1.4 tiny")
 			id := e.create("a", int64(len(data)))
-			removed := false
-			e.h.store = hookStore{e.store, func() {
-				c.hook(e, id)
-				_, err := os.Stat(filepath.Join(e.staging, id))
-				removed = os.IsNotExist(err)
-			}}
+			e.h.store = hookStore{e.store, func() { c.hook(e, id) }}
 			if resp := e.patch("a", id, 0, data); resp.StatusCode != 204 || resp.Header.Get("X-SX-File-ID") != id {
 				t.Fatalf("patch: %d", resp.StatusCode)
 			}
@@ -380,7 +395,7 @@ func TestFinishClassifyFallbacks(t *testing.T) {
 			if err := e.pool.QueryRow(context.Background(), `SELECT kind, status FROM file_previews WHERE file_id = $1`, id).Scan(&kind, &status); err != nil {
 				t.Fatal(err)
 			}
-			if (removed || c.name == "wrapped dek unreadable") && (kind != "none" || status != "failed") {
+			if kind != "none" || status != "failed" {
 				t.Fatalf("preview %s/%s", kind, status)
 			}
 		})

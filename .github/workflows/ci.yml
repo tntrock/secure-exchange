@@ -52,6 +52,8 @@ jobs:
         run: npm ci && npx vitest run --coverage && npm run build
       - run: go vet ./...
       - run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - uses: actions/upload-artifact@v7
+        with: {name: cov-test, path: coverage.out}
       - name: Upload coverage to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -116,3 +118,15 @@ jobs:
           use_oidc: true
           files: ./coverage-tools.out
           fail_ci_if_error: false
+      - uses: actions/upload-artifact@v7
+        with: {name: cov-tools, path: coverage-tools.out}
+
+  # Hard 90% gate on the merged Go profiles (web enforces its own via vitest thresholds).
+  coverage:
+    needs: [test, tools]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with: {pattern: cov-*, merge-multiple: true}
+      - run: sh scripts/covergate.sh coverage.out coverage-tools.out

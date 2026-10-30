@@ -135,7 +135,7 @@ go vet ./... && go test ./...
 docker run --rm -v "$PWD:/app" -w /app golangci/golangci-lint:v2.15.0 golangci-lint run --build-tags tools ./...
 ```
 
-未設定 `SX_TEST_DATABASE_URL` 時，資料庫測試會跳過。CI 以 `-race` 執行全部測試。
+未設定 `SX_TEST_DATABASE_URL` 時，資料庫測試會跳過。CI 以 `-race` 執行全部測試；Go（合併 tools 測試）或前端的語句覆蓋率低於 90% 時 CI 會失敗（`scripts/covergate.sh`、vitest thresholds）。
 
 `//go:build tools` 測試（LibreOffice、poppler、FFmpeg）在 worker-test 映像中執行；它加入開發用 compose 網路，以服務名稱連到 PostgreSQL 與 MinIO（原始碼掛載於 `/src`）：
 

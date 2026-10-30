@@ -8,6 +8,6 @@ export default defineConfig({
   server: { proxy: { "/api": "http://localhost:8080" } },
   test: {
     environment: "jsdom",
-    coverage: { provider: "v8", reporter: ["text-summary", "lcov"], include: ["src/**"], exclude: ["src/main.tsx", "src/**/*.test.*"] },
+    coverage: { provider: "v8", reporter: ["text-summary", "lcov"], include: ["src/**"], exclude: ["src/main.tsx", "src/**/*.test.*"], thresholds: { statements: 90, lines: 90 } },
   },
 });

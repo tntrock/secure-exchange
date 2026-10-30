@@ -135,7 +135,7 @@ go vet ./... && go test ./...
 docker run --rm -v "$PWD:/app" -w /app golangci/golangci-lint:v2.15.0 golangci-lint run --build-tags tools ./...
 ```
 
-DB tests are skipped when `SX_TEST_DATABASE_URL` is unset. CI runs everything with `-race`.
+DB tests are skipped when `SX_TEST_DATABASE_URL` is unset. CI runs everything with `-race` and fails if Go (merged with the tools tests) or web statement coverage drops below 90% (`scripts/covergate.sh`, vitest thresholds).
 
 The `//go:build tools` tests (LibreOffice, poppler, FFmpeg) run inside the worker-test image, which joins the dev compose network and reaches PostgreSQL and MinIO by service name (source mounted at `/src`):
 

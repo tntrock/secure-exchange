@@ -56,6 +56,33 @@ test("adding recipients to an expired share shows the expired message", async ()
   expect(i18n.exists("share.error.expired")).toBe(true);
 });
 
+test("revoking the whole share needs confirmation and refreshes to Revoked", async () => {
+  let revoked = false;
+  const f = vi.fn((_url: string, init?: RequestInit) => {
+    if (init?.method === "POST") { revoked = true; return Promise.resolve(new Response(null, { status: 204 })); }
+    return Promise.resolve(new Response(JSON.stringify({ ...detail, revoked, message: "hi", ip_allow: ["10.0.0.0/8"], max_views: 5 })));
+  });
+  vi.stubGlobal("fetch", f);
+  const confirm = vi.fn(() => false);
+  vi.stubGlobal("confirm", confirm);
+  render(
+    <MemoryRouter initialEntries={["/shares/s1"]}>
+      <Routes><Route path="/shares/:id" element={<ShareDetail />} /></Routes>
+    </MemoryRouter>,
+  );
+  const btn = await screen.findByRole("button", { name: i18n.t("share.revokeShare") });
+  expect(screen.getByText(`${i18n.t("share.ipAllow")}: 10.0.0.0/8`)).toBeTruthy();
+  expect(screen.getByText(`${i18n.t("share.views")}: 0 / 5`)).toBeTruthy();
+  fireEvent.click(btn);
+  expect(confirm).toHaveBeenCalledWith(i18n.t("share.confirmRevoke"));
+  expect(f.mock.calls.some(([, i]) => i?.method === "POST")).toBe(false);
+  confirm.mockReturnValue(true);
+  fireEvent.click(btn);
+  await waitFor(() => expect(screen.queryByRole("button", { name: i18n.t("share.revokeShare") })).toBeNull());
+  expect(f).toHaveBeenCalledWith("/api/shares/s1/revoke", expect.objectContaining({ method: "POST" }));
+  expect(screen.getByText(`${i18n.t("share.statusLabel")}: ${i18n.t("share.status.revoked")}`)).toBeTruthy();
+});
+
 test("status column uses the status label", async () => {
   vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify(detail)))));
   render(

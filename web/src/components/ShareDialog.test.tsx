@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import i18n from "../i18n";
 import ShareDialog from "./ShareDialog";
 
@@ -32,6 +32,62 @@ test("submits parsed recipients, ISO expiry and default flags", async () => {
   expect(body.max_views).toBeNull();
   expect(body.ip_allow).toEqual([]);
 });
+
+test("every form field reaches the request body", async () => {
+  const f = vi.fn((_u: string, _i?: RequestInit) => Promise.resolve(new Response(JSON.stringify({ id: "s9" }), { status: 201 })));
+  vi.stubGlobal("fetch", f);
+  render(
+    <MemoryRouter>
+      <Routes>
+        <Route path="/" element={<ShareDialog fileIds={["f1", "f2"]} onClose={() => {}} />} />
+        <Route path="/shares/:id" element={<p>detail page</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  const field = (k: string) => screen.getByLabelText(i18n.t(k));
+  fireEvent.change(field("share.recipients"), { target: { value: "a@x.com" } });
+  fireEvent.click(field("share.allowDownload"));
+  expect(screen.queryByText(i18n.t("share.viewOnlyNote"))).toBeNull();
+  fireEvent.click(field("share.watermark"));
+  fireEvent.change(field("share.expiresAt"), { target: { value: "2030-01-02T03:04" } });
+  fireEvent.change(field("share.maxViews"), { target: { value: "7" } });
+  fireEvent.change(field("share.ipAllow"), { target: { value: "10.0.0.1\n10.0.0.0/8" } });
+  fireEvent.change(field("share.message"), { target: { value: "see attached" } });
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.submit") }));
+  expect(await screen.findByText("detail page")).toBeTruthy();
+  const body = JSON.parse(f.mock.calls[0][1]!.body as string);
+  expect(body).toEqual({
+    file_ids: ["f1", "f2"], emails: ["a@x.com"], allow_download: true, watermark: false,
+    expires_at: new Date("2030-01-02T03:04").toISOString(), max_views: 7, ip_allow: ["10.0.0.1", "10.0.0.0/8"], message: "see attached",
+  });
+});
+
+test("a cleared expiry is sent empty so the server reports it", async () => {
+  const f = setupWith(() => fireEvent.change(screen.getByLabelText(i18n.t("share.expiresAt")), { target: { value: "" } }),
+    () => Promise.resolve(new Response(JSON.stringify({ error: "validation", field: "expires_at", code: "required" }), { status: 422 })));
+  expect(await screen.findByText(i18n.t("share.error.expires_at.required"))).toBeTruthy();
+  expect(JSON.parse(f.mock.calls[0][1]!.body as string).expires_at).toBe("");
+});
+
+test("Cancel calls onClose; network failure shows the generic error", async () => {
+  const onClose = vi.fn();
+  vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("offline"))));
+  render(<MemoryRouter><ShareDialog fileIds={["f1"]} onClose={onClose} /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.cancel") }));
+  expect(onClose).toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.submit") }));
+  expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("share.error.generic"));
+  expect((screen.getByRole("button", { name: i18n.t("share.submit") }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+function setupWith(edit: () => void, fetchImpl: () => Promise<Response>) {
+  const f = vi.fn((_u: string, _i?: RequestInit) => fetchImpl());
+  vi.stubGlobal("fetch", f);
+  render(<MemoryRouter><ShareDialog fileIds={["f1"]} onClose={() => {}} /></MemoryRouter>);
+  edit();
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.submit") }));
+  return f;
+}
 
 test("422 shows the field error text", async () => {
   setup(() => Promise.resolve(new Response(JSON.stringify({ error: "validation", field: "emails", code: "invalid" }), { status: 422 })));

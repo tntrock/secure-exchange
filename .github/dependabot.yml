@@ -18,6 +18,10 @@ updates:
   - package-ecosystem: docker
     directory: /
     schedule: {interval: weekly}
+    ignore:
+      # Node: even-numbered (LTS) majors only
+      - dependency-name: node
+        versions: [">= 25, < 26", ">= 27, < 28", ">= 29, < 30"]
   - package-ecosystem: docker-compose
     directory: /
     schedule: {interval: weekly}

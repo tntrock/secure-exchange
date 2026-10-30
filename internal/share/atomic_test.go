@@ -100,7 +100,7 @@ func TestCreateAtomic(t *testing.T) {
 				t.Fatal("created while blocked")
 			}
 			unlock()
-			if n := count(t, e, `SELECT count(*) FROM shares`) + count(t, e, `SELECT count(*) FROM mail_outbox`); n != 0 {
+			if n := count(t, e, `SELECT (SELECT count(*) FROM shares) + (SELECT count(*) FROM share_files) + (SELECT count(*) FROM share_recipients) + (SELECT count(*) FROM mail_outbox)`); n != 0 {
 				t.Fatalf("partial share left: %d rows", n)
 			}
 		})

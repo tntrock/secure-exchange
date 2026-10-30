@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -209,5 +211,149 @@ func TestWorkerWorkDirFullIsTooLarge(t *testing.T) {
 	runUntil(t, e, e.worker(t), f)
 	if p, _ := GetStatus(ctx, e.pool, f); p.Status != StatusTooLarge {
 		t.Fatalf("%+v", p)
+	}
+}
+
+func previewError(t *testing.T, e *itemEnv, f uuid.UUID) (Status, string) {
+	t.Helper()
+	var st Status
+	var msg string
+	if err := e.pool.QueryRow(ctx, `SELECT status, error FROM file_previews WHERE file_id = $1`, f).Scan(&st, &msg); err != nil {
+		t.Fatal(err)
+	}
+	return st, msg
+}
+
+func TestWorkerNoPipelineForKind(t *testing.T) {
+	e := newItemEnv(t)
+	f := e.storeFile(t, "x.bin", []byte("data"), KindNone)
+	runUntil(t, e, e.worker(t), f)
+	if st, msg := previewError(t, e, f); st != StatusFailed || msg != `no pipeline for kind "none"` {
+		t.Fatalf("%s %q", st, msg)
+	}
+}
+
+func TestWorkerUnwrapFailureRetried(t *testing.T) {
+	e := newItemEnv(t)
+	defer func(d time.Duration) { retryDelay = d }(retryDelay)
+	retryDelay = 0
+	f := e.storeFile(t, "pic.png", encodePNG(t, image.NewGray(image.Rect(0, 0, 4, 4))), KindImage)
+	// a key id the keyring does not have: transient (a key may be added on restart), retried until maxAttempts
+	if _, err := e.pool.Exec(ctx, `UPDATE files SET key_id = 99 WHERE id = $1`, f); err != nil {
+		t.Fatal(err)
+	}
+	runUntil(t, e, e.worker(t), f)
+	var attempts int
+	e.pool.QueryRow(ctx, `SELECT attempts FROM render_jobs WHERE file_id = $1`, f).Scan(&attempts)
+	if st, _ := previewError(t, e, f); st != StatusFailed || attempts != maxAttempts {
+		t.Fatalf("%s attempts %d", st, attempts)
+	}
+}
+
+func TestWorkerUnsafeExtensionDropped(t *testing.T) {
+	e := newItemEnv(t)
+	orig := pipelines[KindImage]
+	defer func() { pipelines[KindImage] = orig }()
+	var in string
+	pipelines[KindImage] = func(j *jobEnv) (Result, error) { in = filepath.Base(j.in); return orig(j) }
+	f := e.storeFile(t, "pic.p n;g", encodePNG(t, image.NewGray(image.Rect(0, 0, 4, 4))), KindImage)
+	runUntil(t, e, e.worker(t), f)
+	if st, _ := previewError(t, e, f); st != StatusReady || in != "in" {
+		t.Fatalf("%s in=%q", st, in)
+	}
+}
+
+// TestRunJobLeaseLost: when the job is no longer this worker's attempt (or the
+// worker shuts down), runJob records nothing.
+func TestRunJobLeaseLost(t *testing.T) {
+	steal := func(e *itemEnv, j *jobEnv) {
+		e.pool.Exec(ctx, `UPDATE render_jobs SET attempts = attempts + 1`)
+	}
+	for _, c := range []struct {
+		name string
+		p    func(e *itemEnv, cancel func(), j *jobEnv) (Result, error)
+	}{
+		{"pipeline reports lease lost", func(_ *itemEnv, _ func(), _ *jobEnv) (Result, error) { return Result{}, ErrLeaseLost }},
+		{"shutdown", func(_ *itemEnv, cancel func(), _ *jobEnv) (Result, error) {
+			cancel()
+			return Result{}, errors.New("killed")
+		}},
+		{"reclaimed before complete", func(e *itemEnv, _ func(), j *jobEnv) (Result, error) {
+			steal(e, j)
+			return Result{Kind: KindImage}, nil
+		}},
+		{"reclaimed before fail", func(e *itemEnv, _ func(), j *jobEnv) (Result, error) { steal(e, j); return Result{}, errors.New("bad") }},
+		{"reclaimed before requeue", func(e *itemEnv, _ func(), j *jobEnv) (Result, error) {
+			steal(e, j)
+			return Result{}, retryable(errors.New("down"))
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newItemEnv(t)
+			orig := pipelines[KindImage]
+			defer func() { pipelines[KindImage] = orig }()
+			jctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			pipelines[KindImage] = func(j *jobEnv) (Result, error) {
+				if err := j.put("image", 0, bytes.NewReader([]byte("x")), 1, Item{}); err != nil {
+					t.Fatal(err)
+				}
+				return c.p(e, cancel, j)
+			}
+			f := e.storeFile(t, "pic.png", []byte("png"), KindImage)
+			w := e.worker(t)
+			w.Lease = time.Minute
+			j, err := Claim(ctx, e.pool, w.Lease)
+			if err != nil || j == nil || j.FileID != f {
+				t.Fatalf("claim: %+v %v", j, err)
+			}
+			w.runJob(jctx, j)
+			var jobStatus string
+			e.pool.QueryRow(ctx, `SELECT status FROM render_jobs WHERE id = $1`, j.ID).Scan(&jobStatus)
+			if st, _ := previewError(t, e, f); st != StatusPending || jobStatus != "running" {
+				t.Fatalf("preview %s job %s", st, jobStatus)
+			}
+			// the current attempt owns the items: a stale worker leaves them alone
+			if items, _ := ListItems(ctx, e.pool, f, "image"); len(items) != 1 {
+				t.Fatalf("items %d", len(items))
+			}
+		})
+	}
+}
+
+func TestProcessStaleAttempt(t *testing.T) {
+	e := newItemEnv(t)
+	f := e.storeFile(t, "pic.png", []byte("png"), KindImage)
+	j, err := Claim(ctx, e.pool, time.Minute)
+	if err != nil || j == nil || j.FileID != f {
+		t.Fatalf("claim: %+v %v", j, err)
+	}
+	stale := *j
+	stale.Attempts--
+	// a stale attempt must not clear the current attempt's items
+	if _, err := e.worker(t).process(ctx, &stale); !errors.Is(err, ErrLeaseLost) || errors.Is(err, errRetry) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("chunk auth failed") }
+
+func TestRenderErrorsAreTransient(t *testing.T) {
+	never := func(*jobEnv) (Result, error) { t.Fatal("pipeline ran"); return Result{}, nil }
+	// work dir cannot be created
+	w := &Worker{Sandbox: Sandbox{Root: filepath.Join(t.TempDir(), "missing")}}
+	if _, err := w.render(ctx, never, ".png", strings.NewReader("x"), nil); !errors.Is(err, errRetry) {
+		t.Fatalf("err = %v", err)
+	}
+	// decrypting the input fails midway
+	root := t.TempDir()
+	w = &Worker{Sandbox: Sandbox{Root: root}}
+	if _, err := w.render(ctx, never, ".png", errReader{}, nil); !errors.Is(err, errRetry) || !strings.Contains(err.Error(), "decrypt input: chunk auth failed") {
+		t.Fatalf("err = %v", err)
+	}
+	if ents, _ := os.ReadDir(root); len(ents) != 0 {
+		t.Fatalf("leftover work dirs: %d", len(ents))
 	}
 }

@@ -58,7 +58,7 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	h := fnv.New64a()
 	h.Write([]byte("secure-exchange migrate " + schema))
-	locker, err := lock.NewPostgresSessionLocker(lock.WithLockID(int64(h.Sum64())), lock.WithLockTimeout(1, 300))
+	locker, err := lock.NewPostgresSessionLocker(lock.WithLockID(int64(h.Sum64())), lock.WithLockTimeout(1, 300)) //nolint:gosec // G115: wrap-around is fine, any 64-bit lock id works
 	if err != nil {
 		return err
 	}

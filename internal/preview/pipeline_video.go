@@ -124,7 +124,7 @@ func parsePlaylist(pl, dir string) ([]segment, error) {
 			if dur < 0 || line != fmt.Sprintf("s%05d.ts", len(segs)) {
 				return nil, errors.New("ffmpeg: bad playlist entry")
 			}
-			if _, err := os.Stat(filepath.Join(dir, line)); err != nil {
+			if _, err := os.Stat(filepath.Join(dir, line)); err != nil { //nolint:gosec // G703: line equals the generated name sNNNNN.ts (checked just above)
 				return nil, errors.New("ffmpeg: missing segment")
 			}
 			segs = append(segs, segment{line, dur})

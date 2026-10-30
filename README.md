@@ -132,6 +132,7 @@ export SX_TEST_DATABASE_URL='postgres://sx:sx@localhost:55432/sx?sslmode=disable
 export SX_TEST_S3_ENDPOINT=localhost:59000          # optional; S3 tests skip without it
 (cd web && npm ci && npm run build)                 # the Go binary embeds internal/webui/dist
 go vet ./... && go test ./...
+docker run --rm -v "$PWD:/app" -w /app golangci/golangci-lint:v2.15.0 golangci-lint run --build-tags tools ./...
 ```
 
 DB tests are skipped when `SX_TEST_DATABASE_URL` is unset. CI runs everything with `-race`.

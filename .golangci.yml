@@ -1,0 +1,44 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - gosec
+    - bodyclose
+    - sqlclosecheck
+    - rowserrcheck
+    - contextcheck
+    - noctx
+    - errorlint
+    - misspell
+  settings:
+    errcheck:
+      exclude-functions:
+        - (github.com/jackc/pgx/v5.Tx).Rollback # deferred after Commit; ErrTxClosed is expected
+        - (net/http.ResponseWriter).Write # client went away; nothing left to do
+        - (*encoding/json.Encoder).Encode # writing a response to the client, same as above
+    gosec:
+      excludes:
+        - G104 # duplicate of errcheck
+        - G304 # file paths are server-generated (staging ids, job dirs), never user input
+        - G204 # the render sandbox runs fixed tool names by design; args never reach a shell
+    govet:
+      enable-all: true
+      disable: [fieldalignment, shadow]
+  exclusions:
+    presets: [std-error-handling]
+    rules:
+      # tests may skip error checks and use fixed values freely
+      - path: _test\.go
+        linters: [errcheck, gosec, noctx, bodyclose, contextcheck]
+
+formatters:
+  enable: [gofmt, goimports]
+  settings:
+    goimports:
+      local-prefixes: [github.com/tntrock/secure-exchange]

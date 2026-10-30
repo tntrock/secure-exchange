@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"unicode/utf8"
+
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 )

@@ -83,7 +83,7 @@ func (s *SMTP) Send(ctx context.Context, m Message) error {
 		return err
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(60 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(60 * time.Second)) // best effort; a failure only loses the timeout
 	tlsCfg := &tls.Config{ServerName: s.cfg.Host, MinVersion: tls.VersionTLS12}
 	if s.cfg.TLS == "tls" {
 		conn = tls.Client(conn, tlsCfg)
@@ -119,7 +119,7 @@ func (s *SMTP) Send(ctx context.Context, m Message) error {
 	if err := w.Close(); err != nil {
 		return err
 	}
-	c.Quit() // DATA was accepted; a QUIT failure must not look like a failed send (duplicate delivery)
+	_ = c.Quit() // DATA was accepted; a QUIT failure must not look like a failed send (duplicate delivery)
 	return nil
 }
 
@@ -139,7 +139,8 @@ func (s *SMTP) render(from string, m Message) []byte {
 	}
 	var qp bytes.Buffer // QP keeps lines under RFC 5322's 998 octets even for long CJK text
 	w := quotedprintable.NewWriter(&qp)
-	w.Write([]byte(strings.ReplaceAll(strings.ReplaceAll(m.Body, "\r\n", "\n"), "\n", "\r\n")))
+	// into a bytes.Buffer: cannot fail
+	_, _ = w.Write([]byte(strings.ReplaceAll(strings.ReplaceAll(m.Body, "\r\n", "\n"), "\n", "\r\n")))
 	w.Close()
 	return []byte(strings.Join(h, "\r\n") + "\r\n\r\n" + qp.String())
 }

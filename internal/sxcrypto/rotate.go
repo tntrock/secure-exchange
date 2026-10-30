@@ -85,7 +85,7 @@ func rotatePass(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (int, er
 
 // residual describes values not on the active key ("" when none).
 func residual(ctx context.Context, pool *pgxpool.Pool, keys *Keyring) (string, error) {
-	prefix := binary.BigEndian.AppendUint32(nil, uint32(keys.ActiveID()))
+	prefix := binary.BigEndian.AppendUint32(nil, uint32(keys.ActiveID())) //nolint:gosec // G115: key ids are validated positive and small at parse
 	desc, total := "", 0
 	for _, t := range dekTables {
 		var n int

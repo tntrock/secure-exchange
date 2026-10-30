@@ -1,9 +1,11 @@
 package preview
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
+	"image/jpeg"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +25,17 @@ func whiteImg(w, h int) *image.RGBA {
 }
 
 var testMark = Mark{Email: "a@example.com", IP: "1.2.3.4", At: time.Date(2026, 10, 25, 9, 5, 0, 0, time.UTC), Code: "ABCDEFGHJK"}
+
+func TestEncodeJPEG(t *testing.T) {
+	var buf bytes.Buffer
+	if err := EncodeJPEG(&buf, whiteImg(30, 20)); err != nil {
+		t.Fatal(err)
+	}
+	img, err := jpeg.Decode(&buf)
+	if err != nil || img.Bounds().Dx() != 30 || img.Bounds().Dy() != 20 {
+		t.Fatalf("%v %v", img.Bounds(), err)
+	}
+}
 
 func TestApplyChangesPixelsKeepsSize(t *testing.T) {
 	src := whiteImg(800, 1000)

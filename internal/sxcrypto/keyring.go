@@ -62,7 +62,7 @@ func (r *Keyring) ActiveID() int { return r.active }
 
 // seal returns nonce || ciphertext using the given key.
 func seal(g cipher.AEAD, plain, aad []byte) ([]byte, error) {
-	nonce := make([]byte, g.NonceSize(), g.NonceSize()+len(plain)+g.Overhead())
+	nonce := make([]byte, g.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}

@@ -21,7 +21,40 @@
   },
   "recipient": {"title":"取得分享的檔案","from":"{{name}} 與您分享了檔案","expires":"有效期限：{{at}}","email":"您的 Email","sendCode":"寄送驗證碼","code":"6 位數驗證碼","verify":"驗證","resend":"重新寄送驗證碼","changeEmail":"使用其他 Email","codeSent":"若您在名單中，將收到驗證碼","filesTitle":"分享的檔案","fileUnavailable":"無法使用","leave":"離開","error":{"notFound":"找不到此分享","gone":"此分享已過期或已被撤銷","ipDenied":"您目前的網路位置不允許存取此分享","rateLimited":"嘗試次數過多，請稍後再試","invalidCode":"驗證碼錯誤或已失效","viewLimit":"此分享的檢視次數已達上限","sessionEnded":"登入已結束，請重新驗證","generic":"發生錯誤，請稍後再試"}},
   "viewer": { "reLogin": "登入已失效，請重新登入", "view_limit": "此分享已達檢視次數上限", "ip_denied": "不允許從您目前的網路位置存取", "open": "檢視", "close": "關閉", "prev": "上一頁", "next": "下一頁", "zoomIn": "放大", "zoomOut": "縮小", "page": "第 {{n}} 頁", "pending": "預覽處理中，請稍後再試", "notReady": "此檔案無法預覽", "gone": "分享已失效", "ended": "連線已結束，請重新驗證", "error": "無法載入預覽", "title": "檔案檢視器" },
-  "nav": { "files": "我的檔案", "shares": "我的分享", "trace": "溯源查詢" },
+  "nav": { "files": "我的檔案", "shares": "我的分享", "trace": "溯源查詢", "requests": "上傳請求" },
+  "requests": {
+    "title": "上傳請求", "new": "新增請求", "emails": "上傳者（一行一個，或以逗號分隔）",
+    "expiresOn": "有效期限至", "maxFiles": "檔案數上限", "maxGb": "總容量上限（GB）",
+    "exts": "允許的副檔名（以逗號分隔，選填）", "message": "給上傳者的附言（選填）", "create": "建立請求",
+    "listTitle": "我的請求", "empty": "尚無上傳請求", "createdAt": "建立時間", "expiresAt": "有效期限", "statusLabel": "狀態",
+    "files": "檔案數", "size": "容量", "status": { "active": "有效", "expired": "已過期", "revoked": "已撤銷" },
+    "detailTitle": "上傳請求", "back": "返回請求列表", "link": "上傳連結", "copy": "複製連結", "copied": "已複製",
+    "allowedExts": "允許的副檔名", "anyExt": "不限", "uploaders": "上傳者", "email": "Email", "firstOpened": "首次開啟",
+    "lastAccess": "最後存取", "never": "—", "fileList": "已上傳的檔案", "uploader": "上傳者", "deleted": "（已刪除）",
+    "revoke": "撤銷請求", "confirmRevoke": "確定撤銷此請求？上傳者將無法再上傳檔案。",
+    "error": {
+      "generic": "無法建立請求，請檢查表單",
+      "emails": { "required": "請至少輸入一位上傳者", "too_many": "上傳者過多", "invalid": "有 Email 格式不正確" },
+      "allowed_exts": { "invalid": "副檔名只能包含英文字母與數字", "too_many": "副檔名過多" },
+      "expires_at": { "required": "必須設定有效期限", "out_of_range": "有效期限須介於 1 小時至系統允許的上限之間" },
+      "max_files": { "out_of_range": "檔案數上限超出範圍" },
+      "max_total_bytes": { "out_of_range": "總容量上限超出範圍" },
+      "message": { "too_many": "附言過長" }
+    }
+  },
+  "scan": { "label": "掃描", "pending": "掃描中", "clean": "未發現病毒", "infected": "已感染", "skipped": "未掃描（檔案過大）", "error": "掃描失敗" },
+  "intake": {
+    "title": "上傳檔案", "from": "{{name}} 請您上傳檔案", "expires": "有效期限：{{at}}", "email": "您的 Email",
+    "sendCode": "寄送驗證碼", "code": "6 位數驗證碼", "verify": "驗證", "resend": "重新寄送驗證碼", "changeEmail": "使用其他 Email",
+    "codeSent": "若您在上傳者名單中，將收到驗證碼", "leave": "離開",
+    "allowedExts": "允許的檔案類型：{{exts}}", "anyExt": "不限", "filesLeft": "還可上傳的檔案數：{{count}}", "bytesLeft": "剩餘容量：{{size}}",
+    "yourFiles": "您已上傳的檔案", "noFiles": "您尚未上傳任何檔案",
+    "error": {
+      "notFound": "找不到此上傳請求", "gone": "此上傳請求已過期或已被撤銷", "rateLimited": "嘗試次數過多，請稍後再試",
+      "invalidCode": "驗證碼錯誤或已失效", "sessionEnded": "登入已結束，請重新驗證", "generic": "發生錯誤，請稍後再試",
+      "extNotAllowed": "不允許此檔案類型", "tooManyFiles": "已達此請求的檔案數上限", "quotaExceeded": "剩餘容量不足以放下此檔案"
+    }
+  },
   "share": {
     "create": "建立分享", "selected": "已選 {{count}} 個", "title": "建立分享", "submit": "建立", "cancel": "取消",
     "recipients": "收件人（一行一個，或以逗號分隔）", "allowDownload": "允許下載", "watermark": "浮水印",

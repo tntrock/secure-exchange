@@ -1,6 +1,7 @@
 export interface Me { id: string; email: string; display_name: string; role: string; totp_enabled: boolean }
 export type MarkMethod = "pdf_pages" | "pdf_meta" | "image_visible" | "image_invisible" | "ooxml_meta" | "odf_meta" | "none";
-export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string; preview_status: "pending" | "ready" | "failed" | "unsupported" | "too_large"; preview_kind: string; mark: { watermark: MarkMethod; plain: MarkMethod; degraded: boolean } }
+export type ScanStatus = "none" | "pending" | "clean" | "infected" | "skipped" | "error";
+export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string; preview_status: "pending" | "ready" | "failed" | "unsupported" | "too_large"; preview_kind: string; scan_status: ScanStatus; scan_result: string | null; request_id: string | null; mark: { watermark: MarkMethod; plain: MarkMethod; degraded: boolean } }
 
 export interface ShareReq {
   file_ids: string[]; emails: string[]; allow_download: boolean; watermark: boolean;
@@ -23,6 +24,21 @@ export interface RecipientFiles {
   message: string; expires_at: string; allow_download: boolean; watermark: boolean;
   files: { id: string; name: string; size: number; available: boolean; mark_pending?: boolean }[];
 }
+
+export interface UploadRequest {
+  id: string; created_at: string; expires_at: string; revoked: boolean; expired: boolean;
+  file_count: number; total_bytes: number; max_files: number; max_total_bytes: number; uploader_count: number;
+}
+export interface UploadRequestDetail extends UploadRequest {
+  url: string; message: string; allowed_exts: string[];
+  uploaders: { id: string; email: string; first_opened_at: string | null; last_access_at: string | null }[];
+  files: { id: string; name: string; size: number; uploader_email: string; created_at: string; scan_status: ScanStatus; scan_result: string | null; deleted: boolean }[];
+}
+export interface RequestReq {
+  emails: string[]; expires_at: string; max_files: number; max_total_bytes: number; allowed_exts: string[]; message: string;
+}
+export interface IntakeLanding { owner_name: string; message: string; expires_at: string; max_files: number; max_total_bytes: number; allowed_exts: string[] }
+export interface IntakeFiles { files: { id: string; name: string; size: number; created_at: string }[]; files_left: number; bytes_left: number }
 
 export interface TraceHit {
   source: string; via: string; code: string; file_id: string; file_name: string; share_id: string | null;
@@ -78,6 +94,15 @@ export const api = {
   recipientCode: (tk: string, email: string) => call<{ sent: boolean }>("POST", `/api/s/${encodeURIComponent(tk)}/code`, { email }),
   recipientVerify: (tk: string, email: string, code: string) => call<void>("POST", `/api/s/${encodeURIComponent(tk)}/verify`, { email, code }),
   recipientFiles: (tk: string) => call<RecipientFiles>("GET", `/api/s/${encodeURIComponent(tk)}/files`),
+  requests: () => call<UploadRequest[]>("GET", "/api/requests"),
+  request: (id: string) => call<UploadRequestDetail>("GET", `/api/requests/${id}`),
+  createRequest: (r: RequestReq) => call<UploadRequestDetail>("POST", "/api/requests", r),
+  revokeRequest: (id: string) => call<void>("POST", `/api/requests/${id}/revoke`),
+  intakeLanding: (tk: string) => call<IntakeLanding>("GET", `/api/r/${encodeURIComponent(tk)}`),
+  intakeCode: (tk: string, email: string) => call<{ sent: boolean }>("POST", `/api/r/${encodeURIComponent(tk)}/code`, { email }),
+  intakeVerify: (tk: string, email: string, code: string) => call<IntakeFiles>("POST", `/api/r/${encodeURIComponent(tk)}/verify`, { email, code }),
+  intakeFiles: (tk: string) => call<IntakeFiles>("GET", `/api/r/${encodeURIComponent(tk)}/files`),
+  intakeLogout: (tk: string) => call<void>("POST", `/api/r/${encodeURIComponent(tk)}/logout`),
   trace: (q: { code: string } | { sha256: string } | File) => {
     if (q instanceof File) {
       const fd = new FormData();

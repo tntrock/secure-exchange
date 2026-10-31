@@ -25,6 +25,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      SX_BASE_URL: https://${SX_DOMAIN:?set SX_DOMAIN in .env}
       SX_DATABASE_URL: postgres://sx:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/sx?sslmode=disable
     read_only: true
     tmpfs:
@@ -42,8 +43,24 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      clamav:
+        condition: service_started
     # backend only. With external S3, also attach a network that can reach it (see README).
     networks: [backend]
+
+  # Virus scanner for external uploads. Needs the internet for signature updates (freshclam),
+  # so it sits on its own egress network, never on sx (whose subnet is a trusted proxy range).
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes:
+      - clamdb:/var/lib/clamav
+      - ./clamd.conf:/etc/clamav/clamd.conf:ro
+    tmpfs:
+      - /tmp:size=1200m,mode=1777 # clamd spools INSTREAM data here: scanned plaintext stays in RAM
+    mem_limit: 4g
+    memswap_limit: 4g
+    networks: [backend, updates]
 
   postgres:
     image: postgres:17
@@ -78,11 +95,13 @@ volumes:
   pgdata:
   sxdata:
   caddydata:
+  clamdb:
 
 networks:
   sx:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+  updates: {}
   backend:
     internal: true # no route out: the worker cannot reach the internet

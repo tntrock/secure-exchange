@@ -12,6 +12,7 @@ export default function Shell({ role, children }: { role: string; children: Reac
         <strong>{t("app.title")}</strong>
         <Link to="/files">{t("nav.files")}</Link>
         <Link to="/shares">{t("nav.shares")}</Link>
+        <Link to="/requests">{t("nav.requests")}</Link>
         {role === "admin" && <Link to="/admin/trace">{t("nav.trace")}</Link>}
         <span className="spacer" />
         <LangSwitch />

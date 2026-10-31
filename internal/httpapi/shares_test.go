@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/tntrock/secure-exchange/internal/audit"
 )
 
@@ -165,5 +167,26 @@ func TestAddRecipientsExpiredAPI(t *testing.T) {
 	resp, b := e.do(t, "POST", "/api/shares/"+id+"/recipients", map[string]any{"emails": []string{"late@y.com"}})
 	if resp.StatusCode != http.StatusConflict || string(b) != `{"error":"expired"}`+"\n" {
 		t.Fatal(resp.StatusCode, string(b))
+	}
+}
+
+// Share endpoints refuse (500) rather than guess when the data they depend on cannot be read.
+func TestShareEndpointsAnswer500WhenTablesFail(t *testing.T) {
+	e := newEnv(t, func(d *Deps) { d.Mark.Policy = "block" })
+	a := e.user(t, "a@x.com")
+	f := e.putFile(t, a.ID, "a.zip", []byte("PK\x03\x04 not much"))
+	e.login(t, "a@x.com", pw)
+	e.breakTable(t, "file_previews")
+	in := map[string]any{"file_ids": []uuid.UUID{f}, "emails": []string{"r@y.com"}, "allow_download": true, "watermark": true,
+		"expires_at": time.Now().Add(48 * time.Hour).Format(time.RFC3339)}
+	if resp, b := e.do(t, "POST", "/api/shares", in); resp.StatusCode != 500 {
+		t.Fatal("create:", resp.StatusCode, string(b))
+	}
+	if resp, b := e.do(t, "GET", "/api/shares", nil); resp.StatusCode != 200 {
+		t.Fatal("list before:", resp.StatusCode, string(b))
+	}
+	e.breakTable(t, "share_files")
+	if resp, b := e.do(t, "GET", "/api/shares", nil); resp.StatusCode != 500 {
+		t.Fatal("list:", resp.StatusCode, string(b))
 	}
 }

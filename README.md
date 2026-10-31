@@ -117,6 +117,45 @@ The method is chosen before the download starts: if a file cannot be marked as t
 
 **Tracing a leak.** Administrators open **Leak tracing** (`/admin/trace`) and look up a tracking code, a SHA-256, or upload the suspect file (analysed in memory only, never stored). The page reads the metadata, text layer and invisible watermark, and shows who downloaded it, for which file and share, from which IP and when; with no match it says "Undetermined". Screenshots and photos of the screen carry no embedded mark: read the tracking code from the visible watermark and look it up manually.
 
+## Upload requests
+
+Upload requests let you collect files from people who have no account: you send them a link, they prove their email with a one-time code and upload straight into your file list.
+
+**Creating a link.** Open **Requests** (`/requests`), fill in the form and press **Create request**:
+
+- **Uploaders**: up to 50 email addresses (comma or newline separated). Only these people can sign in to the link.
+- **Expires on**: end of that day; at most `SX_SHARE_MAX_DAYS` from now.
+- **Max files** and **max total size (GB)**: limits for the whole request, shared by all uploaders.
+- **Allowed extensions**: optional, for example `pdf, docx`. Empty means any type.
+- **Message**: optional, shown to uploaders.
+
+The detail page shows the link (copy it and send it to the uploaders yourself), the uploaders, and every uploaded file with its scan status. **Revoke request** ends the link immediately; files already uploaded stay in your file list.
+
+**What uploaders see.** The link (`/r/<token>`) asks for their email, emails a 6-digit code, then shows the limits (allowed types, files left, space left) and a resumable uploader. Each uploader sees only their own files. Files that break a limit are refused before the upload starts, and again by the server.
+
+**Scan states.** Files from upload requests are checked by ClamAV (see below) and show a badge on the detail page and in **My files**:
+
+| Badge | Meaning for you |
+|---|---|
+| Scanning (`pending`) | Waiting for the scan. Download, preview and sharing are disabled; the page refreshes by itself. |
+| No virus found | Scanned, nothing found. Works like any other file. |
+| Infected | A signature matched (its name is shown). Quarantined: no download, preview or sharing. |
+| Not scanned (`skipped`) | Larger than `SX_SCAN_MAX_BYTES`, released unscanned. Treat with caution. |
+| Scan failed (`error`) | Could not be scanned after 5 attempts. Blocked like an infected file. |
+
+Your own uploads are not scanned and show no badge.
+
+## ClamAV virus scanning
+
+Files uploaded through upload request links by external users are scanned by ClamAV before the requester can download them. The `clamav` service starts with the stack and the worker feeds it each file (decrypted in memory only, never written to disk).
+
+- The first start downloads the virus signatures, which takes several minutes. Files uploaded meanwhile stay `pending` and are scanned once clamd is ready.
+- Infected files are quarantined and cannot be downloaded; the requester and all admins are emailed. A file that cannot be scanned after 5 attempts is blocked and the requester is told.
+- Files over `SX_SCAN_MAX_BYTES` (default 1 GiB; ClamAV imposes a hard ceiling of about 4000 MiB) are released **unscanned**, with a warning badge and a warning in the requester's email. This is an accepted deviation from "every external upload is scanned"; an option to block such files instead is planned together with the admin rules.
+- To raise the limit, raise all of these together to at least the new value: `SX_SCAN_MAX_BYTES`, `StreamMaxLength` and `MaxFileSize` in `clamd.conf`, and the `/tmp` tmpfs size of `clamav` in `docker-compose.yml` (clamd spools the stream there, in RAM).
+- ClamAV's scan-time, size and archive limits stop a scan early and still report OK (`AlertExceedsMax` is `no`), so "No virus found" means no virus was found within ClamAV's limits, not that the file is proven clean.
+- clamd needs about 1.5 to 3 GB of RAM (`mem_limit: 4g`). The worker has no internet access; `clamav` sits on its own `updates` network, which has egress for signature updates. (The `app` and `caddy` containers are on the `sx` network, which also has egress.)
+
 ## Backup
 
 Back up all of these, together:

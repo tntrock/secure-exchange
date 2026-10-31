@@ -6,7 +6,7 @@ import Files from "./Files";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 const file = (id: string, name: string, preview_status: string) => ({
-  id, name, content_type: "application/pdf", size: 2048, sha256: "abcdef0123456789abcdef", created_at: "2030-01-01T00:00:00Z", preview_status, preview_kind: "pages",
+  id, name, content_type: "application/pdf", size: 2048, sha256: "abcdef0123456789abcdef", created_at: "2030-01-01T00:00:00Z", preview_status, preview_kind: "pages", scan_status: "none", scan_result: null, request_id: null,
 });
 
 // routes by method + url; `list` answers GET /api/files in order (last one repeats)
@@ -114,4 +114,38 @@ test("pending previews are polled every 5s until ready", async () => {
   expect(lists()).toBe(2);
   await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
   expect(lists()).toBe(2);
+});
+
+const scanned = (id: string, name: string, scan_status: string, scan_result: string | null = null) =>
+  ({ ...file(id, name, "ready"), scan_status, scan_result, request_id: "rq1" });
+
+test("quarantined file has no download or share", async () => {
+  mockApi([json(200, [scanned("f1", "bad.pdf", "infected", "Eicar"), scanned("f2", "ok.pdf", "clean")])]);
+  renderPage();
+  expect(await screen.findByText("Infected (Eicar)")).toBeTruthy();
+  expect(screen.getByText("No virus found")).toBeTruthy();
+  expect((screen.getByLabelText("bad.pdf") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("ok.pdf") as HTMLInputElement).disabled).toBe(false);
+  // only the clean file keeps a download link and an enabled View button
+  expect(screen.getAllByRole("link", { name: "Download" })).toHaveLength(1);
+  const views = screen.getAllByRole("button", { name: "View" }) as HTMLButtonElement[];
+  expect(views.map((b) => b.disabled)).toEqual([true, false]);
+});
+
+test("pending scan polls", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const pendingScan = { ...scanned("f1", "a.pdf", "pending") };
+  const f = mockApi([json(200, [pendingScan]), json(200, [scanned("f1", "a.pdf", "clean")])]);
+  renderPage();
+  expect(await screen.findByText("Scanning")).toBeTruthy();
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+  await waitFor(() => expect(screen.getByText("No virus found")).toBeTruthy());
+  expect(f.mock.calls.filter(([u]) => u === "/api/files").length).toBe(2);
+});
+
+test("staff uploads show no scan badge", async () => {
+  mockApi([json(200, [file("f1", "a.pdf", "ready")])]);
+  renderPage();
+  await screen.findByText("a.pdf");
+  expect(screen.queryByText("No virus found")).toBeNull();
 });

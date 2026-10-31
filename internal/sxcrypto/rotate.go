@@ -22,7 +22,7 @@ var afterPass func(pass int)
 // RotateAll moves every master-key-protected value to the active key: it re-wraps
 // the wrapped_dek of every row in dekTables (uploads, files, preview_items) and
 // re-seals every column in sealedCols (users.totp_secret_sealed, uploads.hash_state,
-// mail_outbox.body_sealed, shares.token_sealed). Values already on the active key
+// mail_outbox.body_sealed, shares.token_sealed, upload_requests.token_sealed). Values already on the active key
 // are skipped. Returns the number of values rewritten. Blob contents (files and
 // preview artifacts) are untouched: only the DEKs that encrypt them change.
 //
@@ -59,6 +59,7 @@ var sealedCols = []struct{ table, col, aad string }{
 	{"uploads", "hash_state", "uploadhash:"},
 	{"mail_outbox", "body_sealed", "mail:"},
 	{"shares", "token_sealed", "sharetoken:"},
+	{"upload_requests", "token_sealed", "requesttoken:"},
 }
 
 // dekTables lists every table with wrapped_dek/key_id columns; uploads first so a finishing upload is caught later.

@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-interface Opts { onProgress: (s: number, t: number) => void; onSuccess: () => void; onError: () => void }
+interface Opts { onProgress: (s: number, t: number) => void; onSuccess: () => void; onError: (e?: unknown) => void }
 const { ctor, uploads, prev } = vi.hoisted(() => ({
   ctor: vi.fn(),
   uploads: [] as { opts: Opts; start: ReturnType<typeof vi.fn>; abort: ReturnType<typeof vi.fn>; resumeFromPreviousUpload: ReturnType<typeof vi.fn>; found?: Promise<unknown[]> }[],
@@ -121,4 +121,46 @@ test("drag highlights the drop zone and drop adds files; click opens the picker"
   const click = vi.spyOn(input, "click");
   fireEvent.click(zone);
   expect(click).toHaveBeenCalled();
+});
+
+test("uses endpoint prop and accept", async () => {
+  const { container } = render(<Uploader onDone={() => {}} endpoint="/api/r/tok/uploads/" accept=".pdf" />);
+  expect(container.querySelector("input[type=file]")!.getAttribute("accept")).toBe(".pdf");
+  pick(container, "a.pdf");
+  await waitFor(() => expect(ctor).toHaveBeenCalled());
+  expect(ctor.mock.calls[0][1].endpoint).toBe("/api/r/tok/uploads/");
+});
+
+test("check rejects file", async () => {
+  const check = vi.fn((f: File) => (f.name === "bad.exe" ? "intake.error.extNotAllowed" : null));
+  const { container } = render(<Uploader onDone={() => {}} check={check} />);
+  pick(container, "bad.exe", "ok.pdf");
+  await waitFor(() => expect(ctor).toHaveBeenCalledTimes(1));
+  expect(ctor.mock.calls[0][0].name).toBe("ok.pdf");
+  expect(screen.getByRole("alert").textContent).toBe("intake.error.extNotAllowed");
+  expect(screen.queryByText("bad.exe")).toBeNull();
+});
+
+test("onError gets the response status and body; no response gives 0", async () => {
+  const onError = vi.fn();
+  const { container } = render(<Uploader onDone={() => {}} onError={onError} />);
+  pick(container, "a.txt");
+  await waitFor(() => expect(uploads[0]?.start).toHaveBeenCalled());
+  act(() => uploads[0].opts.onError({ originalResponse: { getStatus: () => 403, getBody: () => "quota_exceeded" } }));
+  expect(onError).toHaveBeenCalledWith(403, "quota_exceeded");
+  act(() => uploads[0].opts.onError(new Error("offline")));
+  expect(onError).toHaveBeenLastCalledWith(0, "");
+});
+
+test("retries a 429 and a 5xx but not a 403", async () => {
+  const { container } = render(<Uploader onDone={() => {}} />);
+  pick(container, "a.txt");
+  await waitFor(() => expect(ctor).toHaveBeenCalled());
+  const retry = ctor.mock.calls[0][1].onShouldRetry as (e: unknown) => boolean;
+  const err = (s?: number) => ({ originalResponse: s === undefined ? null : { getStatus: () => s } });
+  expect(retry(err(429))).toBe(true);
+  expect(retry(err(502))).toBe(true);
+  expect(retry(err(409))).toBe(true);
+  expect(retry(err())).toBe(true);
+  expect(retry(err(403))).toBe(false);
 });

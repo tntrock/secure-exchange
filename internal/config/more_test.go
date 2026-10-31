@@ -60,7 +60,7 @@ func TestLoadSMTPNoneOnlyLocal(t *testing.T) {
 func TestLoadWorkerIgnoresWebSettings(t *testing.T) {
 	m := map[string]string{
 		"SX_DATABASE_URL": "postgres://u@h/db", "SX_MASTER_KEYS": "1:abc", "SX_ACTIVE_KEY_ID": "1",
-		"SX_WORKER_TMP": "/tmp/w", "SX_SESSION_TTL": "garbage",
+		"SX_BASE_URL": "https://x.example", "SX_WORKER_TMP": "/tmp/w", "SX_SESSION_TTL": "garbage",
 	}
 	c, err := LoadWorker(env(m))
 	if err != nil || c.WorkerTmp != "/tmp/w" {

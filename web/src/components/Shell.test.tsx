@@ -22,3 +22,8 @@ test("logout calls the API", () => {
   screen.getByRole("button", { name: i18n.t("app.logout") }).click();
   expect(f).toHaveBeenCalledWith("/api/auth/logout", expect.anything());
 });
+
+test("requests link for everyone", () => {
+  show("user");
+  expect(screen.getByRole("link", { name: i18n.t("nav.requests") }).getAttribute("href")).toBe("/requests");
+});

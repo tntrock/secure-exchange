@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { Upload } from "tus-js-client";
+import { Upload, type DetailedError } from "tus-js-client";
 import { useTranslation } from "react-i18next";
 
 type Status = "uploading" | "paused" | "done" | "failed";
 
-function UploadItem({ file, onDone }: { file: File; onDone: () => void }) {
+type OnError = (status: number, body: string) => void;
+
+// tus-js-client's default (not exported) plus 429, so a rate-limited create or chunk is retried with retryDelays:
+// retry unless the response is a 4xx other than 409/423/429, and only while online.
+const shouldRetry = (err: DetailedError) => {
+  const status = err.originalResponse?.getStatus() ?? 0;
+  return (status < 400 || status >= 500 || [409, 423, 429].includes(status)) && (typeof navigator === "undefined" || navigator.onLine !== false);
+};
+
+function UploadItem({ file, endpoint, onDone, onError }: { file: File; endpoint: string; onDone: () => void; onError?: OnError }) {
   const { t } = useTranslation();
   const up = useRef<Upload | null>(null);
   const [pct, setPct] = useState(0);
@@ -13,9 +22,10 @@ function UploadItem({ file, onDone }: { file: File; onDone: () => void }) {
 
   useEffect(() => {
     const u = new Upload(file, {
-      endpoint: "/api/uploads/",
+      endpoint,
       chunkSize: 64 * 1024 * 1024,
       retryDelays: [0, 1000, 3000, 5000, 10000],
+      onShouldRetry: shouldRetry,
       metadata: { filename: file.name, filetype: file.type },
       storeFingerprintForResuming: true,
       onProgress: (sent, total) => setPct(total ? Math.floor((sent / total) * 100) : 0),
@@ -24,7 +34,11 @@ function UploadItem({ file, onDone }: { file: File; onDone: () => void }) {
         setStatus("done");
         onDone();
       },
-      onError: () => setStatus("failed"),
+      onError: (err) => {
+        setStatus("failed");
+        const r = (err as DetailedError | undefined)?.originalResponse;
+        onError?.(r?.getStatus() ?? 0, r?.getBody() ?? "");
+      },
     });
     up.current = u;
     let live = true;
@@ -71,12 +85,32 @@ function UploadItem({ file, onDone }: { file: File; onDone: () => void }) {
   );
 }
 
-export default function Uploader({ onDone }: { onDone: () => void }) {
+type Props = {
+  onDone: () => void;
+  endpoint?: string;
+  accept?: string;
+  check?: (f: File) => string | null; // i18n key when the file is rejected before upload
+  onError?: OnError;
+};
+
+export default function Uploader({ onDone, endpoint = "/api/uploads/", accept, check, onError }: Props) {
   const { t } = useTranslation();
   const [files, setFiles] = useState<File[]>([]);
   const [over, setOver] = useState(false);
+  const [rejected, setRejected] = useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null);
-  const add = (list: FileList | null) => list && setFiles((f) => [...f, ...Array.from(list)]);
+  const add = (list: FileList | null) => {
+    if (!list) return;
+    const ok: File[] = [];
+    const bad: string[] = [];
+    for (const f of Array.from(list)) {
+      const why = check?.(f) ?? null;
+      if (why) bad.push(why);
+      else ok.push(f);
+    }
+    setRejected(bad);
+    setFiles((cur) => [...cur, ...ok]);
+  };
   return (
     <div>
       <div
@@ -98,6 +132,7 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
           ref={input}
           type="file"
           multiple
+          accept={accept}
           hidden
           onChange={(e) => {
             add(e.target.files);
@@ -105,8 +140,9 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
           }}
         />
       </div>
+      {rejected.map((k, i) => <p key={i} className="error" role="alert">{t(k)}</p>)}
       {files.map((f, i) => (
-        <UploadItem key={i} file={f} onDone={onDone} />
+        <UploadItem key={i} file={f} endpoint={endpoint} onDone={onDone} onError={onError} />
       ))}
     </div>
   );

@@ -18,8 +18,10 @@ import (
 	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/db"
 	"github.com/tntrock/secure-exchange/internal/httpapi"
+	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/preview"
+	"github.com/tntrock/secure-exchange/internal/scan"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/upload"
@@ -90,6 +92,7 @@ func serve(ctx context.Context) error {
 	handler := httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
+		Requests:       intake.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL, CodeDelay: 300 * time.Millisecond,
 		FontFile: cfg.FontFile, Mark: cfg.Mark,
 		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies, cfg.Preview),
@@ -149,6 +152,8 @@ func worker(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	go (&scan.Worker{Pool: pool, Store: store, Keys: keys, Outbox: mail.NewOutbox(pool, keys, nil), Audit: audit.New(pool),
+		Cfg: cfg.Scan, BaseURL: cfg.BaseURL}).Run(ctx)
 	slog.Info("preview worker started", "tmp", cfg.WorkerTmp)
 	(&preview.Worker{Pool: pool, Store: store, Keys: keys, Cfg: cfg.Preview, Sandbox: preview.Sandbox{Root: cfg.WorkerTmp}}).Run(ctx)
 	return nil

@@ -177,6 +177,7 @@ func TestLoadPreviewInvalid(t *testing.T) {
 
 func TestLoadWorker(t *testing.T) {
 	m := map[string]string{
+		"SX_BASE_URL":      "https://x.example",
 		"SX_DATABASE_URL":  "postgres://u@h/db",
 		"SX_MASTER_KEYS":   "1:abc",
 		"SX_ACTIVE_KEY_ID": "1",
@@ -191,6 +192,13 @@ func TestLoadWorker(t *testing.T) {
 	}
 	if c.WorkerTmp != "/work" || c.Preview.MaxPages != 500 || c.Storage != "local" {
 		t.Fatalf("%+v", c)
+	}
+	if c.Scan != (ScanConfig{ClamdAddr: "clamav:3310", MaxBytes: 1 << 30}) || c.BaseURL != "https://x.example" {
+		t.Fatalf("scan defaults: %+v", c.Scan)
+	}
+	m2 := map[string]string{"SX_DATABASE_URL": "postgres://u@h/db", "SX_MASTER_KEYS": "1:abc", "SX_ACTIVE_KEY_ID": "1"}
+	if _, err := LoadWorker(env(m2)); err == nil || !strings.Contains(err.Error(), "SX_BASE_URL") {
+		t.Fatalf("worker without SX_BASE_URL: %v", err)
 	}
 	m["SX_RENDER_DPI"] = "0"
 	m["SX_STORAGE"] = "s3"
@@ -228,5 +236,21 @@ func TestLoadMarkInvalid(t *testing.T) {
 	m["SX_UNMARKABLE_POLICY"] = "block"
 	if c, err := Load(env(m)); err != nil || c.Mark.Policy != "block" {
 		t.Fatalf("block: %v %+v", err, c)
+	}
+}
+
+func TestLoadScan(t *testing.T) {
+	m := required()
+	m["SX_CLAMD_ADDR"] = "127.0.0.1:3311"
+	m["SX_SCAN_MAX_BYTES"] = "4194304000"
+	c, err := Load(env(m))
+	if err != nil || c.Scan != (ScanConfig{ClamdAddr: "127.0.0.1:3311", MaxBytes: 4000 << 20}) {
+		t.Fatalf("got %+v, %v", c.Scan, err)
+	}
+	for _, v := range []string{"4194304001", "0", "-1", "x"} {
+		m["SX_SCAN_MAX_BYTES"] = v
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SCAN_MAX_BYTES") {
+			t.Fatalf("SX_SCAN_MAX_BYTES=%s: err = %v", v, err)
+		}
 	}
 }

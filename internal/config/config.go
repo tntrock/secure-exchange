@@ -35,6 +35,11 @@ type MarkConfig struct {
 	Policy    string // "warn" or "block"
 }
 
+type ScanConfig struct {
+	ClamdAddr string
+	MaxBytes  int64
+}
+
 type Config struct {
 	Listen            string
 	BaseURL           string
@@ -54,6 +59,7 @@ type Config struct {
 	ShareMaxDays      int
 	Preview           PreviewConfig
 	Mark              MarkConfig
+	Scan              ScanConfig
 	WorkerTmp         string
 	FontFile          string // drawtext font for video watermarks
 }
@@ -63,7 +69,7 @@ type Config struct {
 func Load(getenv func(string) string) (*Config, error) { return load(getenv, false) }
 
 // LoadWorker is Load for the preview worker: it checks only what the worker uses
-// (database, master keys, storage, preview limits, SX_WORKER_TMP), not the web
+// (database, master keys, base URL, storage, preview and scan limits, SX_WORKER_TMP), not the web
 // server or SMTP settings.
 func LoadWorker(getenv func(string) string) (*Config, error) { return load(getenv, true) }
 
@@ -90,7 +96,7 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 
 	c := &Config{
 		Listen:            get("SX_LISTEN", ":8080"),
-		BaseURL:           web("SX_BASE_URL"),
+		BaseURL:           req("SX_BASE_URL"),
 		DatabaseURL:       req("SX_DATABASE_URL"),
 		MasterKeys:        req("SX_MASTER_KEYS"),
 		Storage:           get("SX_STORAGE", "local"),
@@ -106,6 +112,7 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 		// input + rendered output must fit the 4 GiB /work tmpfs (see .env.example)
 		Preview: PreviewConfig{MaxBytes: 1 << 30, MaxPages: 500, MaxVideoBytes: 3 << 29, MaxVideoSeconds: 7200, DPI: 110},
 		Mark:    MarkConfig{MaxBytes: 256 << 20, MaxPixels: 50_000_000, Policy: "warn"},
+		Scan:    ScanConfig{ClamdAddr: get("SX_CLAMD_ADDR", "clamav:3310"), MaxBytes: 1 << 30},
 		SMTP: SMTPConfig{
 			Host:     web("SX_SMTP_HOST"),
 			Port:     587,
@@ -162,6 +169,13 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 	posInt("SX_RENDER_DPI", &c.Preview.DPI)
 	posInt64("SX_MARK_MAX_BYTES", &c.Mark.MaxBytes)
 	posInt("SX_MARK_MAX_PIXELS", &c.Mark.MaxPixels)
+	if s := get("SX_SCAN_MAX_BYTES", ""); s != "" {
+		if n, err := strconv.ParseInt(s, 10, 64); err != nil || n < 1 || n > 4000<<20 {
+			bad("SX_SCAN_MAX_BYTES", errors.New("must be an integer from 1 to 4194304000"))
+		} else {
+			c.Scan.MaxBytes = n
+		}
+	}
 	switch c.Mark.Policy = get("SX_UNMARKABLE_POLICY", c.Mark.Policy); c.Mark.Policy {
 	case "warn", "block":
 	default:

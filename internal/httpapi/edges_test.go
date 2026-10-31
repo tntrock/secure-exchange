@@ -210,3 +210,68 @@ func TestPreviewEdges(t *testing.T) {
 		t.Fatal(resp.StatusCode)
 	}
 }
+
+// breakTable makes every query on name fail, as if its storage had gone bad.
+func (e *env) breakTable(t *testing.T, name string) {
+	t.Helper()
+	if _, err := e.pool.Exec(context.Background(), `ALTER TABLE `+name+` RENAME TO `+name+`_broken`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListingsAnswer500WhenPreviewTableFails(t *testing.T) {
+	e := newEnv(t)
+	a := e.user(t, "a@x.com")
+	f := e.putFile(t, a.ID, "doc.txt", []byte("x"))
+	e.login(t, "a@x.com", pw)
+	_, tok := e.recipShare(t, true, []uuid.UUID{f}, "r@y.com")
+	e.recipVerify(t, tok, "r@y.com")
+	e.breakTable(t, "file_previews")
+	if resp, _ := e.get(t, "/api/files"); resp.StatusCode != 500 {
+		t.Fatal("owner list:", resp.StatusCode)
+	}
+	if resp, _ := e.get(t, "/api/s/"+tok+"/files"); resp.StatusCode != 500 {
+		t.Fatal("recipient list:", resp.StatusCode)
+	}
+}
+
+func TestDeleteSucceedsWhenPreviewCleanupFails(t *testing.T) {
+	e := newEnv(t)
+	a := e.user(t, "a@x.com")
+	f := e.putFile(t, a.ID, "doc.txt", []byte("x"))
+	e.login(t, "a@x.com", pw)
+	e.breakTable(t, "preview_items")
+	if resp, _ := e.do(t, "DELETE", "/api/files/"+f.String(), nil); resp.StatusCode != 204 {
+		t.Fatal(resp.StatusCode)
+	}
+	if resp, _ := e.get(t, "/api/files/"+f.String()+"/content"); resp.StatusCode != 404 {
+		t.Fatal("deleted file still served:", resp.StatusCode)
+	}
+}
+
+func TestRequestListingsAnswer500WhenUploaderTableFails(t *testing.T) {
+	e := newEnv(t)
+	e.user(t, "a@x.com")
+	e.login(t, "a@x.com", pw)
+	id, _ := e.newRequest(t, "u@y.com")
+	e.breakTable(t, "request_uploaders")
+	if resp, _ := e.do(t, "GET", "/api/requests", nil); resp.StatusCode != 500 {
+		t.Fatal("list:", resp.StatusCode)
+	}
+	if resp, _ := e.do(t, "GET", "/api/requests/"+id, nil); resp.StatusCode != 500 {
+		t.Fatal("get:", resp.StatusCode)
+	}
+}
+
+func TestUploaderCodeAnswer500WhenOTPTableFails(t *testing.T) {
+	e := newEnv(t)
+	e.user(t, "a@x.com")
+	e.login(t, "a@x.com", pw)
+	_, tok := e.newRequest(t, "u@y.com")
+	e.breakTable(t, "request_otps")
+	for _, p := range []string{"code", "verify"} {
+		if resp, _ := e.do(t, "POST", "/api/r/"+tok+"/"+p, map[string]string{"email": "u@y.com", "code": "123456"}); resp.StatusCode != 500 {
+			t.Fatal(p, resp.StatusCode)
+		}
+	}
+}

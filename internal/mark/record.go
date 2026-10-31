@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -39,13 +40,7 @@ type Querier interface {
 // Start records a download and returns its trace code. Marked methods always get a
 // fresh code; None reuses the (recipient, file) row so repeats do not pile up.
 func Start(ctx context.Context, q preview.Querier, d Download) (string, error) {
-	ip, ua := d.IP, d.UserAgent
-	if len(ip) > 64 {
-		ip = ip[:64]
-	}
-	if len(ua) > 512 {
-		ua = ua[:512]
-	}
+	ip, ua := cut(d.IP, 64), cut(d.UserAgent, 512)
 	var code string
 	err := q.QueryRow(ctx, `INSERT INTO download_traces (code, file_id, share_id, recipient_id, method, ip, user_agent)
 		VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (recipient_id, file_id) WHERE method = 'none' DO NOTHING RETURNING code`,
@@ -114,4 +109,15 @@ func BySHA(ctx context.Context, q Querier, sum []byte) ([]Hit, error) {
 		UNION ALL SELECT 'file', '', f.id, f.name, NULL::uuid, o.email, '', '', f.created_at, ''
 			FROM files f JOIN users o ON o.id=f.owner_id WHERE f.sha256=$1 AND f.deleted_at IS NULL
 		UNION ALL `+dlSelect+`WHERE t.method='none' AND f.sha256=$1 AND f.deleted_at IS NULL AND t.sha256 IS DISTINCT FROM $1`, sum))
+}
+
+// cut truncates s to at most n bytes on a rune boundary (Postgres rejects invalid UTF-8).
+func cut(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }

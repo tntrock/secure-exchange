@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -131,7 +132,10 @@ func TestByCodeFindsDownloadAndView(t *testing.T) {
 
 func TestBySHA(t *testing.T) {
 	f := setup(t)
-	code, _ := Start(ctx, f.pool, f.dl(PDFMeta))
+	code, err := Start(ctx, f.pool, f.dl(PDFMeta))
+	if err != nil {
+		t.Fatal(err)
+	}
 	sum := []byte{0xde, 0xad}
 	if err := Complete(ctx, f.pool, code, sum, 42); err != nil {
 		t.Fatal(err)
@@ -152,6 +156,9 @@ func TestBySHA(t *testing.T) {
 	src := map[string]int{}
 	for _, h := range hits {
 		src[h.Source]++
+		if h.Source == "download" && h.Method != "none" {
+			t.Fatalf("download hit method = %q, want none", h.Method)
+		}
 	}
 	if src["file"] != 1 || src["download"] != 1 {
 		t.Fatalf("sources=%v", src)
@@ -162,5 +169,22 @@ func TestBySHA(t *testing.T) {
 	}
 	if hits, err = BySHA(ctx, f.pool, []byte{0xaa}); err != nil || len(hits) != 0 {
 		t.Fatalf("deleted: hits=%+v err=%v", hits, err)
+	}
+}
+
+func TestStartTruncatesOnRuneBoundary(t *testing.T) {
+	f := setup(t)
+	d := f.dl(PDFMeta)
+	d.UserAgent = strings.Repeat("a", 511) + "€€" // 3-byte rune straddles byte 512
+	code, err := Start(ctx, f.pool, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ua string
+	if err := f.pool.QueryRow(ctx, `SELECT user_agent FROM download_traces WHERE code=$1`, code).Scan(&ua); err != nil {
+		t.Fatal(err)
+	}
+	if !utf8.ValidString(ua) || len(ua) > 512 {
+		t.Fatalf("len=%d valid=%v", len(ua), utf8.ValidString(ua))
 	}
 }

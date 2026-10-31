@@ -21,6 +21,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/preview"
+	"github.com/tntrock/secure-exchange/internal/scan"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/upload"
@@ -151,6 +152,8 @@ func worker(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	go (&scan.Worker{Pool: pool, Store: store, Keys: keys, Outbox: mail.NewOutbox(pool, keys, nil), Audit: audit.New(pool),
+		Cfg: cfg.Scan, BaseURL: cfg.BaseURL}).Run(ctx)
 	slog.Info("preview worker started", "tmp", cfg.WorkerTmp)
 	(&preview.Worker{Pool: pool, Store: store, Keys: keys, Cfg: cfg.Preview, Sandbox: preview.Sandbox{Root: cfg.WorkerTmp}}).Run(ctx)
 	return nil

@@ -117,6 +117,16 @@ The method is chosen before the download starts: if a file cannot be marked as t
 
 **Tracing a leak.** Administrators open **Leak tracing** (`/admin/trace`) and look up a tracking code, a SHA-256, or upload the suspect file (analysed in memory only, never stored). The page reads the metadata, text layer and invisible watermark, and shows who downloaded it, for which file and share, from which IP and when; with no match it says "Undetermined". Screenshots and photos of the screen carry no embedded mark: read the tracking code from the visible watermark and look it up manually.
 
+## ClamAV virus scanning
+
+Files uploaded through upload request links by external users are scanned by ClamAV before the requester can download them. The `clamav` service starts with the stack and the worker feeds it each file (decrypted in memory only, never written to disk).
+
+- The first start downloads the virus signatures, which takes several minutes. Files uploaded meanwhile stay `pending` and are scanned once clamd is ready.
+- Infected files are quarantined and cannot be downloaded; the requester and all admins are emailed. A file that cannot be scanned after 5 attempts is blocked and the requester is told.
+- Files over `SX_SCAN_MAX_BYTES` (default 1 GiB) are released unscanned, and the requester's email carries a warning.
+- To raise the limit, raise all of these together to at least the new value: `SX_SCAN_MAX_BYTES`, `StreamMaxLength` and `MaxFileSize` in `clamd.conf`, and the `/tmp` tmpfs size of `clamav` in `docker-compose.yml` (clamd spools the stream there, in RAM).
+- clamd needs about 1.5 to 3 GB of RAM (`mem_limit: 4g`). The `clamav` container is the only one that can reach the internet (the `updates` network, for signature updates).
+
 ## Backup
 
 Back up all of these, together:

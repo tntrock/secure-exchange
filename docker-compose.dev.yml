@@ -22,6 +22,18 @@ services:
     ports:
       - "51025:1025"
       - "58025:8025"
+  # ClamAV for the scan worker: docker compose -f docker-compose.dev.yml --profile scan up -d clamav
+  # (first start downloads signatures, several minutes). SX_TEST_CLAMD_ADDR=localhost:53310
+  clamav:
+    image: clamav/clamav:1.4
+    profiles: [scan]
+    volumes:
+      - clamdb:/var/lib/clamav
+      - ./clamd.conf:/etc/clamav/clamd.conf:ro
+    tmpfs:
+      - /tmp:size=1200m,mode=1777
+    ports:
+      - "53310:3310"
   # tools tests (soffice/poppler) against the dev postgres:
   #   docker compose -f docker-compose.dev.yml --profile tools run --rm worker-test
   worker-test:
@@ -36,3 +48,4 @@ services:
 
 volumes:
   gomodcache:
+  clamdb:

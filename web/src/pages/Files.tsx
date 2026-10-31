@@ -42,7 +42,7 @@ export default function Files() {
       <p><Link to="/settings/totp">{t("files.settings")}</Link></p>
       <Uploader onDone={refresh} />
       {sel.size > 0 && <p><button onClick={() => setDlg(true)}>{t("share.create")} ({t("share.selected", { count: sel.size })})</button></p>}
-      {dlg && <ShareDialog fileIds={[...sel]} notReady={files.some((f) => sel.has(f.id) && f.preview_status !== "ready")} onClose={() => setDlg(false)} />}
+      {dlg && <ShareDialog fileIds={[...sel]} files={files.filter((f) => sel.has(f.id))} notReady={files.some((f) => sel.has(f.id) && f.preview_status !== "ready")} onClose={() => setDlg(false)} />}
       {viewing && <Viewer base={`/api/files/${viewing}/preview`} onClose={() => setViewing("")} />}
       {err && <p className="error" role="alert">{err}</p>}
       {files.length === 0 ? (

@@ -31,6 +31,7 @@ export default function Access() {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState("");
+  const [pendingNote, setPendingNote] = useState(false);
 
   // reports whether the landing loaded; on failure the fatal reason is already set
   const loadLanding = useCallback(async () => {
@@ -46,12 +47,13 @@ export default function Access() {
   }, [token]);
 
   // initial: page load (401 = not signed in yet, quietly show landing); otherwise a 401 means the session ended.
-  // Reports whether the file list loaded.
+  // Returns the fresh file list, or null when it did not load.
   const loadFiles = useCallback(async (initial: boolean) => {
     try {
-      setData(await api.recipientFiles(token));
+      const d = await api.recipientFiles(token);
+      setData(d);
       setStep("files");
-      return true;
+      return d;
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         if ((await loadLanding()) && !initial) setErr("sessionEnded");
@@ -59,7 +61,7 @@ export default function Access() {
         setErr(errKey(e));
         setStep("fatal");
       }
-      return false;
+      return null;
     }
   }, [token, loadLanding]);
 
@@ -69,7 +71,12 @@ export default function Access() {
   const download = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     const href = e.currentTarget.getAttribute("href") ?? "";
-    if (await loadFiles(false)) nav.go(href);
+    const id = e.currentTarget.dataset.file;
+    setPendingNote(false);
+    const r = await loadFiles(false);
+    if (!r) return;
+    if (r.files.find((f) => f.id === id)?.mark_pending) setPendingNote(true);
+    else nav.go(href);
   };
 
   const run = async (fn: () => Promise<void>) => {
@@ -162,6 +169,7 @@ export default function Access() {
             {data.message && <blockquote style={{ whiteSpace: "pre-wrap" }}>{data.message}</blockquote>}
             <p>{t("recipient.expires", { at: fmtDate(data.expires_at, lng) })}</p>
             {!data.allow_download && <p>{t("share.viewOnlyNote")}</p>}
+            {pendingNote && <p role="alert">{t("share.markPending")}</p>}
             {viewing && (
               <Viewer base={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(viewing)}/preview`}
                 onClose={() => setViewing("")} onSessionEnded={sessionEnded} />
@@ -176,7 +184,7 @@ export default function Access() {
                       {!f.available ? t("recipient.fileUnavailable") : (
                         <>
                           <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>{" "}
-                          {data.allow_download && <a href={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(f.id)}/content`} download onClick={download}>
+                          {data.allow_download && <a href={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(f.id)}/content`} download data-file={f.id} onClick={download}>
                             {t("files.download")}
                           </a>}
                         </>

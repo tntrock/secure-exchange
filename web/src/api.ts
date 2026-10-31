@@ -1,5 +1,6 @@
 export interface Me { id: string; email: string; display_name: string; role: string; totp_enabled: boolean }
-export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string; preview_status: "pending" | "ready" | "failed" | "unsupported" | "too_large"; preview_kind: string }
+export type MarkMethod = "pdf_pages" | "pdf_meta" | "image_visible" | "image_invisible" | "ooxml_meta" | "odf_meta" | "none";
+export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string; preview_status: "pending" | "ready" | "failed" | "unsupported" | "too_large"; preview_kind: string; mark: { watermark: MarkMethod; plain: MarkMethod; degraded: boolean } }
 
 export interface ShareReq {
   file_ids: string[]; emails: string[]; allow_download: boolean; watermark: boolean;
@@ -20,31 +21,40 @@ export interface ShareDetailInfo {
 export interface RecipientLanding { owner_name: string; message: string; expires_at: string }
 export interface RecipientFiles {
   message: string; expires_at: string; allow_download: boolean; watermark: boolean;
-  files: { id: string; name: string; size: number; available: boolean }[];
+  files: { id: string; name: string; size: number; available: boolean; mark_pending?: boolean }[];
 }
+
+export interface TraceHit {
+  source: string; via: string; code: string; file_id: string; file_name: string; share_id: string | null;
+  owner_email: string; recipient_email: string; ip: string; at: string; method: string;
+}
+export interface TraceResult { hits: TraceHit[]; analyzed: boolean; sha256?: string }
 
 export class ApiError extends Error {
   status: number;
   field?: string;
   code?: string;
-  constructor(status: number, error: string, field?: string, code?: string) {
+  fileIds?: string[];
+  constructor(status: number, error: string, field?: string, code?: string, fileIds?: string[]) {
     super(error);
     this.status = status;
     this.field = field;
     this.code = code;
+    this.fileIds = fileIds;
   }
 }
 
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const form = body instanceof FormData;
   const res = await fetch(url, {
     method,
     credentials: "same-origin",
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: body === undefined || form ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined || form ? (body as FormData | undefined) : JSON.stringify(body),
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, j.error ?? "error", j.field, j.code);
+    throw new ApiError(res.status, j.error ?? "error", j.field, j.code, j.file_ids);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
@@ -68,6 +78,14 @@ export const api = {
   recipientCode: (tk: string, email: string) => call<{ sent: boolean }>("POST", `/api/s/${encodeURIComponent(tk)}/code`, { email }),
   recipientVerify: (tk: string, email: string, code: string) => call<void>("POST", `/api/s/${encodeURIComponent(tk)}/verify`, { email, code }),
   recipientFiles: (tk: string) => call<RecipientFiles>("GET", `/api/s/${encodeURIComponent(tk)}/files`),
+  trace: (q: { code: string } | { sha256: string } | File) => {
+    if (q instanceof File) {
+      const fd = new FormData();
+      fd.append("file", q);
+      return call<TraceResult>("POST", "/api/admin/trace", fd);
+    }
+    return call<TraceResult>("POST", "/api/admin/trace", q);
+  },
   recipientLogout: (tk: string) => call<void>("POST", `/api/s/${encodeURIComponent(tk)}/logout`),
 };
 

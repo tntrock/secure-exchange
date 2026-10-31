@@ -21,7 +21,7 @@
   },
   "recipient": {"title":"取得分享的檔案","from":"{{name}} 與您分享了檔案","expires":"有效期限：{{at}}","email":"您的 Email","sendCode":"寄送驗證碼","code":"6 位數驗證碼","verify":"驗證","resend":"重新寄送驗證碼","changeEmail":"使用其他 Email","codeSent":"若您在名單中，將收到驗證碼","filesTitle":"分享的檔案","fileUnavailable":"無法使用","leave":"離開","error":{"notFound":"找不到此分享","gone":"此分享已過期或已被撤銷","ipDenied":"您目前的網路位置不允許存取此分享","rateLimited":"嘗試次數過多，請稍後再試","invalidCode":"驗證碼錯誤或已失效","viewLimit":"此分享的檢視次數已達上限","sessionEnded":"登入已結束，請重新驗證","generic":"發生錯誤，請稍後再試"}},
   "viewer": { "reLogin": "登入已失效，請重新登入", "view_limit": "此分享已達檢視次數上限", "ip_denied": "不允許從您目前的網路位置存取", "open": "檢視", "close": "關閉", "prev": "上一頁", "next": "下一頁", "zoomIn": "放大", "zoomOut": "縮小", "page": "第 {{n}} 頁", "pending": "預覽處理中，請稍後再試", "notReady": "此檔案無法預覽", "gone": "分享已失效", "ended": "連線已結束，請重新驗證", "error": "無法載入預覽", "title": "檔案檢視器" },
-  "nav": { "files": "我的檔案", "shares": "我的分享" },
+  "nav": { "files": "我的檔案", "shares": "我的分享", "trace": "溯源查詢" },
   "share": {
     "create": "建立分享", "selected": "已選 {{count}} 個", "title": "建立分享", "submit": "建立", "cancel": "取消",
     "recipients": "收件人（一行一個，或以逗號分隔）", "allowDownload": "允許下載", "watermark": "浮水印",
@@ -29,6 +29,11 @@
     "message": "附言（選填）",
     "viewOnlyNote": "收件人只能在瀏覽器中檢視",
     "previewHint": "所選檔案中有尚未可預覽者，僅線上檢視的分享可能無法建立",
+    "markDegraded": "這些檔案無法完整加上追蹤標記，外流時只能靠下載紀錄追蹤：",
+    "markNone": "這些檔案不會嵌入標記，只會記錄下載者與檔案指紋：",
+    "officeAsPdf": "開啟浮水印時，對方會拿到加上浮水印的 PDF，而非原本的 Office 檔：",
+    "markBlocked": "管理員不允許以浮水印方式開放下載這些檔案。請關閉下載或浮水印，或移除這些檔案：",
+    "markPending": "檔案準備中，請稍後再試",
     "listTitle": "我的分享", "empty": "尚無分享", "createdAt": "建立時間", "files": "檔案數", "recipientCount": "收件人數", "views": "檢視次數",
     "status": { "active": "有效", "expired": "已過期", "revoked": "已撤銷" },
     "detailTitle": "分享詳情", "settings": "設定", "statusLabel": "狀態", "yes": "是", "no": "否", "unlimited": "不限", "none": "無",
@@ -46,5 +51,6 @@
       "ip_allow": { "invalid": "IP 或 CIDR 格式不正確", "too_many": "IP 項目過多" },
       "message": { "too_many": "附言過長（上限 2000 字）" }
     }
-  }
+  },
+  "trace": {"title":"溯源查詢","intro":"查出外流檔案是誰下載的。截圖無法分析，請改以可見浮水印上的追蹤碼人工查詢。","code":"追蹤碼","sha256":"SHA-256","file":"可疑檔案（僅在記憶體中分析，不會儲存）","search":"查詢","undetermined":"無法判定","notAnalyzed":"未分析檔案內容（檔案過大），僅比對了 SHA-256。","error":"查詢失敗，請檢查輸入後再試","col":{"source":"來源","method":"方式","code":"追蹤碼","file":"檔案","owner":"擁有者","recipient":"下載者","ip":"IP","at":"時間"}}
 }

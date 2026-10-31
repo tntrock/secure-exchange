@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { api, ApiError } from "../api";
+import { api, ApiError, type FileInfo } from "../api";
 
 const lines = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
 
@@ -12,7 +12,13 @@ const localDefault = () => {
   return d.toISOString().slice(0, 16);
 };
 
-export default function ShareDialog({ fileIds, onClose, notReady = false }: { fileIds: string[]; onClose: () => void; notReady?: boolean }) {
+const OFFICE = /.(docx?|odt|rtf|xlsx?|ods|pptx?|odp)$/i;
+
+function NameList({ items }: { items: FileInfo[] }) {
+  return <ul>{items.map((f) => <li key={f.id}>{f.name}</li>)}</ul>;
+}
+
+export default function ShareDialog({ fileIds, files = [], onClose, notReady = false }: { fileIds: string[]; files?: FileInfo[]; onClose: () => void; notReady?: boolean }) {
   const { t, i18n } = useTranslation();
   const nav = useNavigate();
   const [emails, setEmails] = useState("");
@@ -24,8 +30,19 @@ export default function ShareDialog({ fileIds, onClose, notReady = false }: { fi
   const [message, setMessage] = useState("");
   const [err, setErr] = useState<{ field: string; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [blocked, setBlocked] = useState<string[]>([]);
+
+  const used = (f: FileInfo) => (watermark ? f.mark?.watermark : f.mark?.plain);
+  const degraded = allowDownload && watermark ? files.filter((f) => f.mark?.degraded) : [];
+  const unmarked = allowDownload ? files.filter((f) => used(f) === "none" && !degraded.includes(f)) : [];
+  const asPdf = allowDownload && watermark ? files.filter((f) => OFFICE.test(f.name) && f.mark?.watermark === "pdf_pages") : [];
 
   const fail = (e: unknown) => {
+    if (e instanceof ApiError && e.status === 422 && e.message === "unmarkable") {
+      setBlocked(e.fileIds ?? []);
+      setErr({ field: "", msg: t("share.markBlocked") });
+      return;
+    }
     const key = e instanceof ApiError && e.status === 422 ? `share.error.${e.field}.${e.code}` : "";
     const known = key !== "" && i18n.exists(key);
     setErr({ field: known ? ((e as ApiError).field ?? "") : "", msg: t(known ? key : "share.error.generic") });
@@ -35,6 +52,7 @@ export default function ShareDialog({ fileIds, onClose, notReady = false }: { fi
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     setErr(null);
+    setBlocked([]);
     setBusy(true);
     try {
       const d = new Date(expires);
@@ -60,6 +78,7 @@ export default function ShareDialog({ fileIds, onClose, notReady = false }: { fi
       <form onSubmit={submit}>
         <h2>{t("share.title")}</h2>
         {err && !err.field && <p className="error" role="alert">{err.msg}</p>}
+        {blocked.length > 0 && <NameList items={files.filter((f) => blocked.includes(f.id))} />}
         {fieldErr("file_ids")}
         <label>{t("share.recipients")}
           <textarea rows={3} value={emails} onChange={(e) => setEmails(e.target.value)} />
@@ -68,6 +87,9 @@ export default function ShareDialog({ fileIds, onClose, notReady = false }: { fi
         <label className="check"><input type="checkbox" checked={allowDownload} onChange={(e) => setAllowDownload(e.target.checked)} />{t("share.allowDownload")}</label>
         {!allowDownload && <p>{t("share.viewOnlyNote")}</p>}
         {!allowDownload && notReady && <p role="status">{t("share.previewHint")}</p>}
+        {degraded.length > 0 && <div role="status"><p>{t("share.markDegraded")}</p><NameList items={degraded} /></div>}
+        {unmarked.length > 0 && <div role="status"><p>{t("share.markNone")}</p><NameList items={unmarked} /></div>}
+        {asPdf.length > 0 && <div role="status"><p>{t("share.officeAsPdf")}</p><NameList items={asPdf} /></div>}
         <label className="check"><input type="checkbox" checked={watermark} onChange={(e) => setWatermark(e.target.checked)} />{t("share.watermark")}</label>
         <label>{t("share.expiresAt")}
           <input type="datetime-local" value={expires} onChange={(e) => setExpires(e.target.value)} />

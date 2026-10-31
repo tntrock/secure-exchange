@@ -1,48 +1,32 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import "./i18n";
-import LangSwitch from "./components/LangSwitch";
+import Shell from "./components/Shell";
 import { api, ApiError } from "./api";
 import Login from "./pages/Login";
 import Files from "./pages/Files";
 import Shares from "./pages/Shares";
 import ShareDetail from "./pages/ShareDetail";
+import Trace from "./pages/admin/Trace";
 import TotpSetup from "./pages/TotpSetup";
 import Access from "./pages/recipient/Access";
 import "./style.css";
-
-function Shell({ children }: { children: React.ReactNode }) {
-  const { t } = useTranslation();
-  const nav = useNavigate();
-  return (
-    <>
-      <header>
-        <strong>{t("app.title")}</strong>
-        <Link to="/files">{t("nav.files")}</Link>
-        <Link to="/shares">{t("nav.shares")}</Link>
-        <span className="spacer" />
-        <LangSwitch />
-        <button onClick={() => api.logout().finally(() => nav("/login"))}>{t("app.logout")}</button>
-      </header>
-      <main>{children}</main>
-    </>
-  );
-}
 
 // Loads /api/me and redirects to /login on 401.
 function Private({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const [ok, setOk] = useState<boolean | null>(null);
+  const [role, setRole] = useState("");
   useEffect(() => {
     api.me().then(
-      () => setOk(true),
+      (me) => { setRole(me.role); setOk(true); },
       (e) => setOk(!(e instanceof ApiError && e.status === 401)),
     );
   }, []);
   if (ok === null) return <p>{t("app.loading")}</p>;
-  return ok ? <Shell>{children}</Shell> : <Navigate to="/login" replace />;
+  return ok ? <Shell role={role}>{children}</Shell> : <Navigate to="/login" replace />;
 }
 
 createRoot(document.getElementById("root")!).render(
@@ -54,6 +38,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/shares" element={<Private><Shares /></Private>} />
         <Route path="/shares/:id" element={<Private><ShareDetail /></Private>} />
         <Route path="/settings/totp" element={<Private><TotpSetup /></Private>} />
+        <Route path="/admin/trace" element={<Private><Trace /></Private>} />
         <Route path="/s/:token" element={<Access />} />
         <Route path="*" element={<Navigate to="/files" replace />} />
       </Routes>

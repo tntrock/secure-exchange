@@ -83,6 +83,7 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("GET /api/s/{token}/files/{fid}/content", s.requireRecipient(s.recipientDownload))
 	mux.HandleFunc("POST /api/s/{token}/logout", s.recipientLogout)
 	s.previewRoutes(mux)
+	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
 	mux.Handle("POST /api/me/totp/setup", s.requireUser(s.totpSetup))
 	mux.Handle("POST /api/me/totp/enable", s.requireUser(s.totpEnable))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not_found")) })

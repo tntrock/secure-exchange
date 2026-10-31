@@ -59,17 +59,17 @@ func Complete(ctx context.Context, q preview.Querier, code string, sum []byte, s
 }
 
 type Hit struct {
-	Source         string // "download", "view" or "file"
-	Via            string // "metadata", "text_layer", "invisible", "sha256" or "code"; set by the caller
-	Code           string
-	FileID         uuid.UUID
-	FileName       string
-	ShareID        *uuid.UUID
-	OwnerEmail     string
-	RecipientEmail string
-	IP             string
-	At             time.Time
-	Method         string
+	Source         string     `json:"source"` // "download", "view" or "file"
+	Via            string     `json:"via"`    // "metadata", "text_layer", "invisible", "sha256" or "code"; set by the caller
+	Code           string     `json:"code"`
+	FileID         uuid.UUID  `json:"file_id"`
+	FileName       string     `json:"file_name"`
+	ShareID        *uuid.UUID `json:"share_id"`
+	OwnerEmail     string     `json:"owner_email"`
+	RecipientEmail string     `json:"recipient_email"`
+	IP             string     `json:"ip"`
+	At             time.Time  `json:"at"`
+	Method         string     `json:"method"`
 }
 
 const (

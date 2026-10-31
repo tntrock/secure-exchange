@@ -142,3 +142,14 @@ func (s *server) requireUser(next http.HandlerFunc) http.Handler {
 		next(w, r.WithContext(auth.WithUser(r.Context(), u)))
 	})
 }
+
+// requireAdmin is requireUser plus role == "admin".
+func (s *server) requireAdmin(next http.HandlerFunc) http.Handler {
+	return s.requireUser(func(w http.ResponseWriter, r *http.Request) {
+		if auth.UserFrom(r.Context()).Role != "admin" {
+			writeJSON(w, http.StatusForbidden, errBody("forbidden"))
+			return
+		}
+		next(w, r)
+	})
+}

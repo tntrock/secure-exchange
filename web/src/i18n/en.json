@@ -21,7 +21,40 @@
   },
   "recipient": {"title":"Access shared files","from":"{{name}} shared files with you","expires":"Expires: {{at}}","email":"Your email","sendCode":"Send code","code":"6-digit code","verify":"Verify","resend":"Resend code","changeEmail":"Use a different email","codeSent":"If you are on the recipient list, a code has been sent","filesTitle":"Shared files","fileUnavailable":"Unavailable","leave":"Leave","error":{"notFound":"Share not found","gone":"This share has expired or been revoked","ipDenied":"Access from your network location is not allowed","rateLimited":"Too many attempts, please try again later","invalidCode":"Incorrect or expired code","viewLimit":"This share has reached its view limit","sessionEnded":"Your session has ended, please verify again","generic":"Something went wrong, please try again"}},
   "viewer": { "reLogin": "Your login has expired, please sign in again", "view_limit": "This share has reached its view limit", "ip_denied": "Access from your network location is not allowed", "open": "View", "close": "Close", "prev": "Previous page", "next": "Next page", "zoomIn": "Zoom in", "zoomOut": "Zoom out", "page": "Page {{n}}", "pending": "Preview is still processing, please try again later", "notReady": "This file cannot be previewed", "gone": "This share is no longer available", "ended": "Your session has ended, please verify again", "error": "Could not load the preview", "title": "File viewer" },
-  "nav": { "files": "My files", "shares": "My shares", "trace": "Leak tracing" },
+  "nav": { "files": "My files", "shares": "My shares", "trace": "Leak tracing", "requests": "Requests" },
+  "requests": {
+    "title": "Upload requests", "new": "New request", "emails": "Uploaders (one per line or comma-separated)",
+    "expiresOn": "Expires on", "maxFiles": "Max files", "maxGb": "Max total size (GB)",
+    "exts": "Allowed extensions (comma-separated, optional)", "message": "Message to uploaders (optional)", "create": "Create request",
+    "listTitle": "My requests", "empty": "No upload requests yet", "createdAt": "Created", "expiresAt": "Expires", "statusLabel": "Status",
+    "files": "Files", "size": "Size", "status": { "active": "Active", "expired": "Expired", "revoked": "Revoked" },
+    "detailTitle": "Upload request", "back": "Back to requests", "link": "Upload link", "copy": "Copy link", "copied": "Copied",
+    "allowedExts": "Allowed extensions", "anyExt": "Any", "uploaders": "Uploaders", "email": "Email", "firstOpened": "First opened",
+    "lastAccess": "Last access", "never": "—", "fileList": "Uploaded files", "uploader": "Uploader", "deleted": "(deleted)",
+    "revoke": "Revoke request", "confirmRevoke": "Revoke this request? Uploaders will no longer be able to upload.",
+    "error": {
+      "generic": "Could not create the request, please check the form",
+      "emails": { "required": "Enter at least one uploader", "too_many": "Too many uploaders", "invalid": "One or more email addresses are invalid" },
+      "allowed_exts": { "invalid": "Extensions may only contain letters and digits", "too_many": "Too many extensions" },
+      "expires_at": { "required": "Expiry is required", "out_of_range": "Expiry must be between 1 hour and the maximum allowed from now" },
+      "max_files": { "out_of_range": "Max files is out of range" },
+      "max_total_bytes": { "out_of_range": "Max total size is out of range" },
+      "message": { "too_many": "Message is too long" }
+    }
+  },
+  "scan": { "label": "Scan", "pending": "Scanning", "clean": "Clean", "infected": "Infected", "skipped": "Not scanned (too large)", "error": "Scan failed" },
+  "intake": {
+    "title": "Upload files", "from": "{{name}} asks you to upload files", "expires": "Expires: {{at}}", "email": "Your email",
+    "sendCode": "Send code", "code": "6-digit code", "verify": "Verify", "resend": "Resend code", "changeEmail": "Use a different email",
+    "codeSent": "If you are on the uploader list, a code has been sent", "leave": "Leave",
+    "allowedExts": "Allowed file types: {{exts}}", "anyExt": "any", "filesLeft": "Files you can still upload: {{count}}", "bytesLeft": "Space left: {{size}}",
+    "yourFiles": "Your uploaded files", "noFiles": "You have not uploaded anything yet",
+    "error": {
+      "notFound": "Upload request not found", "gone": "This upload request has expired or been revoked", "rateLimited": "Too many attempts, please try again later",
+      "invalidCode": "Incorrect or expired code", "sessionEnded": "Your session has ended, please verify again", "generic": "Something went wrong, please try again",
+      "extNotAllowed": "This file type is not allowed", "tooManyFiles": "The file limit for this request has been reached", "quotaExceeded": "Not enough space left for this file"
+    }
+  },
   "share": {
     "create": "Create share", "selected": "{{count}} selected", "title": "Create share", "submit": "Create", "cancel": "Cancel",
     "recipients": "Recipients (one per line or comma-separated)", "allowDownload": "Allow download", "watermark": "Watermark",

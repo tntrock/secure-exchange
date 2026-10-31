@@ -5,6 +5,10 @@ import { api, fmtDate, fmtSize, type FileInfo } from "../api";
 import Uploader from "../components/Uploader";
 import ShareDialog from "../components/ShareDialog";
 import Viewer from "../components/Viewer";
+import ScanBadge from "../components/ScanBadge";
+
+// only these may be downloaded, viewed or shared; pending/infected/error are held back by the server too
+const usable = (f: FileInfo) => f.scan_status === "none" || f.scan_status === "clean" || f.scan_status === "skipped";
 
 export default function Files() {
   const { t, i18n } = useTranslation();
@@ -19,7 +23,7 @@ export default function Files() {
     api.files().then((f) => setFiles(f ?? []), () => setErr(t("app.error")));
   }, [t]);
   useEffect(refresh, [refresh]);
-  const anyPending = files.some((f) => f.preview_status === "pending");
+  const anyPending = files.some((f) => f.preview_status === "pending" || f.scan_status === "pending");
   useEffect(() => {
     if (!anyPending) return;
     const id = setInterval(refresh, 5000);
@@ -57,21 +61,23 @@ export default function Files() {
               <th>{t("files.created")}</th>
               <th>{t("files.sha256")}</th>
               <th>{t("files.preview.label")}</th>
+              <th>{t("scan.label")}</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {files.map((f) => (
               <tr key={f.id}>
-                <td><input type="checkbox" aria-label={f.name} checked={sel.has(f.id)} onChange={() => toggle(f.id)} /></td>
+                <td><input type="checkbox" aria-label={f.name} checked={sel.has(f.id)} disabled={!usable(f)} onChange={() => toggle(f.id)} /></td>
                 <td>{f.name}</td>
                 <td>{fmtSize(f.size, i18n.language)}</td>
                 <td>{fmtDate(f.created_at, i18n.language)}</td>
                 <td><code>{f.sha256.slice(0, 12)}</code></td>
                 <td>{t(`files.preview.${f.preview_status}`)}</td>
+                <td>{f.request_id && <ScanBadge status={f.scan_status} result={f.scan_result} />}</td>
                 <td>
-                  {f.preview_status === "ready" && <><button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>{" "}</>}
-                  <a href={`/api/files/${f.id}/content`} download>{t("files.download")}</a>{" "}
+                  {f.preview_status === "ready" && <><button disabled={!usable(f)} onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>{" "}</>}
+                  {usable(f) ? <a href={`/api/files/${f.id}/content`} download>{t("files.download")}</a> : <span aria-disabled="true">{t("files.download")}</span>}{" "}
                   <button onClick={() => del(f)}>{t("files.delete")}</button>
                 </td>
               </tr>

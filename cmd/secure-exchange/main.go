@@ -18,6 +18,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/db"
 	"github.com/tntrock/secure-exchange/internal/httpapi"
+	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/share"
@@ -90,6 +91,7 @@ func serve(ctx context.Context) error {
 	handler := httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
+		Requests:       intake.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL, CodeDelay: 300 * time.Millisecond,
 		FontFile: cfg.FontFile, Mark: cfg.Mark,
 		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies, cfg.Preview),

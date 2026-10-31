@@ -15,6 +15,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/config"
+	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/webui"
@@ -31,6 +32,7 @@ type Deps struct {
 	Keys           *sxcrypto.Keyring
 	Store          blob.Store
 	Shares         *share.Service
+	Requests       *intake.Service
 	FontFile       string // TTF for burned-in video watermarks (SX_FONT_FILE)
 	Mark           config.MarkConfig
 	CodeDelay      time.Duration // recipient /code and /verify answer no sooner than this after the request starts (P10)
@@ -82,6 +84,16 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("GET /api/s/{token}/files", s.requireRecipient(s.listRecipientFiles))
 	mux.Handle("GET /api/s/{token}/files/{fid}/content", s.requireRecipient(s.recipientDownload))
 	mux.HandleFunc("POST /api/s/{token}/logout", s.recipientLogout)
+	// upload requests: staff, then external uploaders (no staff login)
+	mux.Handle("POST /api/requests", s.requireUser(s.createRequest))
+	mux.Handle("GET /api/requests", s.requireUser(s.listRequests))
+	mux.Handle("GET /api/requests/{id}", s.requireUser(s.getRequest))
+	mux.Handle("POST /api/requests/{id}/revoke", s.requireUser(s.revokeRequest))
+	mux.HandleFunc("GET /api/r/{token}", s.uploaderLanding)
+	mux.Handle("POST /api/r/{token}/code", recipIP(s.uploaderCode))
+	mux.Handle("POST /api/r/{token}/verify", recipIP(s.uploaderVerify))
+	mux.Handle("GET /api/r/{token}/files", s.requireUploader(s.listUploaderFiles))
+	mux.HandleFunc("POST /api/r/{token}/logout", s.uploaderLogout)
 	s.previewRoutes(mux)
 	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
 	mux.Handle("POST /api/me/totp/setup", s.requireUser(s.totpSetup))

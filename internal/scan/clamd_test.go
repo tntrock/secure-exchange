@@ -20,7 +20,13 @@ type fakeClamd struct {
 	total  int
 	maxLen int
 	cmd    string
-	onConn func() // runs when a client connects
+	onConn func() // runs when a client connects; set it with setOnConn
+}
+
+func (f *fakeClamd) setOnConn(fn func()) {
+	f.mu.Lock()
+	f.onConn = fn
+	f.mu.Unlock()
 }
 
 func newFakeClamd(t *testing.T, reply string) *fakeClamd {
@@ -47,9 +53,10 @@ func (f *fakeClamd) serve(c net.Conn, reply string) {
 	defer c.Close()
 	f.mu.Lock()
 	f.conns++
+	onConn := f.onConn
 	f.mu.Unlock()
-	if f.onConn != nil {
-		f.onConn()
+	if onConn != nil {
+		onConn()
 	}
 	cmd := make([]byte, len("zINSTREAM\x00"))
 	if _, err := io.ReadFull(c, cmd); err != nil {

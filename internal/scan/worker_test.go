@@ -341,7 +341,7 @@ func TestScanFileDeletedDuringScan(t *testing.T) {
 	f := newFakeClamd(t, "stream: Eicar FOUND")
 	e := newEnv(t, f.addr)
 	id := e.file(t, []byte("hello"))
-	f.onConn = func() { e.pool.Exec(ctx, `UPDATE files SET deleted_at = now() WHERE id = $1`, id) }
+	f.setOnConn(func() { e.pool.Exec(ctx, `UPDATE files SET deleted_at = now() WHERE id = $1`, id) })
 	e.run(t)
 	if s, _ := e.status(t, id); s != "pending" {
 		t.Fatal(s)
@@ -376,7 +376,7 @@ func TestScanReclaimedJobIsNotRecorded(t *testing.T) {
 	e := newEnv(t, f.addr)
 	id := e.file(t, []byte("hello"))
 	// another worker re-claimed the job while this one was scanning
-	f.onConn = func() { e.pool.Exec(ctx, `UPDATE scan_jobs SET attempts = attempts + 1 WHERE file_id = $1`, id) }
+	f.setOnConn(func() { e.pool.Exec(ctx, `UPDATE scan_jobs SET attempts = attempts + 1 WHERE file_id = $1`, id) })
 	e.run(t)
 	if s, _ := e.status(t, id); s != "pending" {
 		t.Fatal(s)

@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/google/uuid"
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/share"
 )
 
@@ -173,9 +174,14 @@ func (s *server) verifyCode(w http.ResponseWriter, r *http.Request) {
 		recipientErr(w, err)
 		return
 	}
+	files, err := s.recipientFiles(r.Context(), a)
+	if err != nil {
+		recipientErr(w, err)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{Name: shareCookieName, Value: session, Path: "/", MaxAge: 3600,
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
-	writeJSON(w, http.StatusOK, recipientFiles(a))
+	writeJSON(w, http.StatusOK, files)
 }
 
 // requireRecipient needs a live recipient session for the share named by {token}.
@@ -205,49 +211,52 @@ func (s *server) requireRecipient(next http.HandlerFunc) http.Handler {
 	})
 }
 
-func recipientFiles(a *share.Access) map[string]any {
+// recipientFiles lists the share's files; mark_pending means a download would answer 409
+// mark_pending until the preview finishes rendering.
+func (s *server) recipientFiles(ctx context.Context, a *share.Access) (map[string]any, error) {
 	sh := a.Share
+	ids := make([]uuid.UUID, len(sh.Files))
+	for i, f := range sh.Files {
+		ids[i] = f.ID
+	}
+	rows, err := s.Pool.Query(ctx, `SELECT file_id, kind, status FROM file_previews WHERE file_id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	previews := map[uuid.UUID]*preview.Preview{}
+	for rows.Next() {
+		var id uuid.UUID
+		p := &preview.Preview{}
+		if err := rows.Scan(&id, &p.Kind, &p.Status); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		previews[id] = p
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	files := make([]map[string]any, len(sh.Files))
 	for i, f := range sh.Files {
-		files[i] = map[string]any{"id": f.ID, "name": f.Name, "size": f.Size, "available": !f.Deleted}
+		p := previews[f.ID]
+		if p == nil {
+			p = &preview.Preview{Kind: preview.KindNone, Status: preview.StatusUnsupported}
+		}
+		files[i] = map[string]any{"id": f.ID, "name": f.Name, "size": f.Size, "available": !f.Deleted,
+			"mark_pending": s.listPlan(f.Name, f.Size, p, sh.Watermark).Pending}
 	}
 	return map[string]any{"message": sh.Message, "expires_at": ts(&sh.ExpiresAt), "allow_download": sh.AllowDownload,
-		"watermark": sh.Watermark, "files": files}
+		"watermark": sh.Watermark, "files": files}, nil
 }
 
 func (s *server) listRecipientFiles(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, recipientFiles(accessFrom(r.Context())))
-}
-
-func (s *server) recipientDownload(w http.ResponseWriter, r *http.Request) {
-	a := accessFrom(r.Context())
-	fid, ok := pathUUID(w, r, "fid")
-	if !ok {
-		return
-	}
-	f := fileRow{id: fid}
-	err := s.Pool.QueryRow(r.Context(), `SELECT f.name, f.size, f.sha256, f.wrapped_dek, f.key_id, f.storage_key
-		FROM share_files sf JOIN files f ON f.id = sf.file_id
-		WHERE sf.share_id = $1 AND sf.file_id = $2 AND f.deleted_at IS NULL`, a.Share.ID, fid).
-		Scan(&f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key)
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeJSON(w, http.StatusNotFound, errBody("not_found"))
-		return
-	}
+	files, err := s.recipientFiles(r.Context(), accessFrom(r.Context()))
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		recipientErr(w, err)
 		return
 	}
-	if !a.Share.AllowDownload {
-		writeJSON(w, http.StatusForbidden, errBody("view_only"))
-		return
-	}
-	st := s.serveFile(w, r, &f, audit.Event{ActorType: "recipient", ActorID: a.Recipient.ID.String(), Detail: map[string]any{"share_id": a.Share.ID.String()}})
-	if r.Method == http.MethodGet && (st == http.StatusOK || st == http.StatusPartialContent) {
-		if err := s.Shares.RecordDownload(context.WithoutCancel(r.Context()), a, fid); err != nil {
-			slog.Error("record share download", "share", a.Share.ID, "file", fid, "err", err)
-		}
-	}
+	writeJSON(w, http.StatusOK, files)
 }
 
 func (s *server) recipientLogout(w http.ResponseWriter, r *http.Request) {

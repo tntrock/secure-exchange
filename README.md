@@ -11,7 +11,7 @@ English | [繁體中文](README.zh-TW.md)
 
 Self-hosted secure file exchange, open source (AGPL-3.0). One Go binary with the web UI embedded, PostgreSQL for metadata, and local disk or S3-compatible storage for file contents.
 
-## Features (phase 1-3)
+## Features (phase 1-4)
 
 - Resumable uploads (tus) of very large files; files are encrypted (AES-256-GCM, per-file key wrapped by your master key) before anything touches disk or S3.
 - Password login with argon2id, optional TOTP two-factor authentication, rate limiting, hash-chained audit log.
@@ -19,6 +19,7 @@ Self-hosted secure file exchange, open source (AGPL-3.0). One Go binary with the
 - `rotate-keys` subcommand to move stored data to a new master key.
 - One-time shares: send files to named recipients, each verified by an emailed one-time code; expiry, view limit, IP restriction, revocation and notifications.
 - Online viewer: documents, images and videos are shown as server-rendered pages and video segments, optionally watermarked per recipient; rendering happens in an isolated worker container.
+- Download trace marks: every recipient download gets a tracking code and, where the file type allows, an embedded mark; administrators trace leaked files back to the recipient on the **Leak tracing** page.
 
 ## Quick deployment
 
@@ -90,6 +91,31 @@ networks:
 ```
 
 That network gives the worker outbound access again, so restrict it at your firewall to the S3 endpoint only.
+
+## Download trace marks
+
+Every download by a share recipient is recorded with a fresh 10-character tracking code (`SX-<code>`), the recipient, IP and time, and the file is marked so a leaked copy can be traced back. Your own downloads are not marked. Methods depend on the file type and on the share's *watermark* setting:
+
+| Type | Watermark on | Watermark off |
+|---|---|---|
+| PDF | `pdf_pages`: preview pages re-assembled into a PDF with a visible and an invisible watermark; the code is also in the metadata and a hidden text layer | `pdf_meta`: original file with the code written into its metadata |
+| Office that can be paged (`.doc .docx .odt .rtf .xls .xlsx .ods .ppt .pptx .odp`) | `pdf_pages`; the recipient receives a watermarked **PDF** (`<name>.pdf`) | `.docx .xlsx .pptx`: `ooxml_meta`; `.odt .ods .odp`: `odf_meta`; `.doc .xls .ppt .rtf`: `none` |
+| JPEG / PNG images | `image_visible`: visible and invisible watermark, same format | `image_invisible`: invisible watermark only, same format |
+| Everything else (GIF, WebP, TIFF, BMP, video, archives, ...) | `none` | `none` |
+
+`none` records only who downloaded the file and its fingerprint (SHA-256); repeated downloads of the same file by the same recipient share one record and support Range requests. Marked downloads are streamed, so they do not support Range.
+
+Marked images are re-encoded upright (a JPEG's EXIF orientation is applied) and carry no EXIF or ICC colour profile, so colours of wide-gamut photos may shift slightly. `pdf_meta` and image copies are built in memory, at most two at a time; further downloads wait for a free slot.
+
+The method is chosen before the download starts: if a file cannot be marked as the table says, it falls back to a weaker method (`pdf_pages` -> `pdf_meta` -> `none`, images -> `none`), for example when a preview failed, the file is damaged, or it is over a limit. Once a marked download has started sending, there is no fallback: if a page fails midway through a `pdf_pages` download, that download is aborted and the recipient retries. While a preview is still rendering, the download answers 409 and is never replaced by the unmarked original; the UI asks the recipient to try again shortly. The share dialog warns you about files that will fall back.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SX_MARK_MAX_BYTES` | `268435456` (256 MiB) | Largest file the server marks in memory (`pdf_meta`, images) and the largest suspect file the trace page analyses. Must be positive. |
+| `SX_MARK_MAX_PIXELS` | `50000000` | Largest image (width x height) that is marked. Must be positive. |
+| `SX_UNMARKABLE_POLICY` | `warn` | `warn` delivers the weaker result; `block` refuses the download (403 `unmarkable`) and refuses to create a download share with a watermark that includes such files (422). Applies only to shares with the watermark on. |
+
+**Tracing a leak.** Administrators open **Leak tracing** (`/admin/trace`) and look up a tracking code, a SHA-256, or upload the suspect file (analysed in memory only, never stored). The page reads the metadata, text layer and invisible watermark, and shows who downloaded it, for which file and share, from which IP and when; with no match it says "Undetermined". Screenshots and photos of the screen carry no embedded mark: read the tracking code from the visible watermark and look it up manually.
 
 ## Backup
 

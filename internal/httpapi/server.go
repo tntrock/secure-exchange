@@ -14,6 +14,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
+	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/webui"
@@ -30,7 +31,8 @@ type Deps struct {
 	Keys           *sxcrypto.Keyring
 	Store          blob.Store
 	Shares         *share.Service
-	FontFile       string        // TTF for burned-in video watermarks (SX_FONT_FILE)
+	FontFile       string // TTF for burned-in video watermarks (SX_FONT_FILE)
+	Mark           config.MarkConfig
 	CodeDelay      time.Duration // recipient /code and /verify answer no sooner than this after the request starts (P10)
 }
 
@@ -81,6 +83,7 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("GET /api/s/{token}/files/{fid}/content", s.requireRecipient(s.recipientDownload))
 	mux.HandleFunc("POST /api/s/{token}/logout", s.recipientLogout)
 	s.previewRoutes(mux)
+	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
 	mux.Handle("POST /api/me/totp/setup", s.requireUser(s.totpSetup))
 	mux.Handle("POST /api/me/totp/enable", s.requireUser(s.totpEnable))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not_found")) })

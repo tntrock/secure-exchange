@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
+	"github.com/tntrock/secure-exchange/internal/mark"
 	"github.com/tntrock/secure-exchange/internal/preview"
 )
 
@@ -38,6 +40,7 @@ func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 		CreatedAt     string    `json:"created_at"`
 		PreviewStatus string    `json:"preview_status"`
 		PreviewKind   string    `json:"preview_kind"`
+		Mark          fileMark  `json:"mark"`
 	}
 	out := []item{}
 	for rows.Next() {
@@ -49,6 +52,9 @@ func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		it.SHA256, it.CreatedAt = fmt.Sprintf("%x", sum), at.UTC().Format(time.RFC3339)
+		p := &preview.Preview{Kind: preview.Kind(it.PreviewKind), Status: preview.Status(it.PreviewStatus)}
+		wm, plain := s.listPlan(it.Name, it.Size, p, true), s.listPlan(it.Name, it.Size, p, false)
+		it.Mark = fileMark{wm.Method, plain.Method, wm.Degraded}
 		out = append(out, it)
 	}
 	if rows.Err() != nil {
@@ -94,7 +100,14 @@ func (s *server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.serveFile(w, r, f, audit.Event{ActorID: auth.UserFrom(r.Context()).ID.String()})
+	rs, err := s.openPlain(r.Context(), f)
+	if err != nil {
+		slog.Error("open file", "file", f.id, "err", err)
+		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return
+	}
+	defer rs.Close()
+	s.serveFile(w, r, f, rs, audit.Event{ActorID: auth.UserFrom(r.Context()).ID.String()})
 }
 
 func (s *server) deleteFile(w http.ResponseWriter, r *http.Request) {
@@ -147,10 +160,11 @@ func contentDisposition(name string) string {
 	return `attachment; filename="` + fallback + `"; filename*=UTF-8''` + enc.String()
 }
 
-// statusWriter records the status code ServeContent chose.
+// statusWriter records the status code ServeContent chose and the body bytes written.
 type statusWriter struct {
 	http.ResponseWriter
 	status int
+	n      int64
 }
 
 func (w *statusWriter) WriteHeader(code int) {
@@ -164,5 +178,31 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
-	return w.ResponseWriter.Write(b)
+	n, err := w.ResponseWriter.Write(b)
+	w.n += int64(n)
+	return n, err
+}
+
+type fileMark struct {
+	Watermark mark.Method `json:"watermark"`
+	Plain     mark.Method `json:"plain"`
+	Degraded  bool        `json:"degraded"`
+}
+
+// listPlan is mark.Decide for file lists, which decrypt nothing: the preview kind stands in for the
+// first bytes (Classify gives a .pdf kind pages only with the %PDF- magic) and pixels are unknown (0),
+// so an image is degraded only by MaxBytes.
+// ponytail: images are told jpeg/png by extension, so a gif named .png lists as markable; the
+// download re-decides from the real bytes. Store a sniffed type on files if that ever matters.
+func (s *server) listPlan(name string, size int64, p *preview.Preview, watermark bool) mark.Plan {
+	var head []byte
+	switch {
+	case p.Kind == preview.KindPages:
+		head = []byte("%PDF-")
+	case p.Kind == preview.KindImage && strings.EqualFold(filepath.Ext(name), ".png"):
+		head = []byte("\x89PNG\r\n\x1a\n")
+	case p.Kind == preview.KindImage && (strings.EqualFold(filepath.Ext(name), ".jpg") || strings.EqualFold(filepath.Ext(name), ".jpeg")):
+		head = []byte("\xff\xd8\xff")
+	}
+	return mark.Decide(name, head, size, 0, p, watermark, s.Mark)
 }

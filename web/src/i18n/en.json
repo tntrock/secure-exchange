@@ -21,7 +21,7 @@
   },
   "recipient": {"title":"Access shared files","from":"{{name}} shared files with you","expires":"Expires: {{at}}","email":"Your email","sendCode":"Send code","code":"6-digit code","verify":"Verify","resend":"Resend code","changeEmail":"Use a different email","codeSent":"If you are on the recipient list, a code has been sent","filesTitle":"Shared files","fileUnavailable":"Unavailable","leave":"Leave","error":{"notFound":"Share not found","gone":"This share has expired or been revoked","ipDenied":"Access from your network location is not allowed","rateLimited":"Too many attempts, please try again later","invalidCode":"Incorrect or expired code","viewLimit":"This share has reached its view limit","sessionEnded":"Your session has ended, please verify again","generic":"Something went wrong, please try again"}},
   "viewer": { "reLogin": "Your login has expired, please sign in again", "view_limit": "This share has reached its view limit", "ip_denied": "Access from your network location is not allowed", "open": "View", "close": "Close", "prev": "Previous page", "next": "Next page", "zoomIn": "Zoom in", "zoomOut": "Zoom out", "page": "Page {{n}}", "pending": "Preview is still processing, please try again later", "notReady": "This file cannot be previewed", "gone": "This share is no longer available", "ended": "Your session has ended, please verify again", "error": "Could not load the preview", "title": "File viewer" },
-  "nav": { "files": "My files", "shares": "My shares" },
+  "nav": { "files": "My files", "shares": "My shares", "trace": "Leak tracing" },
   "share": {
     "create": "Create share", "selected": "{{count}} selected", "title": "Create share", "submit": "Create", "cancel": "Cancel",
     "recipients": "Recipients (one per line or comma-separated)", "allowDownload": "Allow download", "watermark": "Watermark",
@@ -29,6 +29,11 @@
     "message": "Message (optional)",
     "viewOnlyNote": "Recipients can only view the files in the browser",
     "previewHint": "Some selected files are not ready for preview; a view-only share may be rejected",
+    "markDegraded": "These files cannot be fully trace-marked, so a leaked copy can only be traced through the download log:",
+    "markNone": "These files get no embedded mark; only the downloader and the file fingerprint are recorded:",
+    "officeAsPdf": "With the watermark on, recipients receive these Office files as watermarked PDFs:",
+    "markBlocked": "The administrator blocks sharing these files for download with a watermark. Turn off download or the watermark, or remove them:",
+    "markPending": "The file is still being prepared, please try again shortly",
     "listTitle": "My shares", "empty": "No shares yet", "createdAt": "Created", "files": "Files", "recipientCount": "Recipients", "views": "Views",
     "status": { "active": "Active", "expired": "Expired", "revoked": "Revoked" },
     "detailTitle": "Share details", "settings": "Settings", "statusLabel": "Status", "yes": "Yes", "no": "No", "unlimited": "Unlimited", "none": "None",
@@ -46,5 +51,6 @@
       "ip_allow": { "invalid": "Invalid IP or CIDR", "too_many": "Too many IP entries" },
       "message": { "too_many": "Message is too long (max 2000 characters)" }
     }
-  }
+  },
+  "trace": {"title":"Leak tracing","intro":"Find who downloaded a leaked file. Screenshots cannot be analysed: look up the tracking code printed on the visible watermark instead.","code":"Tracking code","sha256":"SHA-256","file":"Suspect file (analysed in memory, never stored)","search":"Search","undetermined":"Undetermined","notAnalyzed":"The file content was not analysed (too large); only its SHA-256 was checked.","forbidden": "You do not have permission to use leak tracing", "error":"Lookup failed, check the input and try again","col":{"source":"Source","method":"Method","code":"Code","file":"File","owner":"Owner","recipient":"Downloader","ip":"IP","at":"Time"},"source":{"download":"Download","view":"Online view","file":"Original upload"},"via":{"code":"tracking code","metadata":"file metadata","text_layer":"hidden text layer","invisible":"invisible watermark","sha256":"file fingerprint"},"method":{"pdf_pages":"Watermarked PDF pages","pdf_meta":"PDF metadata","image_visible":"Visible + invisible watermark","image_invisible":"Invisible watermark","ooxml_meta":"Office metadata","odf_meta":"OpenDocument metadata","none":"Unmarked"}}
 }

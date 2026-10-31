@@ -203,3 +203,13 @@ test("download after revoke shows the fatal reason", async () => {
   expect(screen.queryByRole("link")).toBeNull();
   expect(go).not.toHaveBeenCalled();
 });
+
+test("a file whose mark is still pending is not downloaded and shows the notice", async () => {
+  const pending = { ...filesBody, files: [{ id: "f1", name: "a.docx", size: 1, available: true, mark_pending: true }] };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("/files") ? json(200, pending) : json(200, landing))));
+  const go = vi.spyOn(nav, "go").mockImplementation(() => {});
+  renderPage();
+  fireEvent.click(await screen.findByRole("link", { name: "Download" }));
+  expect(await screen.findByText(i18n.t("share.markPending"))).toBeTruthy();
+  expect(go).not.toHaveBeenCalled();
+});

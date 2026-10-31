@@ -109,3 +109,49 @@ test("view-only with a non-ready file shows the hint before submit", () => {
   render(<MemoryRouter><ShareDialog fileIds={["f1"]} notReady onClose={() => {}} /></MemoryRouter>);
   expect(screen.getByText(i18n.t("share.previewHint"))).toBeTruthy();
 });
+
+// ---- trace marks ----
+import type { FileInfo } from "../api";
+const mk = (name: string, watermark: string, plain: string, degraded: boolean, id = name): FileInfo => ({
+  id, name, content_type: "", size: 1, sha256: "", created_at: "", preview_status: "ready", preview_kind: "", mark: { watermark, plain, degraded },
+} as FileInfo);
+const renderWith = (files: FileInfo[]) => {
+  render(<MemoryRouter><ShareDialog fileIds={files.map((f) => f.id)} files={files} onClose={() => {}} /></MemoryRouter>);
+};
+const allow = () => fireEvent.click(screen.getByLabelText(i18n.t("share.allowDownload")));
+
+test("degraded file with download+watermark warns and names the file; off without download", () => {
+  renderWith([mk("a.zip", "none", "none", true)]);
+  expect(screen.queryByText(/a\.zip/)).toBeNull();
+  allow();
+  expect(screen.getByText(i18n.t("share.markDegraded"))).toBeTruthy();
+  expect(screen.getByText("a.zip")).toBeTruthy();
+  fireEvent.click(screen.getByLabelText(i18n.t("share.watermark")));
+  expect(screen.queryByText(i18n.t("share.markDegraded"))).toBeNull();
+  expect(screen.getByText(i18n.t("share.markNone"))).toBeTruthy();
+  allow();
+  expect(screen.queryByText(i18n.t("share.markNone"))).toBeNull();
+});
+
+test("office file with watermark says it is delivered as PDF", () => {
+  renderWith([mk("r.docx", "pdf_pages", "ooxml_meta", false), mk("p.pdf", "pdf_pages", "pdf_meta", false)]);
+  allow();
+  expect(screen.getByText(i18n.t("share.officeAsPdf"))).toBeTruthy();
+  expect(screen.getByText("r.docx")).toBeTruthy();
+  expect(screen.queryByText("p.pdf")).toBeNull();
+});
+
+test("422 unmarkable shows markBlocked with the file names", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "unmarkable", file_ids: ["b"] }), { status: 422 })));
+  renderWith([mk("a.pdf", "pdf_pages", "pdf_meta", false, "a"), mk("b.zip", "none", "none", true, "b")]);
+  fireEvent.change(screen.getByLabelText(i18n.t("share.recipients")), { target: { value: "a@x.com" } });
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.submit") }));
+  expect((await screen.findByRole("alert")).textContent).toContain(i18n.t("share.markBlocked"));
+  expect(screen.getAllByText("b.zip").length).toBeGreaterThan(0);
+});
+
+test("a name merely ending in 'docx' without a dot is not an Office file", () => {
+  renderWith([mk("notdocx", "pdf_pages", "none", false)]);
+  allow();
+  expect(screen.queryByText(i18n.t("share.officeAsPdf"))).toBeNull();
+});

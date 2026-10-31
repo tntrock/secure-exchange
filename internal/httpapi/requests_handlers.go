@@ -19,7 +19,7 @@ func intakeErr(w http.ResponseWriter, err error) {
 	var ve *intake.ValidationError
 	switch {
 	case errors.As(err, &ve):
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid", "field": ve.Field, "code": ve.Code})
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "validation", "field": ve.Field, "code": ve.Code})
 	case errors.Is(err, intake.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 	case errors.Is(err, intake.ErrGone):

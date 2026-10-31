@@ -89,7 +89,7 @@ func TestRequestCreateInvalid(t *testing.T) {
 		"max_files": 0, "max_total_bytes": 1 << 20})
 	var m map[string]string
 	json.Unmarshal(b, &m)
-	if resp.StatusCode != 422 || m["field"] != "max_files" || m["error"] != "invalid" {
+	if resp.StatusCode != 422 || m["field"] != "max_files" || m["error"] != "validation" {
 		t.Fatal(resp.StatusCode, string(b))
 	}
 }

@@ -198,6 +198,13 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 	if n != len(fileIDs) {
 		return nil, invalid("file_ids", "not_found")
 	}
+	var unscanned int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM files WHERE id = ANY($1) AND scan_status NOT IN ('none','clean','skipped')`, fileIDs).Scan(&unscanned); err != nil {
+		return nil, err
+	}
+	if unscanned > 0 {
+		return nil, invalid("file_ids", "not_scanned")
+	}
 	if !in.AllowDownload {
 		// missing preview row counts as pending
 		var pending, bad int

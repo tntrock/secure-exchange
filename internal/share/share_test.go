@@ -361,3 +361,18 @@ func TestCreateViewOnlyRequiresReadyPreview(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateRejectsUnscanned(t *testing.T) {
+	e := setup(t)
+	for _, st := range []string{"pending", "infected", "error"} {
+		in := e.input(t)
+		if _, err := e.pool.Exec(context.Background(), `UPDATE files SET scan_status = $2 WHERE id = $1`, in.FileIDs[0], st); err != nil {
+			t.Fatal(err)
+		}
+		_, err := e.svc.Create(context.Background(), e.owner, in)
+		var ve *ValidationError
+		if !errors.As(err, &ve) || ve.Field != "file_ids" || ve.Code != "not_scanned" {
+			t.Fatalf("%s: %v", st, err)
+		}
+	}
+}

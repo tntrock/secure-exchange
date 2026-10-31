@@ -27,7 +27,7 @@ type previewHandler func(w http.ResponseWriter, r *http.Request, fileID uuid.UUI
 func (s *server) previewRoutes(mux *http.ServeMux) {
 	own := func(h previewHandler) http.Handler {
 		return s.requireUser(func(w http.ResponseWriter, r *http.Request) {
-			if f, ok := s.ownFile(w, r); ok {
+			if f, ok := s.ownCleanFile(w, r); ok {
 				viewHeaders(w)
 				h(w, r, f.id, nil)
 			}

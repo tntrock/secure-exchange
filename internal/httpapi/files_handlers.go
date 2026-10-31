@@ -23,7 +23,8 @@ import (
 func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	rows, err := s.Pool.Query(r.Context(), `SELECT f.id, f.name, f.content_type, f.size, f.sha256, f.created_at,
-			COALESCE(p.status, 'unsupported'), COALESCE(p.kind, 'none')
+			COALESCE(p.status, 'unsupported'), COALESCE(p.kind, 'none'),
+			f.scan_status, f.scan_result, f.request_id
 		FROM files f LEFT JOIN file_previews p ON p.file_id = f.id
 		WHERE f.owner_id = $1 AND f.deleted_at IS NULL ORDER BY f.created_at DESC`, u.ID)
 	if err != nil {
@@ -32,22 +33,25 @@ func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type item struct {
-		ID            uuid.UUID `json:"id"`
-		Name          string    `json:"name"`
-		ContentType   string    `json:"content_type"`
-		Size          int64     `json:"size"`
-		SHA256        string    `json:"sha256"`
-		CreatedAt     string    `json:"created_at"`
-		PreviewStatus string    `json:"preview_status"`
-		PreviewKind   string    `json:"preview_kind"`
-		Mark          fileMark  `json:"mark"`
+		ID            uuid.UUID  `json:"id"`
+		Name          string     `json:"name"`
+		ContentType   string     `json:"content_type"`
+		Size          int64      `json:"size"`
+		SHA256        string     `json:"sha256"`
+		CreatedAt     string     `json:"created_at"`
+		PreviewStatus string     `json:"preview_status"`
+		PreviewKind   string     `json:"preview_kind"`
+		ScanStatus    string     `json:"scan_status"`
+		ScanResult    string     `json:"scan_result"`
+		RequestID     *uuid.UUID `json:"request_id"`
+		Mark          fileMark   `json:"mark"`
 	}
 	out := []item{}
 	for rows.Next() {
 		var it item
 		var sum []byte
 		var at time.Time
-		if err := rows.Scan(&it.ID, &it.Name, &it.ContentType, &it.Size, &sum, &at, &it.PreviewStatus, &it.PreviewKind); err != nil {
+		if err := rows.Scan(&it.ID, &it.Name, &it.ContentType, &it.Size, &sum, &at, &it.PreviewStatus, &it.PreviewKind, &it.ScanStatus, &it.ScanResult, &it.RequestID); err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 			return
 		}
@@ -71,6 +75,7 @@ type fileRow struct {
 	sum        []byte
 	wrappedDEK []byte
 	keyID      int
+	scan       string
 }
 
 // ownFile loads a live file owned by the caller; otherwise it writes 404 and returns false.
@@ -81,9 +86,9 @@ func (s *server) ownFile(w http.ResponseWriter, r *http.Request) (*fileRow, bool
 		return nil, false
 	}
 	f := fileRow{id: id}
-	err = s.Pool.QueryRow(r.Context(), `SELECT name, size, sha256, wrapped_dek, key_id, storage_key FROM files
+	err = s.Pool.QueryRow(r.Context(), `SELECT name, size, sha256, wrapped_dek, key_id, storage_key, scan_status FROM files
 		WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL`, id, auth.UserFrom(r.Context()).ID).
-		Scan(&f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key)
+		Scan(&f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key, &f.scan)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 		return nil, false
@@ -96,7 +101,7 @@ func (s *server) ownFile(w http.ResponseWriter, r *http.Request) (*fileRow, bool
 }
 
 func (s *server) downloadFile(w http.ResponseWriter, r *http.Request) {
-	f, ok := s.ownFile(w, r)
+	f, ok := s.ownCleanFile(w, r)
 	if !ok {
 		return
 	}
@@ -205,4 +210,23 @@ func (s *server) listPlan(name string, size int64, p *preview.Preview, watermark
 		head = []byte("\xff\xd8\xff")
 	}
 	return mark.Decide(name, head, size, 0, p, watermark, s.Mark)
+}
+
+// ownCleanFile is ownFile for reads: files not yet scanned, or quarantined, are refused.
+func (s *server) ownCleanFile(w http.ResponseWriter, r *http.Request) (*fileRow, bool) {
+	f, ok := s.ownFile(w, r)
+	if !ok {
+		return nil, false
+	}
+	switch f.scan {
+	case "pending":
+		writeJSON(w, http.StatusConflict, errBody("scan_pending"))
+	case "infected":
+		writeJSON(w, http.StatusForbidden, errBody("quarantined"))
+	case "error":
+		writeJSON(w, http.StatusForbidden, errBody("scan_failed"))
+	default:
+		return f, true
+	}
+	return nil, false
 }

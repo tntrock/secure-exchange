@@ -105,7 +105,9 @@ Every download by a share recipient is recorded with a fresh 10-character tracki
 
 `none` records only who downloaded the file and its fingerprint (SHA-256); repeated downloads of the same file by the same recipient share one record and support Range requests. Marked downloads are streamed, so they do not support Range.
 
-If a file cannot be marked as the table says, the download falls back to a weaker method (`pdf_pages` -> `pdf_meta` -> `none`, images -> `none`), for example when a preview failed, the file is damaged, or it is over a limit. While a preview is still rendering, the download answers 409 and is never replaced by the unmarked original; the UI asks the recipient to try again shortly. The share dialog warns you about files that will fall back.
+Marked images are re-encoded upright (a JPEG's EXIF orientation is applied) and carry no EXIF or ICC colour profile, so colours of wide-gamut photos may shift slightly. `pdf_meta` and image copies are built in memory, at most two at a time; further downloads wait for a free slot.
+
+The method is chosen before the download starts: if a file cannot be marked as the table says, it falls back to a weaker method (`pdf_pages` -> `pdf_meta` -> `none`, images -> `none`), for example when a preview failed, the file is damaged, or it is over a limit. Once a marked download has started sending, there is no fallback: if a page fails midway through a `pdf_pages` download, that download is aborted and the recipient retries. While a preview is still rendering, the download answers 409 and is never replaced by the unmarked original; the UI asks the recipient to try again shortly. The share dialog warns you about files that will fall back.
 
 | Variable | Default | Meaning |
 |---|---|---|

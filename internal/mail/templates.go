@@ -42,3 +42,43 @@ func NotifyDownload(recipient, fileName, shareURL string) (string, string) {
 			sep +
 			fmt.Sprintf("%s downloaded the file \"%s\":\n%s", recipient, fileName, shareURL)
 }
+
+func UploadInvitation(url, senderName, message string, expires time.Time) (string, string) {
+	zhNote, enNote := "", ""
+	if message != "" {
+		zhNote = "\n附言：\n" + message + "\n"
+		enNote = "\nMessage:\n" + message + "\n"
+	}
+	ex := expires.UTC().Format("2006-01-02 15:04 UTC")
+	return subject("有人請您上傳檔案", "You have been asked to upload files"),
+		fmt.Sprintf("%s 邀請您安全地上傳檔案。%s\n開啟連結後，請輸入寄到此信箱的驗證碼：\n%s\n\n此連結將於 %s 到期。", senderName, zhNote, url, ex) +
+			sep +
+			fmt.Sprintf("%s has asked you to upload files securely.%s\nOpen the link and enter the verification code sent to this address:\n%s\n\nThis link expires at %s.", senderName, enNote, url, ex)
+}
+
+// NotifyIntakeUpload tells the requester a file arrived; skipped means it was too large to virus-scan.
+func NotifyIntakeUpload(uploader, fileName, requestURL string, skipped bool) (string, string) {
+	zhNote, enNote := "", ""
+	if skipped {
+		zhNote = "\n注意：此檔案超過病毒掃描大小上限，未經掃描。"
+		enNote = "\nNote: this file was not virus-scanned because it is over the scan size limit."
+	}
+	return subject("您收到一份上傳的檔案", "A file was uploaded to your request"),
+		fmt.Sprintf("%s 已上傳檔案「%s」。%s\n%s", uploader, fileName, zhNote, requestURL) +
+			sep +
+			fmt.Sprintf("%s uploaded the file \"%s\".%s\n%s", uploader, fileName, enNote, requestURL)
+}
+
+func NotifyInfected(uploader, fileName, signature, requestURL string) (string, string) {
+	return subject("上傳的檔案含有病毒，已隔離", "An uploaded file was infected and quarantined"),
+		fmt.Sprintf("%s 上傳的檔案「%s」偵測到病毒（%s），已隔離，無法下載。\n%s", uploader, fileName, signature, requestURL) +
+			sep +
+			fmt.Sprintf("The file \"%s\" uploaded by %s contains a virus (%s). It was quarantined and cannot be downloaded.\n%s", fileName, uploader, signature, requestURL)
+}
+
+func NotifyScanError(uploader, fileName, requestURL string) (string, string) {
+	return subject("上傳的檔案無法掃描", "An uploaded file could not be scanned"),
+		fmt.Sprintf("%s 上傳的檔案「%s」多次掃描失敗，已封鎖，無法下載。\n%s", uploader, fileName, requestURL) +
+			sep +
+			fmt.Sprintf("The file \"%s\" uploaded by %s could not be virus-scanned after several attempts. It is blocked and cannot be downloaded.\n%s", fileName, uploader, requestURL)
+}

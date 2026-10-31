@@ -25,6 +25,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      SX_BASE_URL: https://${SX_DOMAIN:?set SX_DOMAIN in .env}
       SX_DATABASE_URL: postgres://sx:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/sx?sslmode=disable
     read_only: true
     tmpfs:

@@ -228,3 +228,52 @@ func TestSMTPSendErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestIntakeTemplates(t *testing.T) {
+	exp := time.Date(2026, 1, 2, 3, 4, 0, 0, time.FixedZone("x", 8*3600))
+	inv := func(msg string) [2]string {
+		s, b := UploadInvitation("https://sx/r/tok", "Alice", msg, exp)
+		return [2]string{s, b}
+	}
+	up := func(skipped bool) [2]string {
+		s, b := NotifyIntakeUpload("bob@x.com", "a.pdf", "https://sx/requests/1", skipped)
+		return [2]string{s, b}
+	}
+	inf := func() [2]string {
+		s, b := NotifyInfected("bob@x.com", "a.pdf", "Eicar-Test", "https://sx/requests/1")
+		return [2]string{s, b}
+	}
+	scanErr := func() [2]string {
+		s, b := NotifyScanError("bob@x.com", "a.pdf", "https://sx/requests/1")
+		return [2]string{s, b}
+	}
+	cases := []struct {
+		name          string
+		got           [2]string
+		want, wantNot []string
+	}{
+		{"invitation", inv("hello"), []string{"upload files", "Alice", "https://sx/r/tok", "附言：\nhello", "Message:\nhello", "2026-01-01 19:04 UTC", sep}, nil},
+		{"invitation no message", inv(""), []string{"https://sx/r/tok"}, []string{"附言", "Message:"}},
+		{"upload", up(false), []string{"bob@x.com", `"a.pdf"`, "「a.pdf」", "https://sx/requests/1"}, []string{"not virus-scanned", "未經掃描"}},
+		{"upload skipped", up(true), []string{"not virus-scanned", "未經掃描"}, nil},
+		{"infected", inf(), []string{"Eicar-Test", "bob@x.com", "「a.pdf」", "quarantined", "https://sx/requests/1"}, nil},
+		{"scan error", scanErr(), []string{"bob@x.com", "「a.pdf」", `"a.pdf"`, "https://sx/requests/1"}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if strings.ContainsAny(c.got[0], "\r\n") || !strings.HasPrefix(c.got[0], "[secure-exchange] ") {
+				t.Fatalf("subject %q", c.got[0])
+			}
+			for _, s := range c.want {
+				if !strings.Contains(c.got[1], s) && !strings.Contains(c.got[0], s) {
+					t.Errorf("lacks %q:\n%s\n%s", s, c.got[0], c.got[1])
+				}
+			}
+			for _, s := range c.wantNot {
+				if strings.Contains(c.got[1], s) {
+					t.Errorf("body has %q", s)
+				}
+			}
+		})
+	}
+}

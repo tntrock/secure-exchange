@@ -31,6 +31,12 @@ const (
 	ActShareRecipientRevoke = "share.recipient.revoke"
 	ActShareOTPRequest      = "share.otp.request"
 	ActShareOTPVerify       = "share.otp.verify"
+
+	ActRequestCreate     = "request.create"
+	ActRequestRevoke     = "request.revoke"
+	ActRequestOTPRequest = "request.otp.request"
+	ActRequestOTPVerify  = "request.otp.verify"
+	ActFileScan          = "file.scan"
 )
 
 const lockKey = 7461

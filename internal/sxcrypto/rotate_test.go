@@ -260,3 +260,34 @@ func TestRotateCoversPreviewItems(t *testing.T) {
 		t.Fatalf("unwrap with key 2 only: %v", err)
 	}
 }
+
+func TestRotateCoversRequestToken(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	k1 := ring(t, "1:"+b64key(1), 1)
+	k12 := ring(t, "1:"+b64key(1)+",2:"+b64key(2), 2)
+	k2 := ring(t, "2:"+b64key(2), 2)
+	uid, rid := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id,email,role) VALUES ($1,'o@x.com','staff')`, uid); err != nil {
+		t.Fatal(err)
+	}
+	aad := []byte("requesttoken:" + rid.String())
+	sealed, err := k1.Seal([]byte("tok"), aad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO upload_requests (id,owner_id,token_hash,token_sealed,expires_at,max_files,max_total_bytes)
+		VALUES ($1,$2,'\x01',$3,now()+interval '1 day',1,1)`, rid, uid, sealed); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := sxcrypto.RotateAll(ctx, pool, k12); err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v, want 1 nil", n, err)
+	}
+	var got []byte
+	if err := pool.QueryRow(ctx, `SELECT token_sealed FROM upload_requests WHERE id=$1`, rid).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := k2.Open(got, aad); err != nil || string(p) != "tok" {
+		t.Fatalf("open with key 2 only: %q %v", p, err)
+	}
+}

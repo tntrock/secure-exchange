@@ -72,6 +72,7 @@ func TestAddZipMetaOOXML(t *testing.T) {
 	for name, core := range map[string]string{
 		"with":  `<cp:coreProperties><cp:keywords>a, b</cp:keywords></cp:coreProperties>`,
 		"empty": `<cp:coreProperties><cp:keywords/></cp:coreProperties>`,
+		"attr":  `<cp:coreProperties><cp:keywords xml:lang="en"/></cp:coreProperties>`,
 		"none":  `<cp:coreProperties><dc:title>x</dc:title></cp:coreProperties>`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -175,7 +176,7 @@ func TestZipCodesCap(t *testing.T) {
 }
 
 func TestReaderAt(t *testing.T) {
-	ra := readerAt(strings.NewReader("hello world"))
+	ra := ReaderAt(strings.NewReader("hello world"))
 	p := make([]byte, 5)
 	if n, err := ra.ReadAt(p, 6); n != 5 || err != nil || string(p) != "world" {
 		t.Fatalf("n=%d err=%v p=%q", n, err, p)

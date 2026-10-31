@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -9,6 +12,8 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
+	"github.com/tntrock/secure-exchange/internal/mark"
+	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/share"
 )
 
@@ -91,6 +96,18 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := auth.UserFrom(r.Context())
+	if s.Mark.Policy == "block" && in.AllowDownload && in.Watermark {
+		bad, err := s.unmarkable(r.Context(), u.ID, in.FileIDs)
+		if err != nil {
+			slog.Error("unmarkable check", "err", err)
+			writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+			return
+		}
+		if len(bad) > 0 {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "unmarkable", "file_ids": bad})
+			return
+		}
+	}
 	sh, err := s.Shares.Create(r.Context(), u, share.CreateInput{FileIDs: in.FileIDs, Emails: in.Emails, AllowDownload: in.AllowDownload,
 		Watermark: in.Watermark, ExpiresAt: in.ExpiresAt, MaxViews: in.MaxViews, IPAllow: in.IPAllow, Message: in.Message})
 	if err != nil {
@@ -193,4 +210,65 @@ func pathUUID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, b
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 	}
 	return id, err == nil
+}
+
+// unmarkable returns the caller's live files among ids whose watermarked download would fall back
+// (mark.Plan.Degraded). Pixels are not read here, so an image over Mark.MaxPixels is only refused at
+// download. Ids that are not the caller's are left for Shares.Create to reject.
+// ponytail: SX_UNMARKABLE_POLICY moves to the admin UI in phase 7.
+func (s *server) unmarkable(ctx context.Context, owner uuid.UUID, ids []uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT f.id, f.name, f.size, f.sha256, f.wrapped_dek, f.key_id, f.storage_key, p.kind, p.status
+		FROM files f LEFT JOIN file_previews p ON p.file_id = f.id
+		WHERE f.id = ANY($1) AND f.owner_id = $2 AND f.deleted_at IS NULL`, ids, owner)
+	if err != nil {
+		return nil, err
+	}
+	type file struct {
+		fileRow
+		p *preview.Preview
+	}
+	var files []file
+	for rows.Next() {
+		var f file
+		var kind, status *string
+		if err := rows.Scan(&f.id, &f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key, &kind, &status); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if kind != nil {
+			f.p = &preview.Preview{Kind: preview.Kind(*kind), Status: preview.Status(*status)}
+		}
+		files = append(files, f)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	bad := []uuid.UUID{}
+	for _, f := range files {
+		head, err := s.head(ctx, &f.fileRow)
+		if err != nil {
+			return nil, err
+		}
+		if mark.Decide(f.name, head, f.size, 0, f.p, true, s.Mark).Degraded {
+			bad = append(bad, f.id)
+		}
+	}
+	return bad, nil
+}
+
+// head reads the first preview.HeadLen plaintext bytes of f.
+func (s *server) head(ctx context.Context, f *fileRow) ([]byte, error) {
+	rs, err := s.openPlain(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	defer rs.Close()
+	return readHead(rs, f.size)
+}
+
+func readHead(r io.Reader, size int64) ([]byte, error) {
+	head := make([]byte, min(preview.HeadLen, size))
+	_, err := io.ReadFull(r, head)
+	return head, err
 }

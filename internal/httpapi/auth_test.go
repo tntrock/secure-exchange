@@ -23,6 +23,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
+	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/share"
@@ -39,6 +40,7 @@ type env struct {
 	pool  *pgxpool.Pool
 	keys  *sxcrypto.Keyring
 	store blob.Store
+	deps  Deps // as passed to NewServer, for calling handlers directly
 }
 
 func newEnv(t *testing.T, mods ...func(*Deps)) *env {
@@ -58,10 +60,11 @@ func newEnv(t *testing.T, mods ...func(*Deps)) *env {
 	d := Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour, Pool: pool, Keys: kr, Store: store, Shares: share.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", 30),
 		Uploads: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, auth.UserFrom(r.Context()).ID.String())
-		})}
+		}), Mark: config.MarkConfig{MaxBytes: 256 << 20, MaxPixels: 50_000_000, Policy: "warn"}}
 	for _, m := range mods {
 		m(&d)
 	}
+	e.deps = d
 	e.ts = httptest.NewTLSServer(NewServer(d))
 	t.Cleanup(e.ts.Close)
 	e.c = e.ts.Client()

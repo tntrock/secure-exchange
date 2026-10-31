@@ -16,7 +16,7 @@ var ErrNoProps = errors.New("mark: no document properties to mark")
 
 const maxMeta = 1 << 20
 
-var emptyKeywordsRe = regexp.MustCompile(`<cp:keywords\s*/>`)
+var emptyKeywordsRe = regexp.MustCompile(`<cp:keywords(\s[^>]*)?/>`)
 
 // readLimited reads at most maxMeta bytes; ok is false if the entry is larger.
 func readLimited(f *zip.File) (b []byte, ok bool, err error) {
@@ -76,7 +76,7 @@ func AddZipMeta(ra io.ReaderAt, size int64, w io.Writer, code string, odf bool) 
 			return ErrNoProps
 		}
 	} else {
-		s = emptyKeywordsRe.ReplaceAllString(s, "<cp:keywords></cp:keywords>")
+		s = emptyKeywordsRe.ReplaceAllString(s, "<cp:keywords$1></cp:keywords>")
 		if s, ok = insertBefore(s, "</cp:keywords>", " "+tag); !ok {
 			if s, ok = insertBefore(s, "</cp:coreProperties>", "<cp:keywords>"+tag+"</cp:keywords>"); !ok {
 				return ErrNoProps
@@ -171,5 +171,5 @@ func (s *seekerAt) ReadAt(p []byte, off int64) (int, error) {
 	return n, err
 }
 
-// readerAt adapts a ReadSeeker (e.g. sxcrypto.OpenPlain) to an io.ReaderAt.
-func readerAt(rs io.ReadSeeker) io.ReaderAt { return &seekerAt{rs: rs} }
+// ReaderAt adapts a ReadSeeker (e.g. sxcrypto.OpenPlain) to an io.ReaderAt.
+func ReaderAt(rs io.ReadSeeker) io.ReaderAt { return &seekerAt{rs: rs} }

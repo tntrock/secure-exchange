@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -12,20 +11,21 @@ import (
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
-// serveFile streams a decrypted file with Range/ETag support and returns the status served.
-// ev carries ActorType/ActorID and extra Detail for the file.download audit entry; it is written
-// only for 200/206 GETs, by what was actually served (R15).
-func (s *server) serveFile(w http.ResponseWriter, r *http.Request, f *fileRow, ev audit.Event) int {
+// openPlain opens a seekable plaintext view of f.
+func (s *server) openPlain(ctx context.Context, f *fileRow) (io.ReadSeekCloser, error) {
 	dek, err := s.Keys.UnwrapDEK(f.wrappedDEK, f.keyID)
 	if err != nil {
-		slog.Error("unwrap dek", "file", f.id, "err", err)
-		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
-		return http.StatusInternalServerError
+		return nil, err
 	}
-	rs := sxcrypto.OpenPlain(r.Context(), func(ctx context.Context, off, n int64) (io.ReadCloser, error) {
+	return sxcrypto.OpenPlain(ctx, func(ctx context.Context, off, n int64) (io.ReadCloser, error) {
 		return s.Store.OpenRange(ctx, f.key, off, n)
-	}, dek, f.id, f.size) // R7: size from the DB
-	defer rs.Close()
+	}, dek, f.id, f.size), nil // R7: size from the DB
+}
+
+// serveFile streams rs (f's plaintext) with Range/ETag support and returns the status served and
+// the body bytes written. ev carries ActorType/ActorID and extra Detail for the file.download audit
+// entry; it is written only for 200/206 GETs, by what was actually served (R15).
+func (s *server) serveFile(w http.ResponseWriter, r *http.Request, f *fileRow, rs io.ReadSeeker, ev audit.Event) (int, int64) {
 	h := w.Header()
 	h.Set("ETag", `"`+hex.EncodeToString(f.sum)+`"`)
 	h.Set("Content-Type", "application/octet-stream")
@@ -42,5 +42,5 @@ func (s *server) serveFile(w http.ResponseWriter, r *http.Request, f *fileRow, e
 		ev.Action, ev.TargetType, ev.TargetID, ev.Result, ev.Detail = audit.ActDownload, "file", f.id.String(), "ok", d
 		s.record(r, ev)
 	}
-	return sw.status
+	return sw.status, sw.n
 }

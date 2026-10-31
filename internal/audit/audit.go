@@ -14,15 +14,16 @@ import (
 )
 
 const (
-	ActLoginOK    = "auth.login.ok"
-	ActLoginFail  = "auth.login.fail"
-	ActLogout     = "auth.logout"
-	ActTOTPEnable = "auth.totp.enable"
-	ActUpload     = "file.upload"
-	ActDownload   = "file.download"
-	ActDelete     = "file.delete"
-	ActKeyRotate  = "crypto.rotate"
-	ActFileView   = "file.view"
+	ActLoginOK     = "auth.login.ok"
+	ActLoginFail   = "auth.login.fail"
+	ActLogout      = "auth.logout"
+	ActTOTPEnable  = "auth.totp.enable"
+	ActUpload      = "file.upload"
+	ActDownload    = "file.download"
+	ActDelete      = "file.delete"
+	ActKeyRotate   = "crypto.rotate"
+	ActFileView    = "file.view"
+	ActTraceLookup = "trace.lookup"
 
 	ActShareCreate          = "share.create"
 	ActShareRevoke          = "share.revoke"

@@ -122,3 +122,11 @@ func TestConcurrentOpen(t *testing.T) {
 		}
 	}
 }
+
+func TestMigration0004Applies(t *testing.T) {
+	pool := testdb.New(t)
+	var n int
+	if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM download_traces").Scan(&n); err != nil || n != 0 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+}

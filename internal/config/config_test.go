@@ -205,3 +205,28 @@ func TestLoadWorker(t *testing.T) {
 		t.Fatalf("Load must still require SMTP: %v", err)
 	}
 }
+
+func TestLoadMarkDefaults(t *testing.T) {
+	c, err := Load(env(required()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Mark != (MarkConfig{MaxBytes: 256 << 20, MaxPixels: 50_000_000, Policy: "warn"}) {
+		t.Fatalf("unexpected mark config: %+v", c.Mark)
+	}
+}
+
+func TestLoadMarkInvalid(t *testing.T) {
+	for k, v := range map[string]string{"SX_MARK_MAX_BYTES": "0", "SX_MARK_MAX_PIXELS": "-1", "SX_UNMARKABLE_POLICY": "deny"} {
+		m := required()
+		m[k] = v
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), k) {
+			t.Fatalf("%s=%s: err = %v", k, v, err)
+		}
+	}
+	m := required()
+	m["SX_UNMARKABLE_POLICY"] = "block"
+	if c, err := Load(env(m)); err != nil || c.Mark.Policy != "block" {
+		t.Fatalf("block: %v %+v", err, c)
+	}
+}

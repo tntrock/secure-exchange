@@ -29,6 +29,12 @@ type PreviewConfig struct {
 	MaxPages, MaxVideoSeconds, DPI int
 }
 
+type MarkConfig struct {
+	MaxBytes  int64
+	MaxPixels int
+	Policy    string // "warn" or "block"
+}
+
 type Config struct {
 	Listen            string
 	BaseURL           string
@@ -47,6 +53,7 @@ type Config struct {
 	SMTP              SMTPConfig
 	ShareMaxDays      int
 	Preview           PreviewConfig
+	Mark              MarkConfig
 	WorkerTmp         string
 	FontFile          string // drawtext font for video watermarks
 }
@@ -98,6 +105,7 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 		FontFile:          get("SX_FONT_FILE", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
 		// input + rendered output must fit the 4 GiB /work tmpfs (see .env.example)
 		Preview: PreviewConfig{MaxBytes: 1 << 30, MaxPages: 500, MaxVideoBytes: 3 << 29, MaxVideoSeconds: 7200, DPI: 110},
+		Mark:    MarkConfig{MaxBytes: 256 << 20, MaxPixels: 50_000_000, Policy: "warn"},
 		SMTP: SMTPConfig{
 			Host:     web("SX_SMTP_HOST"),
 			Port:     587,
@@ -152,6 +160,13 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 	posInt64("SX_PREVIEW_MAX_VIDEO_BYTES", &c.Preview.MaxVideoBytes)
 	posInt("SX_PREVIEW_MAX_VIDEO_SECONDS", &c.Preview.MaxVideoSeconds)
 	posInt("SX_RENDER_DPI", &c.Preview.DPI)
+	posInt64("SX_MARK_MAX_BYTES", &c.Mark.MaxBytes)
+	posInt("SX_MARK_MAX_PIXELS", &c.Mark.MaxPixels)
+	switch c.Mark.Policy = get("SX_UNMARKABLE_POLICY", c.Mark.Policy); c.Mark.Policy {
+	case "warn", "block":
+	default:
+		bad("SX_UNMARKABLE_POLICY", fmt.Errorf("%q must be warn or block", c.Mark.Policy))
+	}
 	if !worker {
 		if s := get("SX_MAX_FILE_SIZE", ""); s != "" {
 			if n, err := strconv.ParseInt(s, 10, 64); err != nil || n <= 0 {

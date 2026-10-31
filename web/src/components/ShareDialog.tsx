@@ -12,7 +12,7 @@ const localDefault = () => {
   return d.toISOString().slice(0, 16);
 };
 
-const OFFICE = /.(docx?|odt|rtf|xlsx?|ods|pptx?|odp)$/i;
+const OFFICE = /\.(docx?|odt|rtf|xlsx?|ods|pptx?|odp)$/i;
 
 function NameList({ items }: { items: FileInfo[] }) {
   return <ul>{items.map((f) => <li key={f.id}>{f.name}</li>)}</ul>;

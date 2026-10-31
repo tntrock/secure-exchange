@@ -26,11 +26,11 @@ test("code lookup posts {code} and lists the hit", async () => {
   expect(f.mock.calls[0][0]).toBe("/api/admin/trace");
   expect(JSON.parse(f.mock.calls[0][1]!.body as string)).toEqual({ code: "abcdefghjk" });
   expect(screen.getByText("owner@x.com")).toBeTruthy();
-  expect(screen.getByText(i18n.t("trace.notAnalyzed"))).toBeTruthy();
+  expect(screen.queryByText(i18n.t("trace.notAnalyzed"))).toBeNull();
 });
 
 test("sha256 lookup posts {sha256}", async () => {
-  const f = mock({ hits: [hit], analyzed: true });
+  const f = mock({ hits: [hit], analyzed: false });
   render(<Trace />);
   fireEvent.change(screen.getByLabelText(i18n.t("trace.sha256")), { target: { value: "ab12" } });
   fireEvent.click(screen.getAllByRole("button", { name: i18n.t("trace.search") })[1]);
@@ -40,7 +40,7 @@ test("sha256 lookup posts {sha256}", async () => {
 });
 
 test("empty result shows undetermined", async () => {
-  mock({ hits: [], analyzed: true });
+  mock({ hits: [], analyzed: false });
   render(<Trace />);
   fireEvent.change(screen.getByLabelText(i18n.t("trace.code")), { target: { value: "x" } });
   fireEvent.click(screen.getAllByRole("button", { name: i18n.t("trace.search") })[0]);
@@ -68,4 +68,21 @@ test("search with nothing entered does nothing; errors are shown", async () => {
   fireEvent.change(screen.getByLabelText(i18n.t("trace.code")), { target: { value: "bad" } });
   fireEvent.click(screen.getAllByRole("button", { name: i18n.t("trace.search") })[0]);
   expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("trace.error"));
+});
+
+test.each([[false, true], [true, false]])("file upload with analyzed=%s shows the not-analysed note: %s", async (analyzed, note) => {
+  mock({ hits: [], analyzed });
+  render(<Trace />);
+  fireEvent.change(screen.getByLabelText(i18n.t("trace.file")), { target: { files: [new File(["d"], "x.bin")] } });
+  fireEvent.click(screen.getAllByRole("button", { name: i18n.t("trace.search") })[2]);
+  await screen.findByText(i18n.t("trace.undetermined"));
+  expect(!!screen.queryByText(i18n.t("trace.notAnalyzed"))).toBe(note);
+});
+
+test("403 shows the forbidden message", async () => {
+  mock({ error: "forbidden" }, 403);
+  render(<Trace />);
+  fireEvent.change(screen.getByLabelText(i18n.t("trace.code")), { target: { value: "x" } });
+  fireEvent.click(screen.getAllByRole("button", { name: i18n.t("trace.search") })[0]);
+  expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("trace.forbidden"));
 });

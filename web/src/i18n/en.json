@@ -52,5 +52,5 @@
       "message": { "too_many": "Message is too long (max 2000 characters)" }
     }
   },
-  "trace": {"title":"Leak tracing","intro":"Find who downloaded a leaked file. Screenshots cannot be analysed: look up the tracking code printed on the visible watermark instead.","code":"Tracking code","sha256":"SHA-256","file":"Suspect file (analysed in memory, never stored)","search":"Search","undetermined":"Undetermined","notAnalyzed":"The file content was not analysed (too large); only its SHA-256 was checked.","error":"Lookup failed, check the input and try again","col":{"source":"Source","method":"Method","code":"Code","file":"File","owner":"Owner","recipient":"Downloader","ip":"IP","at":"Time"}}
+  "trace": {"title":"Leak tracing","intro":"Find who downloaded a leaked file. Screenshots cannot be analysed: look up the tracking code printed on the visible watermark instead.","code":"Tracking code","sha256":"SHA-256","file":"Suspect file (analysed in memory, never stored)","search":"Search","undetermined":"Undetermined","notAnalyzed":"The file content was not analysed (too large); only its SHA-256 was checked.","forbidden": "You do not have permission to use leak tracing", "error":"Lookup failed, check the input and try again","col":{"source":"Source","method":"Method","code":"Code","file":"File","owner":"Owner","recipient":"Downloader","ip":"IP","at":"Time"}}
 }

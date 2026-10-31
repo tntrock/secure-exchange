@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, fmtDate, type TraceResult } from "../../api";
+import { api, ApiError, fmtDate, type TraceResult } from "../../api";
 
 export default function Trace() {
   const { t, i18n } = useTranslation();
@@ -8,13 +8,14 @@ export default function Trace() {
   const [sha, setSha] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [res, setRes] = useState<TraceResult | null>(null);
-  const [err, setErr] = useState(false);
+  const [err, setErr] = useState("");
+  const [upload, setUpload] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const run = async (q: { code: string } | { sha256: string } | File) => {
     setBusy(true);
-    setErr(false);
-    try { setRes(await api.trace(q)); } catch { setRes(null); setErr(true); } finally { setBusy(false); }
+    setErr("");
+    try { setRes(await api.trace(q)); setUpload(q instanceof File); } catch (e) { setRes(null); setErr(e instanceof ApiError && e.status === 403 ? "forbidden" : "error"); } finally { setBusy(false); }
   };
   const go = (ev: React.FormEvent, q: { code: string } | { sha256: string } | File | null) => {
     ev.preventDefault();
@@ -37,10 +38,10 @@ export default function Trace() {
         <label>{t("trace.file")} <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>{" "}
         <button disabled={busy}>{t("trace.search")}</button>
       </form>
-      {err && <p className="error" role="alert">{t("trace.error")}</p>}
+      {err && <p className="error" role="alert">{t(`trace.${err}`)}</p>}
       {res && (
         <>
-          {!res.analyzed && <p>{t("trace.notAnalyzed")}</p>}
+          {upload && !res.analyzed && <p>{t("trace.notAnalyzed")}</p>}
           {res.hits.length === 0 ? <p>{t("trace.undetermined")}</p> : (
             <table>
               <thead>

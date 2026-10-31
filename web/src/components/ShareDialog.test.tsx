@@ -149,3 +149,9 @@ test("422 unmarkable shows markBlocked with the file names", async () => {
   expect((await screen.findByRole("alert")).textContent).toContain(i18n.t("share.markBlocked"));
   expect(screen.getAllByText("b.zip").length).toBeGreaterThan(0);
 });
+
+test("a name merely ending in 'docx' without a dot is not an Office file", () => {
+  renderWith([mk("notdocx", "pdf_pages", "none", false)]);
+  allow();
+  expect(screen.queryByText(i18n.t("share.officeAsPdf"))).toBeNull();
+});

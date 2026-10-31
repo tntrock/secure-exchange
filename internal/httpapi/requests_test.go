@@ -151,7 +151,7 @@ func TestUploaderVerifySetsCookie(t *testing.T) {
 	}
 	resp := e.uploaderVerify(t, tok, "u@y.com")
 	sc := resp.Header.Get("Set-Cookie")
-	for _, want := range []string{"sx_intake=", "HttpOnly", "Secure", "SameSite=Strict", "Path=/", "Max-Age="} {
+	for _, want := range []string{"sx_intake=", "HttpOnly", "Secure", "SameSite=Strict", "Path=/api/r/" + tok, "Max-Age="} {
 		if !strings.Contains(sc, want) {
 			t.Fatalf("cookie %q missing %q", sc, want)
 		}

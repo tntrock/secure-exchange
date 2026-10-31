@@ -53,12 +53,17 @@ export default function UploadPage() {
     try {
       setData(await api.intakeFiles(token));
       queued.current = { n: 0, b: 0 };
+      setErr("");
       setStep("upload");
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
+      const status = e instanceof ApiError ? e.status : 0;
+      if (status === 401) {
         setData(null);
         setStep("email");
         if (!initial) setErr("sessionEnded");
+      } else if (!initial && status !== 404 && status !== 410) {
+        // a transient error must not leave the upload step: that would unmount the Uploader and abort the other uploads
+        setErr(errKey(e));
       } else {
         setErr(errKey(e));
         setStep("fatal");

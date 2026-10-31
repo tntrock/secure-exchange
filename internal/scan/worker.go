@@ -106,7 +106,7 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 	case ctx.Err() != nil:
 		return true, ctx.Err() // shutting down: the lease expires and the job is retried
 	case errors.Is(err, ErrUnavailable):
-		_, err = w.Pool.Exec(ctx, `UPDATE scan_jobs SET attempts = attempts - 1, lease_until = now() + interval '`+retryDelay+`' WHERE file_id = $1`, f.id)
+		_, err = w.Pool.Exec(ctx, `UPDATE scan_jobs SET attempts = attempts - 1, lease_until = now() + interval '`+retryDelay+`' WHERE file_id = $1 AND attempts = $2`, f.id, f.attempts)
 		return true, err
 	case err != nil:
 		slog.Warn("scan: attempt failed", "file", f.id, "attempt", f.attempts, "err", err)
@@ -135,7 +135,7 @@ func (w *Worker) retry(ctx context.Context, f *file, err error) error {
 	if f.attempts >= maxAttempts {
 		return w.finish(ctx, f, "error", cleanMsg(err.Error()))
 	}
-	_, err = w.Pool.Exec(ctx, `UPDATE scan_jobs SET lease_until = now() + interval '`+retryDelay+`' WHERE file_id = $1`, f.id)
+	_, err = w.Pool.Exec(ctx, `UPDATE scan_jobs SET lease_until = now() + interval '`+retryDelay+`' WHERE file_id = $1 AND attempts = $2`, f.id, f.attempts)
 	return err
 }
 
@@ -151,8 +151,12 @@ func (w *Worker) finish(ctx context.Context, f *file, status, result string) err
 	if err := tx.QueryRow(ctx, `SELECT deleted_at IS NOT NULL FROM files WHERE id = $1 FOR UPDATE`, f.id).Scan(&deleted); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM scan_jobs WHERE file_id = $1`, f.id); err != nil {
+	tag, err := tx.Exec(ctx, `DELETE FROM scan_jobs WHERE file_id = $1 AND attempts = $2`, f.id, f.attempts)
+	if err != nil {
 		return err
+	}
+	if tag.RowsAffected() == 0 { // re-claimed by another worker: its attempt records the result
+		return nil
 	}
 	if deleted {
 		return tx.Commit(ctx)
@@ -161,12 +165,14 @@ func (w *Worker) finish(ctx context.Context, f *file, status, result string) err
 		return err
 	}
 	to, subject, body := []string{f.owner}, "", ""
+	var adminBody string // admins cannot open the owner's request page, so their copy has no link
 	url := w.BaseURL + "/requests/" + f.requestID.String()
 	switch status {
 	case "clean", "skipped":
 		subject, body = mail.NotifyIntakeUpload(f.uploader, f.name, url, status == "skipped")
 	case "infected":
 		subject, body = mail.NotifyInfected(f.uploader, f.name, result, url)
+		_, adminBody = mail.NotifyInfected(f.uploader, f.name, result, "")
 		rows, err := tx.Query(ctx, `SELECT email FROM users WHERE role = 'admin' AND NOT disabled ORDER BY email`)
 		if err != nil {
 			return err
@@ -187,10 +193,14 @@ func (w *Worker) finish(ctx context.Context, f *file, status, result string) err
 		subject, body = mail.NotifyScanError(f.uploader, f.name, url)
 	}
 	seen := map[string]bool{}
-	for _, addr := range to {
+	for i, addr := range to {
 		if k := strings.ToLower(addr); !seen[k] {
 			seen[k] = true
-			if err := w.Outbox.Enqueue(ctx, tx, mail.Message{To: addr, Subject: subject, Body: body}); err != nil {
+			b := body
+			if i > 0 && adminBody != "" { // to[0] is the owner
+				b = adminBody
+			}
+			if err := w.Outbox.Enqueue(ctx, tx, mail.Message{To: addr, Subject: subject, Body: b}); err != nil {
 				return err
 			}
 		}

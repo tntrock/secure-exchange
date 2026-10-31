@@ -69,11 +69,16 @@ func NotifyIntakeUpload(uploader, fileName, requestURL string, skipped bool) (st
 			fmt.Sprintf("%s uploaded the file \"%s\".%s\n%s", uploader, fileName, enNote, requestURL)
 }
 
+// NotifyInfected leaves the link line out when requestURL is empty (admins cannot open the owner's request).
 func NotifyInfected(uploader, fileName, signature, requestURL string) (string, string) {
+	link := ""
+	if requestURL != "" {
+		link = "\n" + requestURL
+	}
 	return subject("上傳的檔案含有病毒，已隔離", "An uploaded file was infected and quarantined"),
-		fmt.Sprintf("%s 上傳的檔案「%s」偵測到病毒（%s），已隔離，無法下載。\n%s", uploader, fileName, signature, requestURL) +
+		fmt.Sprintf("%s 上傳的檔案「%s」偵測到病毒（%s），已隔離，無法下載。%s", uploader, fileName, signature, link) +
 			sep +
-			fmt.Sprintf("The file \"%s\" uploaded by %s contains a virus (%s). It was quarantined and cannot be downloaded.\n%s", fileName, uploader, signature, requestURL)
+			fmt.Sprintf("The file \"%s\" uploaded by %s contains a virus (%s). It was quarantined and cannot be downloaded.%s", fileName, uploader, signature, link)
 }
 
 func NotifyScanError(uploader, fileName, requestURL string) (string, string) {

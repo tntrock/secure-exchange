@@ -42,7 +42,7 @@
       "message": { "too_many": "Message is too long" }
     }
   },
-  "scan": { "label": "Scan", "pending": "Scanning", "clean": "Clean", "infected": "Infected", "skipped": "Not scanned (too large)", "error": "Scan failed" },
+  "scan": { "label": "Scan", "pending": "Scanning", "clean": "No virus found", "infected": "Infected", "skipped": "Not scanned (too large)", "error": "Scan failed" },
   "intake": {
     "title": "Upload files", "from": "{{name}} asks you to upload files", "expires": "Expires: {{at}}", "email": "Your email",
     "sendCode": "Send code", "code": "6-digit code", "verify": "Verify", "resend": "Resend code", "changeEmail": "Use a different email",

@@ -233,7 +233,7 @@ func (s *server) uploaderVerify(w http.ResponseWriter, r *http.Request) {
 	if d := int((24 * time.Hour).Seconds()); maxAge > d {
 		maxAge = d
 	}
-	http.SetCookie(w, &http.Cookie{Name: intakeCookieName, Value: session, Path: "/", MaxAge: max(maxAge, 1),
+	http.SetCookie(w, &http.Cookie{Name: intakeCookieName, Value: session, Path: "/api/r/" + token, MaxAge: max(maxAge, 1),
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 	writeJSON(w, http.StatusOK, body)
 }
@@ -283,7 +283,7 @@ func (s *server) uploaderLogout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: intakeCookieName, Value: "", Path: "/", MaxAge: -1,
+	http.SetCookie(w, &http.Cookie{Name: intakeCookieName, Value: "", Path: "/api/r/" + r.PathValue("token"), MaxAge: -1,
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -6,11 +6,14 @@ import { api, ApiError, fmtDate, fmtSize, type UploadRequest } from "../api";
 const lines = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
 
 // <input type="date"> wants local "YYYY-MM-DD".
-const defaultDay = () => {
-  const d = new Date(Date.now() + 7 * 864e5);
+const dayStr = (days: number) => {
+  const d = new Date(Date.now() + days * 864e5);
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 10);
 };
+
+// The server caps an expiry at SX_SHARE_MAX_DAYS (default 30), which the client is not told.
+const MAX_DAYS = 30;
 
 export default function Requests() {
   const { t, i18n } = useTranslation();
@@ -18,7 +21,7 @@ export default function Requests() {
   const [rows, setRows] = useState<UploadRequest[]>([]);
   const [listErr, setListErr] = useState("");
   const [emails, setEmails] = useState("");
-  const [expires, setExpires] = useState(defaultDay);
+  const [expires, setExpires] = useState(() => dayStr(7));
   const [maxFiles, setMaxFiles] = useState("10");
   const [maxGb, setMaxGb] = useState("10");
   const [exts, setExts] = useState("");
@@ -37,10 +40,12 @@ export default function Requests() {
     setErr(null);
     setBusy(true);
     try {
-      const d = new Date(`${expires}T23:59:59`); // end of the chosen local day
+      // end of the chosen local day, kept between now+1h and just under the server's cap (the last day would overshoot it)
+      let ms = new Date(`${expires}T23:59:59`).getTime();
+      ms = Math.max(Math.min(ms, Date.now() + MAX_DAYS * 864e5 - 6e4), Date.now() + 36e5);
       const r = await api.createRequest({
         emails: lines(emails),
-        expires_at: isNaN(d.getTime()) ? "" : d.toISOString(),
+        expires_at: isNaN(ms) ? "" : new Date(ms).toISOString(),
         max_files: Number(maxFiles),
         max_total_bytes: Math.round(Number(maxGb) * 1024 ** 3),
         allowed_exts: lines(exts).map((e) => e.replace(/^\./, "")),
@@ -68,7 +73,7 @@ export default function Requests() {
           {fieldErr("emails")}
         </label>
         <label>{t("requests.expiresOn")}
-          <input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
+          <input type="date" min={dayStr(1)} max={dayStr(MAX_DAYS)} value={expires} onChange={(e) => setExpires(e.target.value)} />
           {fieldErr("expires_at")}
         </label>
         <label>{t("requests.maxFiles")}

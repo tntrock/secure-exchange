@@ -102,9 +102,18 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("/", webui.Handler())
 	if s.Uploads != nil {
 		mux.Handle("/api/uploads/", s.requireUser(s.Uploads.ServeHTTP))
-		// one tus PATCH per 64 MiB chunk stays far below this
+		// only creating an upload is limited; HEAD/PATCH/DELETE/OPTIONS on an existing one are bounded by the
+		// uploader session and the per-upload lock, and a multi-file upload sends many of them
 		perIPUpload := rateLimit(s.ip, rate.Every(time.Second), 120)
-		mux.Handle("/api/r/{token}/uploads/", perIPUpload(s.requireUploader(s.Uploads.ServeHTTP)))
+		uploads := s.requireUploader(s.Uploads.ServeHTTP)
+		limited := perIPUpload(uploads)
+		mux.Handle("/api/r/{token}/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				limited.ServeHTTP(w, r)
+				return
+			}
+			uploads.ServeHTTP(w, r)
+		}))
 	}
 	return mux
 }

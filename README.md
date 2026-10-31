@@ -138,7 +138,7 @@ The detail page shows the link (copy it and send it to the uploaders yourself), 
 | Badge | Meaning for you |
 |---|---|
 | Scanning (`pending`) | Waiting for the scan. Download, preview and sharing are disabled; the page refreshes by itself. |
-| Clean | Scanned, nothing found. Works like any other file. |
+| No virus found | Scanned, nothing found. Works like any other file. |
 | Infected | A signature matched (its name is shown). Quarantined: no download, preview or sharing. |
 | Not scanned (`skipped`) | Larger than `SX_SCAN_MAX_BYTES`, released unscanned. Treat with caution. |
 | Scan failed (`error`) | Could not be scanned after 5 attempts. Blocked like an infected file. |
@@ -151,9 +151,10 @@ Files uploaded through upload request links by external users are scanned by Cla
 
 - The first start downloads the virus signatures, which takes several minutes. Files uploaded meanwhile stay `pending` and are scanned once clamd is ready.
 - Infected files are quarantined and cannot be downloaded; the requester and all admins are emailed. A file that cannot be scanned after 5 attempts is blocked and the requester is told.
-- Files over `SX_SCAN_MAX_BYTES` (default 1 GiB) are released unscanned, and the requester's email carries a warning.
+- Files over `SX_SCAN_MAX_BYTES` (default 1 GiB; ClamAV imposes a hard ceiling of about 4000 MiB) are released **unscanned**, with a warning badge and a warning in the requester's email. This is an accepted deviation from "every external upload is scanned"; an option to block such files instead is planned together with the admin rules.
 - To raise the limit, raise all of these together to at least the new value: `SX_SCAN_MAX_BYTES`, `StreamMaxLength` and `MaxFileSize` in `clamd.conf`, and the `/tmp` tmpfs size of `clamav` in `docker-compose.yml` (clamd spools the stream there, in RAM).
-- clamd needs about 1.5 to 3 GB of RAM (`mem_limit: 4g`). The `clamav` container is the only one that can reach the internet (the `updates` network, for signature updates).
+- ClamAV's scan-time, size and archive limits stop a scan early and still report OK (`AlertExceedsMax` is `no`), so "No virus found" means no virus was found within ClamAV's limits, not that the file is proven clean.
+- clamd needs about 1.5 to 3 GB of RAM (`mem_limit: 4g`). The worker has no internet access; `clamav` sits on its own `updates` network, which has egress for signature updates. (The `app` and `caddy` containers are on the `sx` network, which also has egress.)
 
 ## Backup
 

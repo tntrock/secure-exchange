@@ -142,3 +142,50 @@ func TestIntakePatchAfterRevoke(t *testing.T) {
 		t.Fatalf("offset %d err %v", off, err)
 	}
 }
+
+// Only creating uploads is rate limited; the HEAD/PATCH traffic of a fast multi-file upload is not.
+func TestIntakeRateLimitOnlyCreates(t *testing.T) {
+	pool := testdb.New(t)
+	k := make([]byte, 32)
+	rand.Read(k)
+	keys, err := sxcrypto.ParseKeyring("1:"+base64.StdEncoding.EncodeToString(k), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := blob.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, log := auth.NewUsers(pool, keys), audit.New(pool)
+	svc := intake.NewService(pool, mail.NewOutbox(pool, keys, &mail.Recorder{}), keys, "https://x.example", 30)
+	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
+		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
+		Pool: pool, Keys: keys, Store: store, Requests: svc,
+		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}),
+	}))
+	defer ts.Close()
+	send := func(method string) int {
+		r, _ := http.NewRequest(method, ts.URL+"/api/r/tok/uploads/x", nil)
+		r.Header.Set("Origin", ts.URL)
+		resp, err := ts.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	for i := 0; i < 130; i++ {
+		for _, m := range []string{"HEAD", "PATCH", "DELETE"} {
+			if send(m) == http.StatusTooManyRequests {
+				t.Fatalf("%s %d was rate limited", m, i)
+			}
+		}
+	}
+	var limited bool
+	for i := 0; i < 130 && !limited; i++ {
+		limited = send("POST") == http.StatusTooManyRequests
+	}
+	if !limited {
+		t.Fatal("POST was never rate limited")
+	}
+}

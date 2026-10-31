@@ -123,7 +123,7 @@ test("quarantined file has no download or share", async () => {
   mockApi([json(200, [scanned("f1", "bad.pdf", "infected", "Eicar"), scanned("f2", "ok.pdf", "clean")])]);
   renderPage();
   expect(await screen.findByText("Infected (Eicar)")).toBeTruthy();
-  expect(screen.getByText("Clean")).toBeTruthy();
+  expect(screen.getByText("No virus found")).toBeTruthy();
   expect((screen.getByLabelText("bad.pdf") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("ok.pdf") as HTMLInputElement).disabled).toBe(false);
   // only the clean file keeps a download link and an enabled View button
@@ -139,7 +139,7 @@ test("pending scan polls", async () => {
   renderPage();
   expect(await screen.findByText("Scanning")).toBeTruthy();
   await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-  await waitFor(() => expect(screen.getByText("Clean")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("No virus found")).toBeTruthy());
   expect(f.mock.calls.filter(([u]) => u === "/api/files").length).toBe(2);
 });
 
@@ -147,5 +147,5 @@ test("staff uploads show no scan badge", async () => {
   mockApi([json(200, [file("f1", "a.pdf", "ready")])]);
   renderPage();
   await screen.findByText("a.pdf");
-  expect(screen.queryByText("Clean")).toBeNull();
+  expect(screen.queryByText("No virus found")).toBeNull();
 });

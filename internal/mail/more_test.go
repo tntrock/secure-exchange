@@ -257,6 +257,10 @@ func TestIntakeTemplates(t *testing.T) {
 		{"upload", up(false), []string{"bob@x.com", `"a.pdf"`, "「a.pdf」", "https://sx/requests/1"}, []string{"not virus-scanned", "未經掃描"}},
 		{"upload skipped", up(true), []string{"not virus-scanned", "未經掃描"}, nil},
 		{"infected", inf(), []string{"Eicar-Test", "bob@x.com", "「a.pdf」", "quarantined", "https://sx/requests/1"}, nil},
+		{"infected no link", func() [2]string {
+			s, b := NotifyInfected("bob@x.com", "a.pdf", "Eicar-Test", "")
+			return [2]string{s, b}
+		}(), []string{"Eicar-Test"}, []string{"http"}},
 		{"scan error", scanErr(), []string{"bob@x.com", "「a.pdf」", `"a.pdf"`, "https://sx/requests/1"}, nil},
 	}
 	for _, c := range cases {

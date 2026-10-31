@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -133,8 +134,8 @@ func parseMeta(s string) (map[string]string, bool) {
 		if err != nil {
 			return nil, false
 		}
-		// text columns reject invalid UTF-8 and NUL
-		m[k] = httpapi.Truncate(strings.ReplaceAll(strings.ToValidUTF8(string(b), "�"), "\x00", ""), maxMetaLen)
+		// text columns reject invalid UTF-8 and NUL; names reach plain-text mail, so CR/LF and other controls go too
+		m[k] = httpapi.Truncate(strings.Map(dropControl, strings.ToValidUTF8(string(b), "�")), maxMetaLen)
 	}
 	return m, true
 }
@@ -596,4 +597,11 @@ func (h *handler) delete(w http.ResponseWriter, r *http.Request) {
 		slog.Error("upload: remove staging", "id", u.id, "err", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func dropControl(r rune) rune {
+	if unicode.IsControl(r) {
+		return -1
+	}
+	return r
 }

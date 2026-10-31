@@ -6,6 +6,13 @@ type Status = "uploading" | "paused" | "done" | "failed";
 
 type OnError = (status: number, body: string) => void;
 
+// tus-js-client's default (not exported) plus 429, so a rate-limited create or chunk is retried with retryDelays:
+// retry unless the response is a 4xx other than 409/423/429, and only while online.
+const shouldRetry = (err: DetailedError) => {
+  const status = err.originalResponse?.getStatus() ?? 0;
+  return (status < 400 || status >= 500 || [409, 423, 429].includes(status)) && (typeof navigator === "undefined" || navigator.onLine !== false);
+};
+
 function UploadItem({ file, endpoint, onDone, onError }: { file: File; endpoint: string; onDone: () => void; onError?: OnError }) {
   const { t } = useTranslation();
   const up = useRef<Upload | null>(null);
@@ -18,6 +25,7 @@ function UploadItem({ file, endpoint, onDone, onError }: { file: File; endpoint:
       endpoint,
       chunkSize: 64 * 1024 * 1024,
       retryDelays: [0, 1000, 3000, 5000, 10000],
+      onShouldRetry: shouldRetry,
       metadata: { filename: file.name, filetype: file.type },
       storeFingerprintForResuming: true,
       onProgress: (sent, total) => setPct(total ? Math.floor((sent / total) * 100) : 0),

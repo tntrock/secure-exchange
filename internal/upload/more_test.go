@@ -3,6 +3,7 @@ package upload
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -413,5 +414,13 @@ func TestTusDeleteStagingUnremovable(t *testing.T) {
 	}
 	if n := e.count(`SELECT count(*) FROM uploads`); n != 0 {
 		t.Fatalf("rows: %d", n)
+	}
+}
+
+func TestParseMetaStripsControlChars(t *testing.T) {
+	name := base64.StdEncoding.EncodeToString([]byte("a\r\nInjected: x\x07.pdf"))
+	m, ok := parseMeta("filename " + name)
+	if !ok || m["filename"] != "aInjected: x.pdf" {
+		t.Fatalf("%v %q", ok, m["filename"])
 	}
 }

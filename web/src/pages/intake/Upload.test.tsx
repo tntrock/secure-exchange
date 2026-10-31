@@ -213,3 +213,15 @@ test("wrong code shows the invalid-code message", async () => {
   fireEvent.click(screen.getByRole("button", { name: i18n.t("intake.verify") }));
   expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("intake.error.invalidCode"));
 });
+
+test("a transient error on the refresh keeps the upload step and the running uploads", async () => {
+  mockApi([json(200, mine), json(502, { error: "bad gateway" })]);
+  const { container } = renderPage();
+  await toUpload();
+  pick(container, pdf());
+  await waitFor(() => expect(uploads).toHaveLength(1));
+  act(() => uploads[0].opts.onSuccess());
+  expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("intake.error.generic"));
+  expect(container.querySelector("input[type=file]")).toBeTruthy();
+  expect(screen.getByText("a.pdf")).toBeTruthy();
+});

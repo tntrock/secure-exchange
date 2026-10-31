@@ -77,3 +77,18 @@ test("empty list and list failure", async () => {
   renderPage();
   expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("app.error"));
 });
+
+test("the expiry input is limited to tomorrow..30 days and the last day stays under the server cap", async () => {
+  const f = mockApi();
+  renderPage();
+  const day = (await screen.findByLabelText(i18n.t("requests.expiresOn"))) as HTMLInputElement;
+  expect(day.min).toMatch(/^\d{4}-\d\d-\d\d$/);
+  expect(day.max).toMatch(/^\d{4}-\d\d-\d\d$/);
+  expect(day.min < day.max).toBe(true);
+  fireEvent.change(day, { target: { value: day.max } });
+  fireEvent.change(screen.getByLabelText(i18n.t("requests.emails")), { target: { value: "a@x.com" } });
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("requests.create") }));
+  await screen.findByText("detail page");
+  const body = JSON.parse(f.mock.calls.find(([, i]) => i?.method === "POST")![1]!.body as string);
+  expect(new Date(body.expires_at).getTime()).toBeLessThanOrEqual(Date.now() + 30 * 864e5);
+});

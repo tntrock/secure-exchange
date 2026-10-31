@@ -42,7 +42,7 @@
       "message": { "too_many": "附言過長" }
     }
   },
-  "scan": { "label": "掃描", "pending": "掃描中", "clean": "安全", "infected": "已感染", "skipped": "未掃描（檔案過大）", "error": "掃描失敗" },
+  "scan": { "label": "掃描", "pending": "掃描中", "clean": "未發現病毒", "infected": "已感染", "skipped": "未掃描（檔案過大）", "error": "掃描失敗" },
   "intake": {
     "title": "上傳檔案", "from": "{{name}} 請您上傳檔案", "expires": "有效期限：{{at}}", "email": "您的 Email",
     "sendCode": "寄送驗證碼", "code": "6 位數驗證碼", "verify": "驗證", "resend": "重新寄送驗證碼", "changeEmail": "使用其他 Email",

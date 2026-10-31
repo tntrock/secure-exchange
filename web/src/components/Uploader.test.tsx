@@ -151,3 +151,16 @@ test("onError gets the response status and body; no response gives 0", async () 
   act(() => uploads[0].opts.onError(new Error("offline")));
   expect(onError).toHaveBeenLastCalledWith(0, "");
 });
+
+test("retries a 429 and a 5xx but not a 403", async () => {
+  const { container } = render(<Uploader onDone={() => {}} />);
+  pick(container, "a.txt");
+  await waitFor(() => expect(ctor).toHaveBeenCalled());
+  const retry = ctor.mock.calls[0][1].onShouldRetry as (e: unknown) => boolean;
+  const err = (s?: number) => ({ originalResponse: s === undefined ? null : { getStatus: () => s } });
+  expect(retry(err(429))).toBe(true);
+  expect(retry(err(502))).toBe(true);
+  expect(retry(err(409))).toBe(true);
+  expect(retry(err())).toBe(true);
+  expect(retry(err(403))).toBe(false);
+});

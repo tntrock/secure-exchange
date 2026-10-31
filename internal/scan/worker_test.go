@@ -370,3 +370,19 @@ func TestRunOnceDBError(t *testing.T) {
 		t.Fatal("no error")
 	}
 }
+
+func TestScanReclaimedJobIsNotRecorded(t *testing.T) {
+	f := newFakeClamd(t, "stream: Eicar FOUND")
+	e := newEnv(t, f.addr)
+	id := e.file(t, []byte("hello"))
+	// another worker re-claimed the job while this one was scanning
+	f.onConn = func() { e.pool.Exec(ctx, `UPDATE scan_jobs SET attempts = attempts + 1 WHERE file_id = $1`, id) }
+	e.run(t)
+	if s, _ := e.status(t, id); s != "pending" {
+		t.Fatal(s)
+	}
+	if e.count(t, `SELECT count(*) FROM scan_jobs`) != 1 || e.count(t, `SELECT count(*) FROM mail_outbox`) != 0 ||
+		e.count(t, `SELECT count(*) FROM audit_log WHERE action = 'file.scan'`) != 0 {
+		t.Fatal("stale attempt was recorded")
+	}
+}

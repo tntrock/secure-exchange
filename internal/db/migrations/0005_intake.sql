@@ -29,6 +29,8 @@ CREATE TABLE scan_jobs (
   lease_until timestamptz, created_at timestamptz NOT NULL DEFAULT now());
 
 -- +goose Down
+-- Rolling back drops scan_status, which makes quarantined, pending and error files downloadable again.
+-- Delete or quarantine them by hand before rolling back.
 DROP TABLE scan_jobs;
 ALTER TABLE files DROP COLUMN scan_result, DROP COLUMN scan_status, DROP COLUMN uploader_id, DROP COLUMN request_id;
 ALTER TABLE uploads DROP COLUMN uploader_id, DROP COLUMN request_id;

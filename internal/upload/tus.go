@@ -30,6 +30,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/httpapi"
+	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
@@ -61,11 +62,13 @@ type handler struct {
 // the user in the request context (auth.WithUser) and create stagingDir.
 func NewHandler(pool *pgxpool.Pool, keys *sxcrypto.Keyring, store blob.Store, audit *audit.Log, stagingDir string, maxSize int64, trusted []netip.Prefix, pcfg config.PreviewConfig) http.Handler {
 	h := &handler{pool: pool, keys: keys, store: store, audit: audit, stagingDir: stagingDir, maxSize: maxSize, trusted: trusted, preview: pcfg, mux: http.NewServeMux(), active: map[uuid.UUID]bool{}}
-	h.mux.HandleFunc("OPTIONS /api/uploads/", h.options)
-	h.mux.HandleFunc("POST /api/uploads/{$}", h.create)
-	h.mux.HandleFunc("HEAD /api/uploads/{id}", h.head)
-	h.mux.HandleFunc("PATCH /api/uploads/{id}", h.patch)
-	h.mux.HandleFunc("DELETE /api/uploads/{id}", h.delete)
+	for _, p := range []string{"/api/uploads/", "/api/r/{token}/uploads/"} { // staff, then external uploaders
+		h.mux.HandleFunc("OPTIONS "+p, h.options)
+		h.mux.HandleFunc("POST "+p+"{$}", h.create)
+		h.mux.HandleFunc("HEAD "+p+"{id}", h.head)
+		h.mux.HandleFunc("PATCH "+p+"{id}", h.patch)
+		h.mux.HandleFunc("DELETE "+p+"{id}", h.delete)
+	}
 	return h
 }
 
@@ -76,7 +79,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
-	if auth.UserFrom(r.Context()) == nil {
+	if auth.UserFrom(r.Context()) == nil && intake.AccessFrom(r.Context()) == nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -91,13 +94,14 @@ func (h *handler) options(w http.ResponseWriter, _ *http.Request) {
 }
 
 type upload struct {
-	id                uuid.UUID
-	owner             uuid.UUID
-	name, contentType string
-	size, offset      int64
-	wrappedDEK        []byte
-	keyID             int
-	hashState         []byte
+	id                    uuid.UUID
+	owner                 uuid.UUID
+	requestID, uploaderID *uuid.UUID // set for external uploads
+	name, contentType     string
+	size, offset          int64
+	wrappedDEK            []byte
+	keyID                 int
+	hashState             []byte
 }
 
 func (h *handler) stagingPath(id uuid.UUID) string { return filepath.Join(h.stagingDir, id.String()) }
@@ -159,8 +163,8 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		fail(w, "new dek", err)
 		return
 	}
-	u := &upload{id: uuid.New(), owner: auth.UserFrom(r.Context()).ID, name: meta["filename"], contentType: ctype,
-		size: size, wrappedDEK: wrapped, keyID: keyID}
+	u := &upload{id: uuid.New(), name: meta["filename"], contentType: ctype, size: size, wrappedDEK: wrapped, keyID: keyID}
+	u.owner, u.requestID, u.uploaderID = caller(r)
 	if u.hashState, err = h.sealHash(u.id, sha256.New()); err != nil {
 		fail(w, "seal hash state", err)
 		return
@@ -181,15 +185,20 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		err = cerr
 	}
 	if err == nil {
-		_, err = h.pool.Exec(r.Context(), `INSERT INTO uploads (id, owner_id, name, content_type, size, wrapped_dek, key_id, hash_state)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, u.id, u.owner, u.name, u.contentType, u.size, u.wrappedDEK, u.keyID, u.hashState)
+		err = h.insertUpload(r, u)
 	}
 	if err != nil {
 		os.Remove(h.stagingPath(u.id))
+		if code := intakeCode(err); code != "" {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, code) // tus-js-client surfaces the body to the page
+			return
+		}
 		fail(w, "create", err)
 		return
 	}
-	w.Header().Set("Location", "/api/uploads/"+u.id.String())
+	w.Header().Set("Location", r.URL.Path+u.id.String())
 	if size == 0 {
 		if err := h.finish(r, u, sha256.New()); err != nil {
 			fail(w, "finish", err)
@@ -198,6 +207,48 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-SX-File-ID", u.id.String())
 	}
 	w.WriteHeader(http.StatusCreated)
+}
+
+// caller identifies who is uploading: staff (auth.User, no request) or an
+// external uploader (owner is the request's owner). ServeHTTP guarantees one.
+func caller(r *http.Request) (owner uuid.UUID, requestID, uploaderID *uuid.UUID) {
+	if u := auth.UserFrom(r.Context()); u != nil {
+		return u.ID, nil, nil
+	}
+	a := intake.AccessFrom(r.Context())
+	return a.Request.OwnerID, &a.Request.ID, &a.Uploader.ID
+}
+
+var intakeCodes = map[error]string{intake.ErrExtNotAllowed: "ext_not_allowed", intake.ErrTooManyFiles: "too_many_files", intake.ErrQuotaExceeded: "quota_exceeded"}
+
+func intakeCode(err error) string {
+	for e, c := range intakeCodes {
+		if errors.Is(err, e) {
+			return c
+		}
+	}
+	return ""
+}
+
+// insertUpload records the upload; an external one first passes the request's
+// limits, in the same tx so concurrent uploads are counted one after another.
+func (h *handler) insertUpload(r *http.Request, u *upload) error {
+	ctx := r.Context()
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if u.uploaderID != nil {
+		if err := intake.CheckUpload(ctx, tx, intake.AccessFrom(ctx), u.name, u.size); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO uploads (id, owner_id, name, content_type, size, wrapped_dek, key_id, hash_state, request_id, uploader_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, u.id, u.owner, u.name, u.contentType, u.size, u.wrappedDEK, u.keyID, u.hashState, u.requestID, u.uploaderID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // sealHash encrypts the marshalled sha256 state: it carries the unprocessed
@@ -227,9 +278,10 @@ func (h *handler) load(r *http.Request) (*upload, error) {
 		return nil, nil
 	}
 	u := &upload{id: id}
-	err = h.pool.QueryRow(r.Context(), `SELECT owner_id, name, content_type, size, "offset", wrapped_dek, key_id, hash_state
-		FROM uploads WHERE id = $1 AND owner_id = $2`, id, auth.UserFrom(r.Context()).ID).
-		Scan(&u.owner, &u.name, &u.contentType, &u.size, &u.offset, &u.wrappedDEK, &u.keyID, &u.hashState)
+	owner, _, uploader := caller(r) // staff match only staff uploads (NULL uploader), uploaders only their own
+	err = h.pool.QueryRow(r.Context(), `SELECT owner_id, name, content_type, size, "offset", wrapped_dek, key_id, hash_state, request_id, uploader_id
+		FROM uploads WHERE id = $1 AND owner_id = $2 AND uploader_id IS NOT DISTINCT FROM $3::uuid`, id, owner, uploader).
+		Scan(&u.owner, &u.name, &u.contentType, &u.size, &u.offset, &u.wrappedDEK, &u.keyID, &u.hashState, &u.requestID, &u.uploaderID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -441,9 +493,18 @@ func (h *handler) finish(r *http.Request, u *upload, sum hash.Hash) error {
 	if err := tx.QueryRow(ctx, `SELECT wrapped_dek, key_id FROM uploads WHERE id = $1 FOR UPDATE`, u.id).Scan(&u.wrappedDEK, &u.keyID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO files (id, owner_id, name, content_type, size, sha256, wrapped_dek, key_id, storage_key)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, u.id, u.owner, u.name, u.contentType, u.size, sum.Sum(nil), u.wrappedDEK, u.keyID, key); err != nil {
+	scan := "none"
+	if u.uploaderID != nil {
+		scan = "pending"
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO files (id, owner_id, name, content_type, size, sha256, wrapped_dek, key_id, storage_key, request_id, uploader_id, scan_status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, u.id, u.owner, u.name, u.contentType, u.size, sum.Sum(nil), u.wrappedDEK, u.keyID, key, u.requestID, u.uploaderID, scan); err != nil {
 		return err
+	}
+	if u.uploaderID != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO scan_jobs (file_id) VALUES ($1)`, u.id); err != nil {
+			return err
+		}
 	}
 	// Classify from chunk 0 of the staging file: the upload may have spanned
 	// several requests or a restart, so no first segment is kept in memory.
@@ -470,9 +531,14 @@ func (h *handler) finish(r *http.Request, u *upload, sum hash.Hash) error {
 	if err := os.Remove(h.stagingPath(u.id)); err != nil {
 		slog.Error("upload: remove staging", "id", key, "err", err) // the janitor sweeps orphans
 	}
-	if err := h.audit.Append(ctx, audit.Event{ActorType: "user", ActorID: u.owner.String(),
+	ev := audit.Event{ActorType: "user", ActorID: u.owner.String(),
 		IP: httpapi.ClientIP(r, h.trusted), UserAgent: httpapi.UserAgent(r), Action: audit.ActUpload,
-		TargetType: "file", TargetID: key, Result: "ok", Detail: map[string]any{"name": u.name, "size": u.size}}); err != nil {
+		TargetType: "file", TargetID: key, Result: "ok", Detail: map[string]any{"name": u.name, "size": u.size}}
+	if a := intake.AccessFrom(r.Context()); u.uploaderID != nil && a != nil {
+		ev.ActorType, ev.ActorID = "uploader", a.Uploader.Email
+		ev.Detail = map[string]any{"name": u.name, "size": u.size, "request_id": u.requestID.String()}
+	}
+	if err := h.audit.Append(ctx, ev); err != nil {
 		slog.Error("audit append", "action", audit.ActUpload, "err", err)
 	}
 	return nil
@@ -517,7 +583,7 @@ func (h *handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer h.unlock(u.id)
-	tag, err := h.pool.Exec(r.Context(), `DELETE FROM uploads WHERE id = $1 AND owner_id = $2`, u.id, u.owner)
+	tag, err := h.pool.Exec(r.Context(), `DELETE FROM uploads WHERE id = $1 AND owner_id = $2 AND uploader_id IS NOT DISTINCT FROM $3::uuid`, u.id, u.owner, u.uploaderID)
 	if err != nil {
 		fail(w, "delete", err)
 		return

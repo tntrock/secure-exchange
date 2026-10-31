@@ -102,6 +102,9 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("/", webui.Handler())
 	if s.Uploads != nil {
 		mux.Handle("/api/uploads/", s.requireUser(s.Uploads.ServeHTTP))
+		// one tus PATCH per 64 MiB chunk stays far below this
+		perIPUpload := rateLimit(s.ip, rate.Every(time.Second), 120)
+		mux.Handle("/api/r/{token}/uploads/", perIPUpload(s.requireUploader(s.Uploads.ServeHTTP)))
 	}
 	return mux
 }

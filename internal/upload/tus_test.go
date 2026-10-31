@@ -25,6 +25,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
+	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -39,6 +40,7 @@ type env struct {
 	store   blob.Store
 	staging string
 	users   map[string]*auth.User
+	access  map[string]*intake.Access // external uploaders by id, see X-Test-Uploader
 	h       *handler
 	failPut atomic.Bool // makes blob Put fail, so a completed upload's row survives
 }
@@ -56,7 +58,7 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, pool: pool, keys: keys, keySpec: "1:" + base64.StdEncoding.EncodeToString(k), store: store, staging: t.TempDir(), users: map[string]*auth.User{}}
+	e := &env{t: t, pool: pool, keys: keys, keySpec: "1:" + base64.StdEncoding.EncodeToString(k), store: store, staging: t.TempDir(), users: map[string]*auth.User{}, access: map[string]*intake.Access{}}
 	us := auth.NewUsers(pool, keys)
 	for _, name := range []string{"a", "b"} {
 		u, err := us.Create(context.Background(), name+"@example.com", name, "staff", "password-12345")
@@ -69,7 +71,13 @@ func newEnv(t *testing.T) *env {
 	h := e.h
 	// stands in for httpapi's requireUser
 	e.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), e.users[r.Header.Get("X-Test-User")])))
+		ctx := r.Context()
+		if a := e.access[r.Header.Get("X-Test-Uploader")]; a != nil {
+			ctx = intake.WithAccess(ctx, a)
+		} else if u := e.users[r.Header.Get("X-Test-User")]; u != nil {
+			ctx = auth.WithUser(ctx, u)
+		}
+		h.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	t.Cleanup(e.ts.Close)
 	return e

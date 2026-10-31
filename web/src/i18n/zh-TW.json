@@ -52,5 +52,5 @@
       "message": { "too_many": "附言過長（上限 2000 字）" }
     }
   },
-  "trace": {"title":"溯源查詢","intro":"查出外流檔案是誰下載的。截圖無法分析，請改以可見浮水印上的追蹤碼人工查詢。","code":"追蹤碼","sha256":"SHA-256","file":"可疑檔案（僅在記憶體中分析，不會儲存）","search":"查詢","undetermined":"無法判定","notAnalyzed":"未分析檔案內容（檔案過大），僅比對了 SHA-256。","forbidden": "你沒有使用溯源查詢的權限", "error":"查詢失敗，請檢查輸入後再試","col":{"source":"來源","method":"方式","code":"追蹤碼","file":"檔案","owner":"擁有者","recipient":"下載者","ip":"IP","at":"時間"}}
+  "trace": {"title":"溯源查詢","intro":"查出外流檔案是誰下載的。截圖無法分析，請改以可見浮水印上的追蹤碼人工查詢。","code":"追蹤碼","sha256":"SHA-256","file":"可疑檔案（僅在記憶體中分析，不會儲存）","search":"查詢","undetermined":"無法判定","notAnalyzed":"未分析檔案內容（檔案過大），僅比對了 SHA-256。","forbidden": "你沒有使用溯源查詢的權限", "error":"查詢失敗，請檢查輸入後再試","col":{"source":"來源","method":"方式","code":"追蹤碼","file":"檔案","owner":"擁有者","recipient":"下載者","ip":"IP","at":"時間"},"source":{"download":"下載","view":"線上檢視","file":"原始上傳"},"via":{"code":"追蹤碼","metadata":"檔案中繼資料","text_layer":"隱藏文字層","invisible":"不可見浮水印","sha256":"檔案指紋"},"method":{"pdf_pages":"加浮水印的 PDF 頁面","pdf_meta":"PDF 中繼資料","image_visible":"可見與不可見浮水印","image_invisible":"不可見浮水印","ooxml_meta":"Office 中繼資料","odf_meta":"OpenDocument 中繼資料","none":"未標記"}}
 }

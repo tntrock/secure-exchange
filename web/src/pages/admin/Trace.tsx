@@ -52,7 +52,7 @@ export default function Trace() {
               <tbody>
                 {res.hits.map((h, i) => (
                   <tr key={i}>
-                    <td>{h.source}{h.via ? ` / ${h.via}` : ""}</td><td>{h.method}</td><td>{h.code}</td><td>{h.file_name}</td>
+                    <td>{t(`trace.source.${h.source}`)}{h.via ? ` / ${t(`trace.via.${h.via}`)}` : ""}</td><td>{h.method && t(`trace.method.${h.method}`)}</td><td>{h.code}</td><td>{h.file_name}</td>
                     <td>{h.owner_email}</td><td>{h.recipient_email}</td><td>{h.ip}</td><td>{fmtDate(h.at, i18n.language)}</td>
                   </tr>
                 ))}

@@ -86,3 +86,30 @@ test("403 shows the forbidden message", async () => {
   fireEvent.click(screen.getAllByRole("button", { name: i18n.t("trace.search") })[0]);
   expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("trace.forbidden"));
 });
+
+test("source, via and method are shown translated, for every value in both languages", async () => {
+  mock({ hits: [hit], analyzed: false });
+  render(<Trace />);
+  fireEvent.change(screen.getByLabelText(i18n.t("trace.code")), { target: { value: "x" } });
+  fireEvent.click(screen.getAllByRole("button", { name: i18n.t("trace.search") })[0]);
+  await screen.findByText("leaker@x.com");
+  expect(screen.getByText(`${i18n.t("trace.source.download")} / ${i18n.t("trace.via.code")}`)).toBeTruthy();
+  expect(screen.getByText(i18n.t("trace.method.pdf_pages"))).toBeTruthy();
+  expect(screen.queryByText("pdf_pages")).toBeNull();
+  const keys = [
+    ...["download", "view", "file"].map((v) => `trace.source.${v}`),
+    ...["code", "metadata", "text_layer", "invisible", "sha256"].map((v) => `trace.via.${v}`),
+    ...["pdf_pages", "pdf_meta", "image_visible", "image_invisible", "ooxml_meta", "odf_meta", "none"].map((v) => `trace.method.${v}`),
+  ];
+  for (const lng of ["en", "zh-TW"]) for (const k of keys) expect(i18n.exists(k, { lng }), `${lng} ${k}`).toBe(true);
+});
+
+test("a view hit has no method and shows an empty cell", async () => {
+  mock({ hits: [{ ...hit, source: "view", method: "" }], analyzed: false });
+  render(<Trace />);
+  fireEvent.change(screen.getByLabelText(i18n.t("trace.code")), { target: { value: "x" } });
+  fireEvent.click(screen.getAllByRole("button", { name: i18n.t("trace.search") })[0]);
+  await screen.findByText("leaker@x.com");
+  expect(screen.getByText(i18n.t("trace.source.view"), { exact: false })).toBeTruthy();
+  expect(screen.queryByText(/trace\.method/)).toBeNull();
+});

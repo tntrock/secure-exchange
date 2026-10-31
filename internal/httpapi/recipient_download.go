@@ -133,6 +133,9 @@ type markedResponse struct {
 }
 
 func (m *markedResponse) Write(p []byte) (int, error) {
+	if len(p) == 0 { // an empty write would commit the headers with nothing sent
+		return 0, nil
+	}
 	if m.n == 0 && m.err == nil {
 		markedHeaders(m.w, m.name)
 	}
@@ -169,6 +172,12 @@ func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow,
 	mr := &markedResponse{w: w, name: plan.OutName}
 	out := io.MultiWriter(mr, sum)
 	if err := s.writeMarked(ctx, out, w, f, rs, plan.Method, p, m); err != nil {
+		if mr.n == 0 && ctx.Err() != nil { // the client left before anything was sent (e.g. waiting for a slot)
+			if _, err := s.Pool.Exec(context.WithoutCancel(ctx), `DELETE FROM download_traces WHERE code = $1`, code); err != nil {
+				slog.Error("drop unused download trace", "code", code, "err", err)
+			}
+			panic(http.ErrAbortHandler)
+		}
 		if mr.n == 0 && mr.err == nil { // the marker failed, not the client
 			slog.Warn("mark failed, sending unmarked", "file", f.id, "method", plan.Method, "err", err)
 			// the code was never delivered: drop its row so the unmarked fallback is the only record
@@ -191,6 +200,9 @@ func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow,
 	return http.StatusOK
 }
 
+// markSlots bounds the in-memory marked builds (pdf_meta, image_*) running at once.
+var markSlots = make(chan struct{}, 2)
+
 // writeMarked writes f marked with m to cw (the response). pdf_pages and the zip methods stream; the others are
 // built in memory first so they can carry a Content-Length.
 func (s *server) writeMarked(ctx context.Context, cw io.Writer, w http.ResponseWriter, f *fileRow, rs io.ReadSeeker,
@@ -199,9 +211,15 @@ func (s *server) writeMarked(ctx context.Context, cw io.Writer, w http.ResponseW
 	var data []byte
 	if method == mark.PDFMeta || method == mark.ImageVisible || method == mark.ImageInvisible {
 		// ponytail: whole file in memory, bounded by Mark.MaxBytes. An image also holds several decoded
-		// copies (decode, Apply's RGBA, EmbedInvisible's RGBA plus a float64 luma buffer: ~20 B/px, so
-		// ~1 GB at the default 50 MP) and concurrent downloads are not throttled. Add a semaphore on
-		// marked builds, or lower SX_MARK_MAX_PIXELS, if memory pressure shows up.
+		// copies (decode, orient's and Apply's RGBA, EmbedInvisible's RGBA plus a float32 luma buffer:
+		// up to ~20 B/px, so ~1 GB at the default 50 MP). markSlots lets only two such builds run at
+		// once; make it configurable, or lower SX_MARK_MAX_PIXELS, if that is too few or too many.
+		select {
+		case markSlots <- struct{}{}:
+			defer func() { <-markSlots }()
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 		if _, err := rs.Seek(0, io.SeekStart); err != nil {
 			return err
 		}
@@ -238,7 +256,7 @@ func (s *server) writeMarked(ctx context.Context, cw io.Writer, w http.ResponseW
 			return err
 		}
 	default: // image_visible, image_invisible
-		img, _, err := image.Decode(bytes.NewReader(data))
+		img, err := mark.DecodeImage(data)
 		if err != nil {
 			return err
 		}

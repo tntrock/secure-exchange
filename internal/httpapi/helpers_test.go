@@ -62,7 +62,8 @@ func TestTruncateRuneBoundary(t *testing.T) {
 		s    string
 		n    int
 		want string
-	}{{"abc", 5, "abc"}, {"abcdef", 3, "abc"}, {"a測試", 2, "a"}, {"a測試", 4, "a測"}, {"測", 1, ""}} {
+	}{{"abc", 5, "abc"}, {"abcdef", 3, "abc"}, {"a測試", 2, "a"}, {"a測試", 4, "a測"}, {"測", 1, ""},
+		{"a\x80b\xffc", 10, "abc"}, {"\xff\xfeabcdef", 3, "abc"}} {
 		if got := Truncate(c.s, c.n); got != c.want {
 			t.Errorf("Truncate(%q, %d) = %q, want %q", c.s, c.n, got, c.want)
 		}
@@ -108,5 +109,16 @@ func TestPaddedEmptyAndWriteOnlyResponses(t *testing.T) {
 		if w.Code != 200 || (name == "write only") != (w.Body.String() == "hi") {
 			t.Fatalf("%s: %d %q", name, w.Code, w.Body)
 		}
+	}
+}
+
+func TestMarkedResponseEmptyWriteCommitsNothing(t *testing.T) {
+	rec := httptest.NewRecorder()
+	m := &markedResponse{w: rec, name: "a.pdf"}
+	if n, err := m.Write(nil); n != 0 || err != nil || len(rec.Header()) != 0 || rec.Body.Len() != 0 {
+		t.Fatal(n, err, rec.Header())
+	}
+	if _, err := m.Write([]byte("x")); err != nil || rec.Header().Get("Content-Disposition") == "" {
+		t.Fatal(err, rec.Header())
 	}
 }

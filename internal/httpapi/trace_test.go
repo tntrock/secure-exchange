@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"image"
 	"io"
 	"mime/multipart"
@@ -263,6 +264,33 @@ func TestTraceDBError(t *testing.T) {
 		mw.Close()
 		if resp, b := e.tracePost(t, mw.FormDataContentType(), buf.Bytes()); resp.StatusCode != 500 {
 			t.Fatal(resp.StatusCode, string(b))
+		}
+	}
+}
+
+func TestTraceUploadCapsCodes(t *testing.T) {
+	e, f, tok := markShare(t, "a.docx", mkZip(t, "docProps/core.xml", "<cp:coreProperties></cp:coreProperties>"), false)
+	_, b := e.get(t, contentURL(tok, f))
+	d := e.delivered(t, f, b, mark.OOXMLMeta)
+	var fake strings.Builder
+	for i := range maxTraceCodes {
+		fmt.Fprintf(&fake, "SX-%010d ", i)
+	}
+	e.adminLogin(t)
+	// only the first maxTraceCodes codes read from a file are looked up
+	for _, c := range []struct {
+		meta string
+		want int
+	}{{"SX-" + d.code + " " + fake.String(), 1}, {fake.String() + "SX-" + d.code, 0}} {
+		tr := e.traceUpload(t, mkZip(t, "docProps/core.xml", "<cp:coreProperties>"+c.meta+"</cp:coreProperties>"))
+		n := 0
+		for _, h := range tr.Hits {
+			if h.Via == "metadata" {
+				n++
+			}
+		}
+		if n != c.want {
+			t.Fatalf("want %d metadata hits, got %+v", c.want, tr.Hits)
 		}
 	}
 }

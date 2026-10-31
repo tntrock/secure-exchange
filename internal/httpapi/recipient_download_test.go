@@ -269,7 +269,12 @@ func (w *failAfter) Write(p []byte) (int, error) {
 }
 
 // direct calls recipientDownload in-process as the verified recipient, bypassing the HTTP stack.
-func (e *env) direct(t *testing.T, tok string, f uuid.UUID, w http.ResponseWriter) (panicked any) {
+func (e *env) direct(t *testing.T, tok string, f uuid.UUID, w http.ResponseWriter) any {
+	return e.directCtx(t, context.Background(), tok, f, w)
+}
+
+// directCtx is direct with the request bound to ctx.
+func (e *env) directCtx(t *testing.T, ctx context.Context, tok string, f uuid.UUID, w http.ResponseWriter) (panicked any) {
 	t.Helper()
 	u, _ := url.Parse(e.ts.URL)
 	var session string
@@ -284,7 +289,7 @@ func (e *env) direct(t *testing.T, tok string, f uuid.UUID, w http.ResponseWrite
 	}
 	req := httptest.NewRequest("GET", contentURL(tok, f), nil)
 	req.SetPathValue("fid", f.String())
-	req = req.WithContext(context.WithValue(req.Context(), accessKey{}, a))
+	req = req.WithContext(context.WithValue(ctx, accessKey{}, a))
 	defer func() { panicked = recover() }()
 	(&server{Deps: e.deps}).recipientDownload(w, req)
 	return nil
@@ -576,4 +581,57 @@ func TestMarkedWriteErrorAborts(t *testing.T) {
 	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 5}); err != nil || len(ents) != 0 {
 		t.Fatal(err, ents)
 	}
+}
+
+// TestMarkBuildSlots: an in-memory marked build waits for a free slot; a client gone while waiting
+// gets nothing (no fallback, no trace row, no audit), and a freed slot lets the next one through.
+func TestMarkBuildSlots(t *testing.T) {
+	_, pngBytes := testPage()
+	e, f, tok := markShare(t, "a.png", pngBytes, true)
+	for range cap(markSlots) {
+		markSlots <- struct{}{}
+	}
+	held := cap(markSlots)
+	defer func() {
+		for range held {
+			<-markSlots
+		}
+	}()
+	waiting := func(ctx context.Context) (*httptest.ResponseRecorder, chan any) {
+		rec, done := httptest.NewRecorder(), make(chan any, 1)
+		go func() { done <- e.directCtx(t, ctx, tok, f, rec) }()
+		for range 250 { // Start's row shows the handler reached the build
+			if len(e.dlTraces(t, f)) == 1 {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		select {
+		case p := <-done:
+			t.Fatalf("did not wait for a slot: %v %d", p, rec.Code)
+		case <-time.After(100 * time.Millisecond):
+		}
+		return rec, done
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	rec, done := waiting(ctx)
+	cancel()
+	if p := <-done; p != any(http.ErrAbortHandler) || rec.Body.Len() != 0 || rec.Header().Get("Content-Disposition") != "" {
+		t.Fatalf("want a silent abort, got %v %d %q", p, rec.Code, rec.Body)
+	}
+	if rows := e.dlTraces(t, f); len(rows) != 0 {
+		t.Fatal(rows)
+	}
+	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 5}); err != nil || len(ents) != 0 {
+		t.Fatal(err, ents)
+	}
+
+	rec, done = waiting(context.Background())
+	<-markSlots
+	held--
+	if p := <-done; p != nil || rec.Code != 200 {
+		t.Fatal(p, rec.Code)
+	}
+	e.delivered(t, f, rec.Body.Bytes(), mark.ImageVisible)
 }

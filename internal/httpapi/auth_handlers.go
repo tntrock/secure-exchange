@@ -157,9 +157,10 @@ const (
 	maxEmailLen = 254 // RFC 5321 path limit
 )
 
-// Truncate cuts s to at most n bytes without splitting a UTF-8 sequence.
+// Truncate drops invalid UTF-8 from s and cuts it to at most n bytes without splitting a sequence.
 // Client-controlled strings go through it before reaching the append-only audit log or sessions.
 func Truncate(s string, n int) string {
+	s = strings.ToValidUTF8(s, "")
 	if len(s) <= n {
 		return s
 	}

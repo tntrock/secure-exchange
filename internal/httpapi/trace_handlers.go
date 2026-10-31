@@ -13,6 +13,9 @@ import (
 	"github.com/tntrock/secure-exchange/internal/mark"
 )
 
+// maxTraceCodes caps the codes read from one uploaded file that are looked up (one query each).
+const maxTraceCodes = 100
+
 // viaRank orders hits: a direct code lookup, then what was read out of the file, then the hash match.
 var viaRank = map[string]int{"code": 0, "metadata": 1, "text_layer": 2, "invisible": 3, "sha256": 4}
 
@@ -67,7 +70,8 @@ func (s *server) trace(w http.ResponseWriter, r *http.Request) {
 		}
 		res.SHA256 = hex.EncodeToString(sum)
 		if res.Analyzed = int64(len(head)) <= s.Mark.MaxBytes; res.Analyzed {
-			for _, f := range mark.InspectMax(head, int(min(s.Mark.MaxPixels, 1<<31-1))) { //nolint:contextcheck // PDFCodes sets its own timeout
+			found := mark.InspectMax(head, int(min(s.Mark.MaxPixels, 1<<31-1))) //nolint:contextcheck // PDFCodes sets its own timeout
+			for _, f := range found[:min(len(found), maxTraceCodes)] {
 				var h []mark.Hit
 				if h, err = s.byCode(r, f.Code, f.Via); err != nil {
 					break

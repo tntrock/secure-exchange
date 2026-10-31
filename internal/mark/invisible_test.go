@@ -106,3 +106,18 @@ func TestInvisibleTooSmall(t *testing.T) {
 		t.Fatal("small image extracted")
 	}
 }
+
+func TestInvisibleKeepsPremultipliedAlpha(t *testing.T) {
+	src := synthPhoto(4, 400, 300)
+	semi := image.NewNRGBA(src.Rect)
+	for i := 0; i < len(src.Pix); i += 4 {
+		copy(semi.Pix[i:i+3], src.Pix[i:i+3])
+		semi.Pix[i+3] = 128
+	}
+	out := EmbedInvisible(semi, testCode)
+	for i := 0; i < len(out.Pix); i += 4 {
+		if a := out.Pix[i+3]; out.Pix[i] > a || out.Pix[i+1] > a || out.Pix[i+2] > a {
+			t.Fatalf("pixel %d: %v exceeds its alpha", i/4, out.Pix[i:i+4])
+		}
+	}
+}

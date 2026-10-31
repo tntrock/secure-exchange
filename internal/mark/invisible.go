@@ -97,13 +97,13 @@ func toRGBA(img image.Image) *image.RGBA {
 	return out
 }
 
-func luma(img *image.RGBA) []float64 {
+func luma(img *image.RGBA) []float32 { // float32 halves the buffer (4 B/px); coef sums in float64
 	w, h := img.Rect.Dx(), img.Rect.Dy()
-	y := make([]float64, w*h)
+	y := make([]float32, w*h)
 	for j := 0; j < h; j++ {
 		row := img.Pix[j*img.Stride:]
 		for i := 0; i < w; i++ {
-			y[j*w+i] = 0.299*float64(row[i*4]) + 0.587*float64(row[i*4+1]) + 0.114*float64(row[i*4+2])
+			y[j*w+i] = 0.299*float32(row[i*4]) + 0.587*float32(row[i*4+1]) + 0.114*float32(row[i*4+2])
 		}
 	}
 	return y
@@ -136,13 +136,13 @@ func newCell(k, w, h int) cell {
 	return c
 }
 
-func (c cell) coef(y []float64, w int) float64 {
+func (c cell) coef(y []float32, w int) float64 {
 	var s float64
 	for j := 0; j < c.ch; j++ {
 		row := y[(c.y0+j)*w+c.x0:]
 		var r float64
 		for i := 0; i < c.cw; i++ {
-			r += row[i] * c.bx[i]
+			r += float64(row[i]) * c.bx[i]
 		}
 		s += r * c.by[j]
 	}
@@ -172,8 +172,9 @@ func EmbedInvisible(img image.Image, code string) *image.RGBA {
 			row := out.Pix[(c.y0+j)*out.Stride+c.x0*4:]
 			for i := 0; i < c.cw; i++ {
 				d := diff * c.bx[i] * c.by[j]
+				a := row[i*4+3] // premultiplied: a colour channel never exceeds alpha
 				for ch := 0; ch < 3; ch++ {
-					row[i*4+ch] = clampU8(float64(row[i*4+ch]) + d)
+					row[i*4+ch] = min(clampU8(float64(row[i*4+ch])+d), a)
 				}
 			}
 		}

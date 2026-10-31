@@ -207,27 +207,6 @@ var markSlots = make(chan struct{}, 2)
 // built in memory first so they can carry a Content-Length.
 func (s *server) writeMarked(ctx context.Context, cw io.Writer, w http.ResponseWriter, f *fileRow, rs io.ReadSeeker,
 	method mark.Method, p *preview.Preview, m preview.Mark) error {
-	var buf bytes.Buffer
-	var data []byte
-	if method == mark.PDFMeta || method == mark.ImageVisible || method == mark.ImageInvisible {
-		// ponytail: whole file in memory, bounded by Mark.MaxBytes. An image also holds several decoded
-		// copies (decode, orient's and Apply's RGBA, EmbedInvisible's RGBA plus a float32 luma buffer:
-		// up to ~20 B/px, so ~1 GB at the default 50 MP). markSlots lets only two such builds run at
-		// once; make it configurable, or lower SX_MARK_MAX_PIXELS, if that is too few or too many.
-		select {
-		case markSlots <- struct{}{}:
-			defer func() { <-markSlots }()
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		if _, err := rs.Seek(0, io.SeekStart); err != nil {
-			return err
-		}
-		var err error
-		if data, err = io.ReadAll(rs); err != nil {
-			return err
-		}
-	}
 	switch method {
 	case mark.PDFPages:
 		return mark.WritePagesPDF(cw, p.PageCount, func(i int) (image.Image, error) {
@@ -251,33 +230,56 @@ func (s *server) writeMarked(ctx context.Context, cw io.Writer, w http.ResponseW
 			return err
 		}
 		return mark.AddZipMeta(mark.ReaderAt(rs), f.size, cw, m.Code, method == mark.ODFMeta)
-	case mark.PDFMeta:
-		if err := mark.AddPDFMeta(bytes.NewReader(data), &buf, m.Code); err != nil { //nolint:contextcheck // bounded by its own pdfcpu timeout
-			return err
-		}
-	default: // image_visible, image_invisible
-		img, err := mark.DecodeImage(data)
-		if err != nil {
-			return err
-		}
-		if method == mark.ImageVisible {
-			if img, err = preview.Apply(img, m); err != nil {
-				return err
-			}
-		}
-		out := mark.EmbedInvisible(img, m.Code)
-		if mark.ImageMIME(data) == "image/png" {
-			err = png.Encode(&buf, out)
-		} else {
-			err = jpeg.Encode(&buf, out, &jpeg.Options{Quality: 92})
-		}
-		if err != nil {
-			return err
+	}
+	out, err := buildMarked(ctx, rs, method, m)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(out)))
+	_, err = cw.Write(out) // outside the slot: a slow reader must not hold it
+	return err
+}
+
+// buildMarked builds a pdf_meta or image_* copy in memory while holding one of markSlots.
+func buildMarked(ctx context.Context, rs io.ReadSeeker, method mark.Method, m preview.Mark) ([]byte, error) {
+	// ponytail: whole file in memory, bounded by Mark.MaxBytes. An image also holds several decoded
+	// copies (decode, orient's and Apply's RGBA, EmbedInvisible's RGBA plus a float32 luma buffer:
+	// up to ~20 B/px, so ~1 GB at the default 50 MP). markSlots lets only two such builds run at
+	// once; make it configurable, or lower SX_MARK_MAX_PIXELS, if that is too few or too many.
+	select {
+	case markSlots <- struct{}{}:
+		defer func() { <-markSlots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	if _, err := rs.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(rs)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if method == mark.PDFMeta {
+		err = mark.AddPDFMeta(bytes.NewReader(data), &buf, m.Code) //nolint:contextcheck // bounded by its own pdfcpu timeout
+		return buf.Bytes(), err
+	}
+	img, err := mark.DecodeImage(data) // image_visible, image_invisible
+	if err != nil {
+		return nil, err
+	}
+	if method == mark.ImageVisible {
+		if img, err = preview.Apply(img, m); err != nil {
+			return nil, err
 		}
 	}
-	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
-	_, err := cw.Write(buf.Bytes())
-	return err
+	out := mark.EmbedInvisible(img, m.Code)
+	if mark.ImageMIME(data) == "image/png" {
+		err = png.Encode(&buf, out)
+	} else {
+		err = jpeg.Encode(&buf, out, &jpeg.Options{Quality: 92})
+	}
+	return buf.Bytes(), err
 }
 
 // serveUnmarked serves the original with Range support under the (recipient, file) none trace

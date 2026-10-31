@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -634,4 +635,50 @@ func TestMarkBuildSlots(t *testing.T) {
 		t.Fatal(p, rec.Code)
 	}
 	e.delivered(t, f, rec.Body.Bytes(), mark.ImageVisible)
+}
+
+// blockedWriter is a client that stops reading: Write blocks until release is closed.
+type blockedWriter struct {
+	h                http.Header
+	entered, release chan struct{}
+	once             sync.Once
+}
+
+func (w *blockedWriter) Header() http.Header { return w.h }
+func (w *blockedWriter) WriteHeader(int)     {}
+func (w *blockedWriter) Write(p []byte) (int, error) {
+	w.once.Do(func() { close(w.entered) })
+	<-w.release
+	return len(p), nil
+}
+
+// TestSlowClientFreesMarkSlot: the slot covers the build only, so a recipient that reads slowly
+// does not keep other marked downloads waiting.
+func TestSlowClientFreesMarkSlot(t *testing.T) {
+	_, pngBytes := testPage()
+	e, f, tok := markShare(t, "a.png", pngBytes, true)
+	old := markSlots
+	markSlots = make(chan struct{}, 1)
+	defer func() { markSlots = old }()
+
+	slow := &blockedWriter{h: http.Header{}, entered: make(chan struct{}), release: make(chan struct{})}
+	slowDone := make(chan any, 1)
+	go func() { slowDone <- e.direct(t, tok, f, slow) }()
+	defer func() { close(slow.release); <-slowDone }()
+	select {
+	case <-slow.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("slow download never started writing")
+	}
+
+	rec, done := httptest.NewRecorder(), make(chan any, 1)
+	go func() { done <- e.direct(t, tok, f, rec) }()
+	select {
+	case p := <-done:
+		if p != nil || rec.Code != 200 {
+			t.Fatal(p, rec.Code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("second download waited on the slow client's slot")
+	}
 }

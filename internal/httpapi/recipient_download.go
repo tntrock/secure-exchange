@@ -53,7 +53,7 @@ func (s *server) recipientDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rs.Close()
-	plan, p, data, err := s.planDownload(r.Context(), &f, rs, a.Share.Watermark)
+	plan, p, err := s.planDownload(r.Context(), &f, rs, a.Share.Watermark)
 	if err != nil {
 		slog.Error("plan download", "file", fid, "err", err)
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
@@ -76,7 +76,7 @@ func (s *server) recipientDownload(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if st = s.serveMarked(w, r, &f, rs, a, plan, p, data, ev); st == 0 {
+		if st = s.serveMarked(w, r, &f, rs, a, plan, p, ev); st == 0 {
 			if a.Share.Watermark && block { // the fallback below is unmarked
 				writeJSON(w, http.StatusForbidden, errBody("unmarkable"))
 				return
@@ -95,42 +95,53 @@ func (s *server) recipientDownload(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// planDownload reads what mark.Decide needs. data is the whole file when the plan buffers it
-// (pdf_meta, image_*), which Decide only allows up to Mark.MaxBytes.
-func (s *server) planDownload(ctx context.Context, f *fileRow, rs io.ReadSeeker, watermark bool) (mark.Plan, *preview.Preview, []byte, error) {
+// planDownload reads what mark.Decide needs: the head, the preview status and, for an image, its
+// size from the header alone (the full file is read only by a GET that marks it).
+func (s *server) planDownload(ctx context.Context, f *fileRow, rs io.ReadSeeker, watermark bool) (mark.Plan, *preview.Preview, error) {
 	head, err := readHead(rs, f.size)
 	if err != nil {
-		return mark.Plan{}, nil, nil, err
+		return mark.Plan{}, nil, err
 	}
 	p, err := preview.GetStatus(ctx, s.Pool, f.id)
 	if errors.Is(err, preview.ErrNoPreview) {
 		p, err = nil, nil
 	}
 	if err != nil {
-		return mark.Plan{}, nil, nil, err
+		return mark.Plan{}, nil, err
 	}
-	readAll := func() ([]byte, error) {
-		if _, err := rs.Seek(0, io.SeekStart); err != nil {
-			return nil, err
-		}
-		return io.ReadAll(rs)
-	}
-	var data []byte
 	pixels := 0
 	if mark.ImageMIME(head) != "" && f.size <= s.Mark.MaxBytes {
-		if data, err = readAll(); err != nil {
-			return mark.Plan{}, nil, nil, err
+		if _, err := rs.Seek(0, io.SeekStart); err != nil {
+			return mark.Plan{}, nil, err
 		}
 		pixels = math.MaxInt // undecodable: unmarkable
-		if c, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
+		if c, _, err := image.DecodeConfig(rs); err == nil {
 			pixels = c.Width * c.Height // checked against MaxPixels before any full decode
 		}
 	}
-	plan := mark.Decide(f.name, head, f.size, pixels, p, watermark, s.Mark)
-	if plan.Method == mark.PDFMeta {
-		data, err = readAll()
+	return mark.Decide(f.name, head, f.size, pixels, p, watermark, s.Mark), p, nil
+}
+
+// markedResponse is the response of a marked download. Its headers go out with the first byte, so
+// a marker that fails before then leaves the response untouched for the fallback; err keeps the
+// first write error, so a dead client is not mistaken for a file that cannot be marked.
+type markedResponse struct {
+	w    http.ResponseWriter
+	name string
+	n    int64
+	err  error
+}
+
+func (m *markedResponse) Write(p []byte) (int, error) {
+	if m.n == 0 && m.err == nil {
+		markedHeaders(m.w, m.name)
 	}
-	return plan, p, data, err
+	n, err := m.w.Write(p)
+	m.n += int64(n)
+	if err != nil && m.err == nil {
+		m.err = err
+	}
+	return n, err
 }
 
 func markedHeaders(w http.ResponseWriter, name string) {
@@ -144,7 +155,7 @@ func markedHeaders(w http.ResponseWriter, name string) {
 // serveMarked sends a freshly traced copy and returns 200. If marking fails before any byte is
 // sent it returns 0 (the caller falls back to unmarked); after that it aborts the response.
 func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow, rs io.ReadSeeker, a *share.Access,
-	plan mark.Plan, p *preview.Preview, data []byte, ev audit.Event) int {
+	plan mark.Plan, p *preview.Preview, ev audit.Event) int {
 	ctx := r.Context()
 	code, err := mark.Start(ctx, s.Pool, mark.Download{FileID: f.id, ShareID: a.Share.ID, RecipientID: a.Recipient.ID,
 		Method: plan.Method, IP: s.ip(r), UserAgent: UserAgent(r)})
@@ -154,11 +165,11 @@ func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow,
 		return http.StatusInternalServerError
 	}
 	m := preview.Mark{Email: a.Recipient.Email, IP: s.ip(r), At: time.Now().UTC(), Code: code}
-	markedHeaders(w, plan.OutName)
 	sum := sha256.New()
-	cw := &mark.CountWriter{W: io.MultiWriter(w, sum)}
-	if err := s.writeMarked(ctx, cw, w, f, rs, plan.Method, p, data, m); err != nil {
-		if cw.N == 0 {
+	mr := &markedResponse{w: w, name: plan.OutName}
+	out := io.MultiWriter(mr, sum)
+	if err := s.writeMarked(ctx, out, w, f, rs, plan.Method, p, m); err != nil {
+		if mr.n == 0 && mr.err == nil { // the marker failed, not the client
 			slog.Warn("mark failed, sending unmarked", "file", f.id, "method", plan.Method, "err", err)
 			// the code was never delivered: drop its row so the unmarked fallback is the only record
 			if _, err := s.Pool.Exec(context.WithoutCancel(ctx), `DELETE FROM download_traces WHERE code = $1`, code); err != nil {
@@ -167,11 +178,11 @@ func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow,
 			return 0
 		}
 		if !errors.Is(err, context.Canceled) {
-			slog.Error("marked download aborted", "file", f.id, "method", plan.Method, "code", code, "sent", cw.N, "err", err)
+			slog.Error("marked download aborted", "file", f.id, "method", plan.Method, "code", code, "sent", mr.n, "err", err)
 		}
 		panic(http.ErrAbortHandler) // a truncated body must not end like a complete one
 	}
-	if err := mark.Complete(context.WithoutCancel(ctx), s.Pool, code, sum.Sum(nil), cw.N); err != nil {
+	if err := mark.Complete(context.WithoutCancel(ctx), s.Pool, code, sum.Sum(nil), mr.n); err != nil {
 		slog.Error("complete download trace", "code", code, "err", err)
 	}
 	ev.Detail["trace_code"], ev.Detail["mark"], ev.Detail["status"] = code, plan.Method, http.StatusOK
@@ -180,11 +191,25 @@ func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow,
 	return http.StatusOK
 }
 
-// writeMarked writes f marked with m to cw. pdf_pages and the zip methods stream; the others are
+// writeMarked writes f marked with m to cw (the response). pdf_pages and the zip methods stream; the others are
 // built in memory first so they can carry a Content-Length.
-func (s *server) writeMarked(ctx context.Context, cw *mark.CountWriter, w http.ResponseWriter, f *fileRow, rs io.ReadSeeker,
-	method mark.Method, p *preview.Preview, data []byte, m preview.Mark) error {
+func (s *server) writeMarked(ctx context.Context, cw io.Writer, w http.ResponseWriter, f *fileRow, rs io.ReadSeeker,
+	method mark.Method, p *preview.Preview, m preview.Mark) error {
 	var buf bytes.Buffer
+	var data []byte
+	if method == mark.PDFMeta || method == mark.ImageVisible || method == mark.ImageInvisible {
+		// ponytail: whole file in memory, bounded by Mark.MaxBytes. An image also holds several decoded
+		// copies (decode, Apply's RGBA, EmbedInvisible's RGBA plus a float64 luma buffer: ~20 B/px, so
+		// ~1 GB at the default 50 MP) and concurrent downloads are not throttled. Add a semaphore on
+		// marked builds, or lower SX_MARK_MAX_PIXELS, if memory pressure shows up.
+		if _, err := rs.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		var err error
+		if data, err = io.ReadAll(rs); err != nil {
+			return err
+		}
+	}
 	switch method {
 	case mark.PDFPages:
 		return mark.WritePagesPDF(cw, p.PageCount, func(i int) (image.Image, error) {

@@ -11,15 +11,14 @@ import (
 
 const pdfDPI = 110.0
 
-// CountWriter counts the bytes written through it.
-type CountWriter struct {
-	W io.Writer
-	N int64
+type countWriter struct {
+	w io.Writer
+	n int64
 }
 
-func (c *CountWriter) Write(p []byte) (int, error) {
-	n, err := c.W.Write(p)
-	c.N += int64(n)
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
 	return n, err
 }
 
@@ -29,7 +28,7 @@ func WritePagesPDF(w io.Writer, n int, page func(i int) (image.Image, error), co
 	if !codeValid.MatchString(code) {
 		return errors.New("pdf: invalid trace code")
 	}
-	cw := &CountWriter{W: w}
+	cw := &countWriter{w: w}
 	offs := map[int]int64{}
 	var err error
 	pf := func(format string, a ...any) {
@@ -37,7 +36,7 @@ func WritePagesPDF(w io.Writer, n int, page func(i int) (image.Image, error), co
 			_, err = fmt.Fprintf(cw, format, a...)
 		}
 	}
-	obj := func(id int) { offs[id] = cw.N; pf("%d 0 obj\n", id) }
+	obj := func(id int) { offs[id] = cw.n; pf("%d 0 obj\n", id) }
 	tag := "SX-" + code
 
 	pf("%%PDF-1.4\n%%\xe2\xe3\xcf\xd3\n")
@@ -82,7 +81,7 @@ func WritePagesPDF(w io.Writer, n int, page func(i int) (image.Image, error), co
 	obj(1)
 	pf("<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
 	size := 5 + 3*n
-	xref := cw.N
+	xref := cw.n
 	pf("xref\n0 %d\n0000000000 65535 f \n", size)
 	for id := 1; id < size; id++ {
 		pf("%010d 00000 n \n", offs[id])

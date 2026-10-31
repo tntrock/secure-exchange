@@ -10,17 +10,20 @@ import (
 	"errors"
 	"image"
 	"image/jpeg"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/tntrock/secure-exchange/internal/audit"
+	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/mark"
 	"github.com/tntrock/secure-exchange/internal/preview"
 )
@@ -324,8 +327,10 @@ func TestMarkFailureFallsBack(t *testing.T) {
 	})
 	t.Run("block", func(t *testing.T) {
 		e, f, tok := markShare(t, "a.png", broken, true, func(d *Deps) { d.Mark.Policy = "block" })
-		if resp, b := e.get(t, contentURL(tok, f)); resp.StatusCode != 403 || string(b) != `{"error":"unmarkable"}`+"\n" {
-			t.Fatal(resp.StatusCode, string(b))
+		resp, b := e.get(t, contentURL(tok, f))
+		if resp.StatusCode != 403 || string(b) != `{"error":"unmarkable"}`+"\n" ||
+			resp.Header.Get("Content-Disposition") != "" || resp.Header.Get("Accept-Ranges") == "none" {
+			t.Fatal(resp.StatusCode, string(b), resp.Header)
 		}
 		if rows := e.dlTraces(t, f); len(rows) != 0 {
 			t.Fatal(rows)
@@ -506,4 +511,69 @@ func TestMarkedDownloadErrors(t *testing.T) {
 			t.Fatal(rows)
 		}
 	})
+}
+
+// readCounter counts the ciphertext bytes read from a store.
+type readCounter struct {
+	blob.Store
+	n *atomic.Int64
+}
+
+type countedBody struct {
+	io.ReadCloser
+	n *atomic.Int64
+}
+
+func (c countedBody) Read(p []byte) (int, error) {
+	k, err := c.ReadCloser.Read(p)
+	c.n.Add(int64(k))
+	return k, err
+}
+
+func (s readCounter) OpenRange(ctx context.Context, key string, off, n int64) (io.ReadCloser, error) {
+	rc, err := s.Store.OpenRange(ctx, key, off, n)
+	return countedBody{rc, s.n}, err
+}
+
+func TestHeadReadsNoBody(t *testing.T) {
+	_, pngBytes := testPage()
+	pad := make([]byte, 3<<20) // a 3 MiB file spans several 1 MiB chunks
+	for _, c := range []struct {
+		name  string
+		plain []byte
+		wm    bool
+	}{{"a.png", append(append([]byte{}, pngBytes...), pad...), true}, {"a.pdf", append([]byte("%PDF-1.4\n"), pad...), false}} {
+		t.Run(c.name, func(t *testing.T) {
+			var n atomic.Int64
+			e, f, tok := markShare(t, c.name, c.plain, c.wm, func(d *Deps) { d.Store = readCounter{d.Store, &n} })
+			n.Store(0)
+			req, _ := http.NewRequest("HEAD", e.ts.URL+contentURL(tok, f), nil)
+			resp, err := e.c.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != 200 || resp.Header.Get("Accept-Ranges") != "none" {
+				t.Fatal(resp.StatusCode, resp.Header)
+			}
+			if got := n.Load(); got > 1<<20+64 { // the first chunk only
+				t.Fatalf("HEAD read %d bytes", got)
+			}
+		})
+	}
+}
+
+func TestMarkedWriteErrorAborts(t *testing.T) {
+	_, pngBytes := testPage()
+	e, f, tok := markShare(t, "a.png", pngBytes, true, func(d *Deps) { d.Mark.Policy = "block" })
+	if p := e.direct(t, tok, f, &failAfter{h: http.Header{}, n: 0}); p != any(http.ErrAbortHandler) {
+		t.Fatalf("want abort, got %v", p)
+	}
+	rows := e.dlTraces(t, f)
+	if len(rows) != 1 || rows[0].method != "image_visible" || rows[0].sum != nil {
+		t.Fatal("dead client fell back:", rows)
+	}
+	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 5}); err != nil || len(ents) != 0 {
+		t.Fatal(err, ents)
+	}
 }

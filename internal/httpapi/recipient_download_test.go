@@ -682,3 +682,29 @@ func TestSlowClientFreesMarkSlot(t *testing.T) {
 		t.Fatal("second download waited on the slow client's slot")
 	}
 }
+
+// A failing trace table or preview lookup stops the download: nothing is served untraced.
+func TestRecipientDownloadFailsClosed(t *testing.T) {
+	for _, c := range []struct {
+		name, table string
+		wm          bool
+		body        []byte
+		file        string
+	}{
+		{"preview lookup", "file_previews", false, []byte("zip bytes"), "a.zip"},
+		{"unmarked trace", "download_traces", false, []byte("zip bytes"), "a.zip"},
+		{"marked trace", "download_traces", true, []byte("%PDF-1.4\n"), "a.pdf"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, f, tok := markShare(t, c.file, c.body, c.wm)
+			if c.wm {
+				e.seedPreview(t, f, preview.KindPages, preview.StatusReady, 1)
+			}
+			e.breakTable(t, c.table)
+			resp, b := e.get(t, contentURL(tok, f))
+			if resp.StatusCode != 500 || bytes.Contains(b, c.body) {
+				t.Fatalf("%d %q", resp.StatusCode, b)
+			}
+		})
+	}
+}

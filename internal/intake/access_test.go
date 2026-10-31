@@ -196,12 +196,10 @@ func (e *env) access(t *testing.T, mod func(*CreateInput)) *Access {
 }
 
 // addUpload records an in-progress upload against the request.
-func (e *env) addUpload(t *testing.T, tx pgx.Tx, a *Access, size int64) {
-	t.Helper()
-	if _, err := tx.Exec(context.Background(), `INSERT INTO uploads (id,owner_id,name,content_type,size,wrapped_dek,key_id,hash_state,request_id,uploader_id)
-		VALUES ($1,$2,'x','x',$3,'\x00',1,'\x00',$4,$5)`, uuid.New(), a.Request.OwnerID, size, a.Request.ID, a.Uploader.ID); err != nil {
-		t.Fatal(err)
-	}
+func (e *env) addUpload(tx pgx.Tx, a *Access, size int64) error {
+	_, err := tx.Exec(context.Background(), `INSERT INTO uploads (id,owner_id,name,content_type,size,wrapped_dek,key_id,hash_state,request_id,uploader_id)
+		VALUES ($1,$2,'x','x',$3,'\x00',1,'\x00',$4,$5)`, uuid.New(), a.Request.OwnerID, size, a.Request.ID, a.Uploader.ID)
+	return err
 }
 
 // check runs CheckUpload in its own transaction and inserts an upload row when it passes.
@@ -216,7 +214,9 @@ func (e *env) check(t *testing.T, a *Access, name string, size int64) error {
 	if err := CheckUpload(ctx, tx, a, name, size); err != nil {
 		return err
 	}
-	e.addUpload(t, tx, a, size)
+	if err := e.addUpload(tx, a, size); err != nil {
+		t.Fatal(err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,10 @@ func TestCheckUploadSerialises(t *testing.T) {
 				errs[i] = err
 				return
 			}
-			e.addUpload(t, tx, a, 60)
+			if err := e.addUpload(tx, a, 60); err != nil {
+				errs[i] = err
+				return
+			}
 			time.Sleep(200 * time.Millisecond) // hold the row lock: the other check must wait for the commit
 			errs[i] = tx.Commit(ctx)
 		}()
@@ -324,5 +327,62 @@ func TestAccessContext(t *testing.T) {
 	a := &Access{}
 	if AccessFrom(WithAccess(context.Background(), a)) != a {
 		t.Fatal("Access not carried")
+	}
+}
+
+func TestRequestCodeDailyCap(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	_, tok := e.newRequest(t, nil, "bob@x.com")
+	var uid uuid.UUID
+	if err := e.pool.QueryRow(ctx, `SELECT id FROM request_uploaders`).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	// otpsPerDay codes spread over the day, none within the last hour
+	if _, err := e.pool.Exec(ctx, `INSERT INTO request_otps (id, uploader_id, code_hash, expires_at, used_at, created_at)
+		SELECT gen_random_uuid(), $1, '\x00', now(), now(), now() - interval '5 hours' FROM generate_series(1, $2)`, uid, otpsPerDay); err != nil {
+		t.Fatal(err)
+	}
+	before := len(mailtest.Messages(t, e.pool, e.keys))
+	if sent, err := e.svc.RequestCode(ctx, tok, "bob@x.com", ip1); sent || err != nil {
+		t.Fatalf("over the daily cap: sent=%v err=%v", sent, err)
+	}
+	if n := len(mailtest.Messages(t, e.pool, e.keys)); n != before {
+		t.Fatal("code mailed over the cap")
+	}
+}
+
+func TestRequestCodeSupersedesOlder(t *testing.T) {
+	e := setup(t)
+	_, tok := e.newRequest(t, nil, "bob@x.com")
+	old := e.code(t, tok, "bob@x.com")
+	cur := e.code(t, tok, "bob@x.com")
+	if old != cur {
+		if _, _, err := e.svc.VerifyCode(context.Background(), tok, "bob@x.com", old, ip1, "ua"); !errors.Is(err, ErrBadCode) {
+			t.Fatalf("superseded code: %v", err)
+		}
+	}
+	if _, _, err := e.svc.VerifyCode(context.Background(), tok, "bob@x.com", cur, ip1, "ua"); err != nil {
+		t.Fatalf("current code: %v", err)
+	}
+}
+
+func TestCheckUploadZeroSize(t *testing.T) {
+	e := setup(t)
+	a := e.access(t, func(in *CreateInput) { in.MaxFiles, in.MaxTotalBytes = 2, 10 })
+	if err := e.check(t, a, "a.txt", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.check(t, a, "empty.txt", 0); err != nil { // fills the quota exactly: still room for an empty file
+		t.Fatalf("zero-size at quota: %v", err)
+	}
+	if err := e.check(t, a, "b.txt", 0); !errors.Is(err, ErrTooManyFiles) {
+		t.Fatalf("third file: %v", err)
+	}
+}
+
+func TestValidationErrorText(t *testing.T) {
+	if got := invalid("emails", "required").Error(); got != "intake: emails: required" {
+		t.Fatal(got)
 	}
 }

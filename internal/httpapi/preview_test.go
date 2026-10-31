@@ -372,3 +372,28 @@ func TestSegmentBurnBusy(t *testing.T) {
 		t.Fatal(resp.StatusCode, resp.Header, string(b))
 	}
 }
+
+// A failing preview store is a 500 on every view route, never a half-served page.
+func TestPreviewRoutesAnswer500WhenStoreFails(t *testing.T) {
+	e := newEnv(t)
+	u := e.user(t, "a@x.com")
+	e.login(t, "a@x.com", pw)
+	page := e.putFile(t, u.ID, "p.pdf", []byte("%PDF-1.4\n"))
+	e.seedPreview(t, page, preview.KindPages, preview.StatusReady, 1)
+	video := e.putFile(t, u.ID, "v.mp4", []byte("video"))
+	e.seedPreview(t, video, preview.KindVideo, preview.StatusReady, 0)
+
+	e.breakTable(t, "preview_items")
+	for _, p := range []string{"/api/files/" + page.String() + "/preview/pages/0", "/api/files/" + video.String() + "/preview/video.m3u8",
+		"/api/files/" + video.String() + "/preview/segments/0.ts"} {
+		if resp, b := e.get(t, p); resp.StatusCode != 500 {
+			t.Errorf("%s: %d %s", p, resp.StatusCode, b)
+		}
+	}
+	e.breakTable(t, "file_previews")
+	for _, p := range []string{"/api/files/" + page.String() + "/preview", "/api/files/" + page.String() + "/preview/pages/0"} {
+		if resp, b := e.get(t, p); resp.StatusCode != 500 {
+			t.Errorf("%s: %d %s", p, resp.StatusCode, b)
+		}
+	}
+}

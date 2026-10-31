@@ -230,3 +230,64 @@ func TestGetCountsFiles(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 }
+
+// A service whose database is unusable reports the failure instead of treating it as "not found".
+func TestServiceDatabaseErrors(t *testing.T) {
+	e := setup(t)
+	r, tok := e.newRequest(t, nil, "bob@x.com")
+	sess := e.login(t, tok, "bob@x.com")
+	a, err := e.svc.Authorize(context.Background(), sess, ip1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sentinel := []error{ErrNotFound, ErrGone, ErrBadCode, ErrUnauthorized}
+	notDomain := func(name string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Errorf("%s: no error on a canceled context", name)
+		}
+		for _, s := range sentinel {
+			if errors.Is(err, s) {
+				t.Errorf("%s: database failure reported as %v", name, err)
+			}
+		}
+	}
+	_, err = e.svc.Create(ctx, e.owner, e.input())
+	notDomain("Create", err)
+	_, err = e.svc.List(ctx, e.owner.ID)
+	notDomain("List", err)
+	_, err = e.svc.Get(ctx, e.owner.ID, r.ID)
+	notDomain("Get", err)
+	notDomain("Revoke", e.svc.Revoke(ctx, e.owner.ID, r.ID))
+	_, err = e.svc.Landing(ctx, tok, ip1)
+	notDomain("Landing", err)
+	_, err = e.svc.RequestCode(ctx, tok, "bob@x.com", ip1)
+	notDomain("RequestCode", err)
+	_, _, err = e.svc.VerifyCode(ctx, tok, "bob@x.com", "123456", ip1, "ua")
+	notDomain("VerifyCode", err)
+	_, err = e.svc.Authorize(ctx, sess, ip1)
+	notDomain("Authorize", err)
+	notDomain("Logout", e.svc.Logout(ctx, sess))
+	_, _, err = Usage(ctx, e.pool, r.ID)
+	notDomain("Usage", err)
+
+	tx, err := e.pool.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	notDomain("CheckUpload", CheckUpload(ctx, tx, a, "a.txt", 1))
+}
+
+func TestGetFailsOnUnreadableLink(t *testing.T) {
+	e := setup(t)
+	r, _ := e.newRequest(t, nil, "bob@x.com")
+	if _, err := e.pool.Exec(context.Background(), `UPDATE upload_requests SET token_sealed = '\x00' WHERE id = $1`, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Get(context.Background(), e.owner.ID, r.ID); err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("got %v, want a decryption error", err)
+	}
+}

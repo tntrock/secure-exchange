@@ -45,10 +45,19 @@ func TestOwnerPreviewGate(t *testing.T) {
 	e := newEnv(t)
 	u := e.user(t, "a@x.com")
 	e.login(t, "a@x.com", pw)
-	id := e.putFile(t, u.ID, "f", []byte("data"))
-	e.setScan(t, id, "infected", "Eicar")
-	if resp, body := e.get(t, "/api/files/"+id.String()+"/preview"); resp.StatusCode != 403 {
-		t.Fatal(resp.StatusCode, string(body))
+	for _, c := range []struct {
+		status string
+		code   int
+		errMsg string
+	}{{"infected", 403, "quarantined"}, {"pending", 409, "scan_pending"}, {"error", 403, "scan_failed"}} {
+		id := e.putFile(t, u.ID, "f", []byte("data"))
+		e.setScan(t, id, c.status, "Eicar")
+		resp, body := e.get(t, "/api/files/"+id.String()+"/preview")
+		var m map[string]string
+		json.Unmarshal(body, &m)
+		if resp.StatusCode != c.code || m["error"] != c.errMsg {
+			t.Fatalf("%s: %d %s", c.status, resp.StatusCode, body)
+		}
 	}
 }
 

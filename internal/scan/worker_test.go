@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -384,5 +385,50 @@ func TestScanReclaimedJobIsNotRecorded(t *testing.T) {
 	if e.count(t, `SELECT count(*) FROM scan_jobs`) != 1 || e.count(t, `SELECT count(*) FROM mail_outbox`) != 0 ||
 		e.count(t, `SELECT count(*) FROM audit_log WHERE action = 'file.scan'`) != 0 {
 		t.Fatal("stale attempt was recorded")
+	}
+}
+
+// Shutting down mid-scan leaves the job queued (its lease expires) and records nothing.
+func TestScanShutdownKeepsJob(t *testing.T) {
+	f := newFakeClamd(t, "stream: OK")
+	e := newEnv(t, f.addr)
+	id := e.file(t, []byte("hello"))
+	c, cancel := context.WithCancel(ctx)
+	f.setOnConn(cancel)
+	if ok, err := e.w.RunOnce(c); !ok || !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunOnce: %v %v", ok, err)
+	}
+	if s, _ := e.status(t, id); s != "pending" || e.count(t, `SELECT count(*) FROM scan_jobs WHERE file_id = $1`, id) != 1 ||
+		e.count(t, `SELECT count(*) FROM mail_outbox`) != 0 {
+		t.Fatal("shutdown recorded a verdict")
+	}
+}
+
+// A failing database does not stop Run; only the context does.
+func TestRunSurvivesErrors(t *testing.T) {
+	e := newEnv(t, "127.0.0.1:1")
+	e.pool.Close()
+	c, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { e.w.Run(c); close(done) }()
+	select {
+	case <-done:
+		if c.Err() == nil {
+			t.Fatal("Run returned before its context ended")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not stop")
+	}
+}
+
+func TestScanInfectedNotifiesDisabledOwner(t *testing.T) {
+	f := newFakeClamd(t, "stream: X FOUND")
+	e := newEnv(t, f.addr)
+	e.pool.Exec(ctx, `UPDATE users SET disabled = true WHERE id = $1`, e.owner)
+	e.file(t, []byte("evil"))
+	e.run(t)
+	if to, _ := e.mails(t); len(to) != 1 || to[0] != "owner@example.com" { // no admins: the owner alone, and still told
+		t.Fatal(to)
 	}
 }

@@ -8,8 +8,10 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeClamd answers every INSTREAM connection with reply and records what it received.
@@ -178,5 +180,55 @@ func TestScanRealClamd(t *testing.T) {
 	}
 	if v, err = Scan(context.Background(), addr, bytes.NewReader([]byte("hello"))); err != nil || v.Infected {
 		t.Fatalf("%+v %v", v, err)
+	}
+}
+
+// clamd hangs up without any reply: not a verdict, and not "unavailable" either.
+func TestScanNoReply(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		c, err := l.Accept()
+		if err != nil {
+			return
+		}
+		io.CopyN(io.Discard, c, 10+4+1+4) // command, one 1-byte chunk, terminator; then hang up
+		c.Close()
+	}()
+	_, err = Scan(context.Background(), l.Addr().String(), bytes.NewReader([]byte("x")))
+	if err == nil || errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "read reply") {
+		t.Fatalf("%v", err)
+	}
+}
+
+// Canceling the context closes the connection while an endless stream is being sent.
+func TestScanContextCanceled(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		c, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		io.Copy(io.Discard, c)
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	done := make(chan error, 1)
+	go func() { _, err := Scan(ctx, l.Addr().String(), zeros{}); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil || errors.Is(err, ErrUnavailable) {
+			t.Fatalf("%v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Scan ignored the canceled context")
 	}
 }

@@ -155,3 +155,93 @@ func TestSweepRemovesExternalUpload(t *testing.T) {
 		t.Fatal("not swept")
 	}
 }
+
+func TestIntakeZeroLengthUpload(t *testing.T) {
+	e := newEnv(t)
+	var rid uuid.UUID
+	a := e.extUploader("x@example.com", nil, 3, &rid)
+	resp, _ := e.extCreate(a, "tok", "empty.txt", 0)
+	id := resp.Header.Get("X-SX-File-ID")
+	if resp.StatusCode != 201 || id == "" || !strings.HasSuffix(resp.Header.Get("Location"), "/"+id) {
+		t.Fatalf("create: %d %v", resp.StatusCode, resp.Header)
+	}
+	if n := e.count(`SELECT count(*) FROM files WHERE id = $1 AND request_id = $2 AND uploader_id = $3 AND scan_status = 'pending' AND size = 0`, id, rid, a.Uploader.ID); n != 1 {
+		t.Fatal("files row wrong")
+	}
+	if n := e.count(`SELECT count(*) FROM scan_jobs WHERE file_id = $1`, id); n != 1 {
+		t.Fatal("no scan job")
+	}
+	if n := e.count(`SELECT count(*) FROM audit_log WHERE actor_type = 'uploader' AND actor_id = 'x@example.com' AND target_id = $1 AND detail->>'request_id' = $2`, id, rid.String()); n != 1 {
+		t.Fatal("audit wrong")
+	}
+	if n := e.count(`SELECT count(*) FROM uploads WHERE id = $1`, id); n != 0 {
+		t.Fatal("upload row left behind")
+	}
+}
+
+func TestStaffCannotTouchExternalUpload(t *testing.T) {
+	e := newEnv(t)
+	var rid uuid.UUID
+	a := e.extUploader("x@example.com", nil, 3, &rid)
+	resp, _ := e.extCreate(a, "tok", "a.pdf", 10)
+	loc := resp.Header.Get("Location")
+	id := loc[strings.LastIndex(loc, "/")+1:]
+	if r := e.patch("a", id, 0, random(10)); r.StatusCode != 404 {
+		t.Fatalf("staff patch: %d", r.StatusCode)
+	}
+	if r := e.req("a", "DELETE", id, nil); r.StatusCode != 404 {
+		t.Fatalf("staff delete: %d", r.StatusCode)
+	}
+	if n := e.count(`SELECT count(*) FROM uploads WHERE id = $1`, id); n != 1 {
+		t.Fatal("upload was changed")
+	}
+}
+
+func TestIntakeUploadIsolationAcrossRequests(t *testing.T) {
+	e := newEnv(t)
+	var r1, r2 uuid.UUID
+	a := e.extUploader("same@example.com", nil, 5, &r1)
+	b := e.extUploader("same@example.com", nil, 5, &r2)
+	resp, _ := e.extCreate(a, "tok1", "a.pdf", 10)
+	loc := resp.Header.Get("Location")
+	for _, m := range []string{"HEAD", "PATCH", "DELETE"} {
+		if r, _ := e.ext(b, m, loc, strings.NewReader("x"), "Content-Type", "application/offset+octet-stream", "Upload-Offset", "0"); r.StatusCode != 404 {
+			t.Fatalf("other request's uploader %s: %d", m, r.StatusCode)
+		}
+	}
+	if r, _ := e.ext(a, "HEAD", loc, nil); r.StatusCode != 200 {
+		t.Fatalf("owner's head: %d", r.StatusCode)
+	}
+}
+
+// If the final transaction fails nothing becomes a file: no row without its scan job, no file without its preview row.
+func TestFinishFailureCreatesNoFile(t *testing.T) {
+	brk := func(e *env, table string) {
+		if _, err := e.pool.Exec(context.Background(), `ALTER TABLE `+table+` RENAME TO `+table+`_broken`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("external without scan queue", func(t *testing.T) {
+		e := newEnv(t)
+		var rid uuid.UUID
+		a := e.extUploader("x@example.com", nil, 3, &rid)
+		brk(e, "scan_jobs")
+		if resp, _ := e.extCreate(a, "tok", "empty.txt", 0); resp.StatusCode != 500 {
+			t.Fatal(resp.StatusCode)
+		}
+		if n := e.count(`SELECT count(*) FROM files`); n != 0 {
+			t.Fatalf("%d files", n)
+		}
+	})
+	t.Run("staff without preview queue", func(t *testing.T) {
+		e := newEnv(t)
+		id := e.create("a", 10)
+		brk(e, "file_previews")
+		if r := e.patch("a", id, 0, random(10)); r.StatusCode != 500 {
+			t.Fatal(r.StatusCode)
+		}
+		if n := e.count(`SELECT count(*) FROM files`); n != 0 {
+			t.Fatalf("%d files", n)
+		}
+	})
+}

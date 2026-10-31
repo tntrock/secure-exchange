@@ -2,6 +2,7 @@ package mark
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -24,6 +25,9 @@ func (c *countWriter) Write(p []byte) (int, error) {
 // WritePagesPDF streams an n-page PDF 1.4 (one JPEG per page, plus a hidden
 // text layer and Info keys carrying "SX-<code>") to w.
 func WritePagesPDF(w io.Writer, n int, page func(i int) (image.Image, error), code string) error {
+	if !codeValid.MatchString(code) {
+		return errors.New("pdf: invalid trace code")
+	}
 	cw := &countWriter{w: w}
 	offs := map[int]int64{}
 	var err error
@@ -36,7 +40,7 @@ func WritePagesPDF(w io.Writer, n int, page func(i int) (image.Image, error), co
 	tag := "SX-" + code
 
 	pf("%%PDF-1.4\n%%\xe2\xe3\xcf\xd3\n")
-	// objects: 1 Catalog, 2 Pages, 3 Info, 4 Font, page i: 5+4i (Page), +1 Contents, +2 Image
+	// objects: 1 Catalog, 2 Pages, 3 Info, 4 Font, page i: 5+3i (Page), +1 Contents, +2 Image
 	for i := range n {
 		if err != nil {
 			return err
@@ -52,7 +56,7 @@ func WritePagesPDF(w io.Writer, n int, page func(i int) (image.Image, error), co
 		}
 		wpt, hpt := float64(b.Dx())*72/pdfDPI, float64(b.Dy())*72/pdfDPI
 		content := fmt.Sprintf("q %.2f 0 0 %.2f 0 0 cm /Im0 Do Q\nBT 3 Tr /F1 8 Tf 10 10 Td (%s) Tj ET\n", wpt, hpt, tag)
-		pg := 5 + 4*i
+		pg := 5 + 3*i
 		obj(pg)
 		pf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Contents %d 0 R /Resources << /XObject << /Im0 %d 0 R >> /Font << /F1 4 0 R >> >> >>\nendobj\n", wpt, hpt, pg+1, pg+2)
 		obj(pg + 1)
@@ -71,12 +75,12 @@ func WritePagesPDF(w io.Writer, n int, page func(i int) (image.Image, error), co
 	obj(2)
 	pf("<< /Type /Pages /Count %d /Kids [", n)
 	for i := range n {
-		pf("%d 0 R ", 5+4*i)
+		pf("%d 0 R ", 5+3*i)
 	}
 	pf("] >>\nendobj\n")
 	obj(1)
 	pf("<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
-	size := 5 + 4*n
+	size := 5 + 3*n
 	xref := cw.n
 	pf("xref\n0 %d\n0000000000 65535 f \n", size)
 	for id := 1; id < size; id++ {

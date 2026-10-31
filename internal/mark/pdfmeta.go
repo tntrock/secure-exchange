@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
+	"time"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
@@ -15,7 +17,16 @@ import (
 // codeRe matches an embedded trace code ("SX-" + 10 chars of the trace alphabet).
 var codeRe = regexp.MustCompile(`SX-([0-9A-HJKMNP-TV-Z]{10})`)
 
-const maxInflate = 16 << 20
+// codeValid is the full-string form of codeRe's payload; guards PDF string injection.
+var codeValid = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{10}$`)
+
+const (
+	maxInflate = 16 << 20
+	pdfTimeout = 30 * time.Second
+)
+
+// totalInflate bounds all decompression done by one PDFCodes call (var so tests can shrink it).
+var totalInflate int64 = 128 << 20
 
 // AddPDFMeta copies the PDF from r to w with an sx_trace property set to "SX-<code>".
 func AddPDFMeta(r io.ReadSeeker, w io.Writer, code string) (err error) {
@@ -24,7 +35,12 @@ func AddPDFMeta(r io.ReadSeeker, w io.Writer, code string) (err error) {
 			err = fmt.Errorf("pdf meta: panic: %v", p)
 		}
 	}()
-	return api.AddProperties(context.Background(), r, w, map[string]string{"sx_trace": "SX-" + code}, model.NewStatelessConfiguration())
+	if !codeValid.MatchString(code) {
+		return errors.New("pdf meta: invalid trace code")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), pdfTimeout)
+	defer cancel()
+	return api.AddProperties(ctx, r, w, map[string]string{"sx_trace": "SX-" + code}, model.NewStatelessConfiguration())
 }
 
 func findCodes(b []byte) []string {
@@ -47,18 +63,21 @@ func dedup(in []string) []string {
 	return out
 }
 
-// PDFCodes returns trace codes found in PDF metadata and in page content streams.
-// It never fails; hostile input just yields fewer results.
+// PDFCodes returns trace codes found in PDF metadata and page content streams.
+// It returns no error; results may be partial on hostile or oversized input.
 func PDFCodes(data []byte) (meta, text []string) {
 	defer func() { _ = recover() }()
 	meta = findCodes(data)
+	ctx, cancel := context.WithTimeout(context.Background(), pdfTimeout)
+	defer cancel()
 	func() {
 		defer func() { _ = recover() }()
-		props, err := api.Properties(context.Background(), bytes.NewReader(data), model.NewStatelessConfiguration())
+		props, err := api.Properties(ctx, bytes.NewReader(data), model.NewStatelessConfiguration())
 		if err == nil {
 			meta = append(meta, findCodes([]byte(props["sx_trace"]))...)
 		}
 	}()
+	budget := totalInflate
 	rest := data
 	for {
 		i := bytes.Index(rest, []byte("stream"))
@@ -77,7 +96,8 @@ func PDFCodes(data []byte) (meta, text []string) {
 		}
 		raw := bytes.TrimLeft(s, "\r\n")
 		if zr, err := zlib.NewReader(bytes.NewReader(raw)); err == nil {
-			if dec, _ := io.ReadAll(io.LimitReader(zr, maxInflate)); len(dec) > 0 {
+			if dec, _ := io.ReadAll(io.LimitReader(zr, min(maxInflate, budget))); len(dec) > 0 {
+				budget -= int64(len(dec))
 				text = append(text, findCodes(dec)...)
 				continue
 			}

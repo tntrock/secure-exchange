@@ -117,3 +117,59 @@ func TestPDFCodesCompressedText(t *testing.T) {
 		t.Fatalf("text=%v", text)
 	}
 }
+
+func TestWritePagesPDFXref(t *testing.T) {
+	data := makePDF(t, 3, 200, 200)
+	sx := bytes.LastIndex(data, []byte("startxref\n"))
+	var xoff int
+	fmt.Sscanf(string(data[sx+len("startxref\n"):]), "%d", &xoff)
+	lines := strings.Split(string(data[xoff:]), "\n")
+	var size int
+	fmt.Sscanf(lines[1], "0 %d", &size)
+	if size != 4+3*3+1 {
+		t.Fatalf("size = %d", size)
+	}
+	for id := 1; id < size; id++ {
+		var off int
+		var gen int
+		var kind string
+		fmt.Sscanf(lines[2+id], "%d %d %s", &off, &gen, &kind)
+		if kind != "n" || !bytes.HasPrefix(data[off:], []byte(fmt.Sprintf("%d 0 obj\n", id))) {
+			t.Fatalf("xref entry %d bad: %q", id, lines[2+id])
+		}
+	}
+	if err := api.Validate(context.Background(), bytes.NewReader(data), model.NewStatelessConfiguration(), nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInvalidCodeRejected(t *testing.T) {
+	var b bytes.Buffer
+	if err := WritePagesPDF(&b, 1, func(int) (image.Image, error) { return testPage(10, 10), nil }, "A) /X (B"); err == nil {
+		t.Error("WritePagesPDF accepted bad code")
+	}
+	if err := AddPDFMeta(bytes.NewReader(makePDF(t, 1, 200, 200)), &b, "bad"); err == nil {
+		t.Error("AddPDFMeta accepted bad code")
+	}
+}
+
+func TestPDFCodesInflateBudget(t *testing.T) {
+	old := totalInflate
+	totalInflate = 1000
+	defer func() { totalInflate = old }()
+	mk := func(code string) []byte {
+		var z bytes.Buffer
+		zw := zlib.NewWriter(&z)
+		_, _ = io.WriteString(zw, strings.Repeat("0 0 m 1 1 l S ", 50)+"(SX-"+code+")")
+		_ = zw.Close()
+		return append(append([]byte("stream\n"), z.Bytes()...), []byte("\nendstream\n")...)
+	}
+	var pdf []byte
+	pdf = append(pdf, mk("AAAAAAAAAA")...) // ~730 bytes inflated, within budget
+	pdf = append(pdf, mk("BBBBBBBBBB")...) // exhausts budget
+	pdf = append(pdf, mk("CCCCCCCCCC")...) // must not be scanned
+	_, text := PDFCodes(pdf)
+	if !contains(text, "AAAAAAAAAA") || contains(text, "CCCCCCCCCC") {
+		t.Fatalf("text=%v", text)
+	}
+}

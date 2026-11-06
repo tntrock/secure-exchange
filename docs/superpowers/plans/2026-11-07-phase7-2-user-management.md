@@ -127,7 +127,7 @@ func (s *Service) Activate(ctx, token, password, code string) (uuid.UUID, error)
 
 - **Status for non-vendors:** `disabled` if disabled, else `invited` if `password_hash IS NULL`, else `active`.
 - **Status for vendors:** the same derivation as `vendor.scanVendor`. Extract it into an exported `vendor.StatusOf(approval string, disabled bool, expires time.Time, enrolled bool) string` and call it from both places.
-- **Email validation:** reuse the vendor package's email validation. Move it to `auth.ValidEmail` if it is unexported.
+- **Email validation:** use `mail.ValidAddress`, as vendor does. An empty email gives `ValidationError{"email","required"}`, an invalid one `{"email","invalid"}`. Domain rules do not apply to staff accounts.
 
 - [ ] **Step 1: Write the failing tests in `internal/account/account_test.go`.**
   - `TestCreateInvitesLocalStaff`:

@@ -230,3 +230,10 @@ test("emails/domain_blocked renders its message", async () => {
   fireEvent.click(screen.getByRole("button", { name: i18n.t("share.submit") }));
   expect(await screen.findByText(i18n.t("share.error.emails.domain_blocked"))).toBeTruthy();
 });
+
+test("expiry input max follows share_max_days", async () => {
+  setupRules({ share_max_days: 10 });
+  const el = screen.getByLabelText(i18n.t("share.expiresAt")) as HTMLInputElement;
+  const want = (d: number) => { const x = new Date(Date.now() + d * 864e5); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 13); };
+  await waitFor(() => expect(el.max.slice(0, 13)).toBe(want(10)));
+});

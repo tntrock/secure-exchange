@@ -28,6 +28,7 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
   const [watermark, setWatermark] = useState(true);
   const [expires, setExpires] = useState(() => localDefault());
   const [lock, setLock] = useState({ download: false, watermark: false });
+  const [maxDays, setMaxDays] = useState(0);
   const edited = useRef(false);
   useEffect(() => {
     // admin rules are best effort here: the server enforces them anyway
@@ -35,6 +36,7 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
       setLock({ download: r.forbid_download === true, watermark: r.force_watermark === true });
       if (r.forbid_download === true) setAllowDownload(false);
       if (r.force_watermark === true) setWatermark(true);
+      if (typeof r.share_max_days === "number") setMaxDays(r.share_max_days);
       if (!edited.current && typeof r.share_default_days === "number") setExpires(localDefault(r.share_default_days));
     }, () => {});
   }, []);
@@ -112,7 +114,7 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
         {lock.watermark && <p>{t("share.lockedByAdmin")}</p>}
         {fieldErr("watermark")}
         <label>{t("share.expiresAt")}
-          <input type="datetime-local" value={expires} onChange={(e) => { edited.current = true; setExpires(e.target.value); }} />
+          <input type="datetime-local" value={expires} max={maxDays > 0 ? localDefault(maxDays) : undefined} onChange={(e) => { edited.current = true; setExpires(e.target.value); }} />
           {fieldErr("expires_at")}
         </label>
         <label>{t("share.maxViews")}

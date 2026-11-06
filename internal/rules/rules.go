@@ -188,7 +188,7 @@ func validDomain(d string) bool {
 		return false
 	}
 	for _, c := range d {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-') {
+		if !alnum(c) && c != '.' && c != '-' {
 			return false
 		}
 	}
@@ -200,7 +200,7 @@ func validExt(e string) bool {
 		return false
 	}
 	for _, c := range e {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9') {
+		if !alnum(c) {
 			return false
 		}
 	}
@@ -276,3 +276,5 @@ func (s *Service) GetTx(ctx context.Context, tx pgx.Tx) (Rules, error) { return 
 
 // MaxIPs is the list limit for the external IP allow list.
 const MaxIPs = maxIPs
+
+func alnum(c rune) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' }

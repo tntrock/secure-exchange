@@ -61,6 +61,13 @@ func shareBase(sh *share.Share) map[string]any {
 		"expired": !sh.ExpiresAt.After(now), "max_views": sh.MaxViews, "view_count": sh.ViewCount}
 }
 
+// shareListItem is a list row: shareBase plus the counts.
+func shareListItem(sh *share.Share) map[string]any {
+	m := shareBase(sh)
+	m["file_count"], m["recipient_count"] = sh.FileCount, sh.RecipientCount
+	return m
+}
+
 func shareDetail(sh *share.Share) map[string]any {
 	m := shareBase(sh)
 	m["message"], m["allow_download"], m["watermark"] = sh.Message, sh.AllowDownload, sh.Watermark
@@ -128,9 +135,7 @@ func (s *server) listShares(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, len(shs))
 	for i := range shs {
-		m := shareBase(&shs[i])
-		m["file_count"], m["recipient_count"] = shs[i].FileCount, shs[i].RecipientCount
-		out[i] = m
+		out[i] = shareListItem(&shs[i])
 	}
 	writeJSON(w, http.StatusOK, out)
 }

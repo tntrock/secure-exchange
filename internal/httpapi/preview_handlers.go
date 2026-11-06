@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/tntrock/secure-exchange/internal/audit"
+	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/share"
 )
@@ -54,14 +55,37 @@ func (s *server) previewRoutes(mux *http.ServeMux) {
 			})
 		}
 	}
+	// admin views any live, scan-clean file, always watermarked with the admin's identity (mark); there is no download route
+	admin := func(h previewHandler) http.Handler {
+		return s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
+			f, ok := s.liveFile(w, r, nil)
+			if !ok {
+				return
+			}
+			if code, _ := scanRefusal(f.scan); code != 0 {
+				writeJSON(w, http.StatusNotFound, errBody("not_found"))
+				return
+			}
+			viewHeaders(w)
+			h(w, r.WithContext(context.WithValue(r.Context(), adminViewerKey{}, auth.UserFrom(r.Context()))), f.id, nil)
+		})
+	}
 	recip, vendorShare := shared(s.requireRecipient), shared(s.requireVendorShare)
 	for prefix, wrap := range map[string]func(previewHandler) http.Handler{"/api/files/{id}": own, "/api/s/{token}/files/{fid}": recip,
-		"/api/vendor/shares/{id}/files/{fid}": vendorShare} {
+		"/api/vendor/shares/{id}/files/{fid}": vendorShare, "/api/admin/files/{id}": admin} {
 		mux.Handle("GET "+prefix+"/preview", wrap(s.previewStatus))
 		mux.Handle("GET "+prefix+"/preview/pages/{n}", wrap(s.previewPage))
 		mux.Handle("GET "+prefix+"/preview/video.m3u8", wrap(s.previewPlaylist))
 		mux.Handle("GET "+prefix+"/preview/segments/{seg}", wrap(s.previewSegment))
 	}
+}
+
+// adminViewerKey carries the admin whose view is being served (nil a means owner otherwise).
+type adminViewerKey struct{}
+
+func adminViewer(r *http.Request) *auth.User {
+	u, _ := r.Context().Value(adminViewerKey{}).(*auth.User)
+	return u
 }
 
 func viewHeaders(w http.ResponseWriter) {
@@ -92,6 +116,10 @@ func (s *server) sharedFile(w http.ResponseWriter, r *http.Request, a *share.Acc
 }
 
 func (s *server) previewStatus(w http.ResponseWriter, r *http.Request, fid uuid.UUID, _ *share.Access) {
+	if v := adminViewer(r); v != nil { // once per opening; page and segment fetches are not audited
+		s.record(r, audit.Event{ActorType: "user", ActorID: v.ID.String(), Action: audit.ActFileView, TargetType: "file", TargetID: fid.String(),
+			Result: "ok", Detail: map[string]any{"admin": true}})
+	}
 	p, err := preview.GetStatus(r.Context(), s.Pool, fid)
 	if errors.Is(err, preview.ErrNoPreview) {
 		writeJSON(w, http.StatusOK, map[string]string{"kind": string(preview.KindNone), "status": string(preview.StatusUnsupported)})
@@ -138,11 +166,14 @@ func index(w http.ResponseWriter, s string) (int, bool) {
 	return n, true
 }
 
-// mark returns the recipient's watermark for fid (ok=false: don't draw one). It records the
+// mark returns the recipient's (or, for an admin view, the admin's) watermark for fid (ok=false: don't draw one). It records the
 // (session, file) trace on first use, and the file.view audit entry when the trace is new;
 // unwatermarked views are traced too (from item 0 only) so file.view has one dedupe:
 // watermark=false still creates a trace code, it is just never drawn.
 func (s *server) mark(r *http.Request, a *share.Access, fid uuid.UUID, n int) (preview.Mark, bool, error) {
+	if v := adminViewer(r); v != nil && a == nil {
+		return preview.Mark{Email: v.Email, IP: s.ip(r), At: time.Now().UTC(), Code: "ADMIN"}, true, nil
+	}
 	if a == nil || !a.Share.Watermark && n != 0 {
 		return preview.Mark{}, false, nil
 	}

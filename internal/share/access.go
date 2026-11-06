@@ -85,9 +85,9 @@ func applyRules(r rules.Rules, sh *Share, email string) error {
 	return nil
 }
 
-// check reports whether sh may be served now to ip. The allow list itself is never revealed.
+// check reports whether sh may be served now to ip (not while its owner is disabled). The allow list itself is never revealed.
 func (s *Service) check(sh *Share, ip netip.Addr) error {
-	if sh.RevokedAt != nil || !s.now().Before(sh.ExpiresAt) {
+	if sh.RevokedAt != nil || sh.OwnerDisabled || !s.now().Before(sh.ExpiresAt) {
 		return ErrGone
 	}
 	if !ipAllowed(sh.IPAllow, ip) {

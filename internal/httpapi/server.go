@@ -112,6 +112,12 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/r/{token}/verify", recipIP(s.uploaderVerify))
 	mux.Handle("GET /api/r/{token}/files", s.requireUploader(s.listUploaderFiles))
 	mux.HandleFunc("POST /api/r/{token}/logout", s.uploaderLogout)
+	mux.Handle("GET /api/admin/shares", s.requireAdmin(s.adminListShares))
+	mux.Handle("GET /api/admin/shares/{id}", s.requireAdmin(s.adminGetShare))
+	mux.Handle("POST /api/admin/shares/{id}/revoke", s.requireAdmin(s.adminRevokeShare))
+	mux.Handle("GET /api/admin/requests", s.requireAdmin(s.adminListRequests))
+	mux.Handle("GET /api/admin/requests/{id}", s.requireAdmin(s.adminGetRequest))
+	mux.Handle("POST /api/admin/requests/{id}/revoke", s.requireAdmin(s.adminRevokeRequest))
 	s.previewRoutes(mux)
 	// vendor accounts: staff manage them; the invitation pages need no login
 	mux.Handle("GET /api/vendors", s.requireUser(s.listVendors))

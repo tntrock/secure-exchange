@@ -96,6 +96,7 @@ func serve(ctx context.Context) error {
 	if err := siteRules.Seed(ctx, cfg.ShareMaxDays); err != nil {
 		return fmt.Errorf("seed rules: %w", err)
 	}
+	go siteRules.RunRetention(ctx, store, auditLog, time.Hour)
 	handler := httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: sessions, Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),

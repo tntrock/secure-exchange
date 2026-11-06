@@ -42,3 +42,9 @@ test("410 shows the expired message", async () => {
   show();
   expect(await screen.findByText("This share has expired or been revoked")).toBeTruthy();
 });
+
+test("401 sends the vendor to the login page", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(401, { error: "unauthorized" })));
+  render(<MemoryRouter initialEntries={["/vendor/shares/s1"]}><Routes><Route path="/vendor/shares/:id" element={<VendorShare />} /><Route path="/login" element={<p>login page</p>} /></Routes></MemoryRouter>);
+  expect(await screen.findByText("login page")).toBeTruthy();
+});

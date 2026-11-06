@@ -30,8 +30,9 @@
   },
   "invite": {
     "title": "啟用您的帳號", "account": "帳號：{{email}}", "confirm": "確認密碼", "submit": "啟用帳號",
-    "gone": "此邀請已失效", "success": "您的帳號已啟用，現在可以登入。",
-    "tooShort": "密碼至少需要 12 個字元", "mismatch": "兩次輸入的密碼不一致", "invalidCode": "驗證碼錯誤或已過期"
+    "gone": "此邀請已失效", "success": "您的帳號已啟用。請等驗證器 App 顯示新的驗證碼後再以新驗證碼登入（剛才使用的驗證碼無法重複使用）。",
+    "tooShort": "密碼至少需要 12 個字元", "mismatch": "兩次輸入的密碼不一致", "invalidCode": "驗證碼錯誤或已過期",
+    "badPassword": "此密碼無法使用，請改用較短的密碼"
   },
   "requests": {
     "title": "上傳請求", "new": "新增請求", "emails": "上傳者（一行一個，或以逗號分隔）",

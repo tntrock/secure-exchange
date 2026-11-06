@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Viewer from "../../components/Viewer";
 import { api, ApiError, fmtDate, fmtSize, nav, type RecipientFiles } from "../../api";
@@ -7,6 +7,7 @@ import { api, ApiError, fmtDate, fmtSize, nav, type RecipientFiles } from "../..
 // recipient.error.* key for a failed load
 function errKey(e: unknown) {
   if (e instanceof ApiError) {
+    if (e.status === 401) return "login"; // signed out mid-session
     if (e.status === 404) return "notFound";
     if (e.status === 410) return "gone";
     if (e.status === 403) return e.message === "view_limit" ? "viewLimit" : "ipDenied";
@@ -50,6 +51,7 @@ export default function VendorShare() {
     else nav.go(href);
   };
 
+  if (err === "login") return <Navigate to="/login" replace />;
   const lng = i18n.language;
   return (
     <>

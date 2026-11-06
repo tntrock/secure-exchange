@@ -27,7 +27,8 @@ test("activates with password and code", async () => {
   await waitFor(() => expect(screen.getByRole("img")).toBeTruthy());
   fill();
   submit();
-  const link = await screen.findByRole("link", { name: "Log in" });
+  expect(await screen.findByText(/Wait for your authenticator app to show a new code/)).toBeTruthy();
+  const link = screen.getByRole("link", { name: "Log in" });
   expect(link.getAttribute("href")).toBe("/login");
   expect(f).toHaveBeenLastCalledWith("/api/invite/tk", expect.objectContaining({ body: JSON.stringify({ password: PW, code: "123456" }) }));
 });
@@ -58,9 +59,23 @@ test("410 shows invalid invitation", async () => {
   expect(await screen.findByText("This invitation is no longer valid")).toBeTruthy();
 });
 
+test.each([429, 500, 0])("invitation load failure %i is not reported as an invalid invitation", async (status) => {
+  vi.stubGlobal("fetch", vi.fn(async () => (status ? json(status, {}) : Promise.reject(new TypeError("offline")))));
+  show();
+  expect(await screen.findByText("Something went wrong, please try again")).toBeTruthy();
+  expect(screen.queryByText("This invitation is no longer valid")).toBeNull();
+});
+
+test("404 shows invalid invitation", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(404, { error: "not_found" })));
+  show();
+  expect(await screen.findByText("This invitation is no longer valid")).toBeTruthy();
+});
+
 test.each([
   [401, { error: "invalid_code" }, "Incorrect or expired code"],
   [422, { error: "validation", field: "password", code: "too_short" }, "Password must be at least 12 characters"],
+  [422, { error: "validation", field: "password", code: "invalid" }, "This password cannot be used, please choose a shorter one"],
   [410, { error: "gone" }, "This invitation is no longer valid"],
   [500, {}, "Something went wrong, please try again"],
 ])("activation error %i", async (status, b, msg) => {

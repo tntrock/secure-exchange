@@ -30,8 +30,9 @@
   },
   "invite": {
     "title": "Activate your account", "account": "Account: {{email}}", "confirm": "Confirm password", "submit": "Activate account",
-    "gone": "This invitation is no longer valid", "success": "Your account is active. You can log in now.",
-    "tooShort": "Password must be at least 12 characters", "mismatch": "Passwords do not match", "invalidCode": "Incorrect or expired code"
+    "gone": "This invitation is no longer valid", "success": "Your account is active. Wait for your authenticator app to show a new code, then log in with it (the code you just used cannot be reused).",
+    "tooShort": "Password must be at least 12 characters", "mismatch": "Passwords do not match", "invalidCode": "Incorrect or expired code",
+    "badPassword": "This password cannot be used, please choose a shorter one"
   },
   "requests": {
     "title": "Upload requests", "new": "New request", "emails": "Uploaders (one per line or comma-separated)",

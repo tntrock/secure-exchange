@@ -62,9 +62,9 @@ func (s *server) routes() *http.ServeMux {
 
 	mux.Handle("POST /api/auth/login", perIP(http.HandlerFunc(s.login)))
 	mux.Handle("POST /api/auth/totp", perIP(http.HandlerFunc(s.totp)))
-	mux.HandleFunc("POST /api/auth/logout", s.logout)
+	mux.Handle("POST /api/auth/logout", s.requireAccount(s.logout))
 
-	mux.Handle("GET /api/me", s.requireUser(s.me))
+	mux.Handle("GET /api/me", s.requireAccount(s.me))
 	mux.Handle("GET /api/files", s.requireUser(s.listFiles))
 	mux.Handle("GET /api/files/{id}/content", s.requireUser(s.downloadFile))
 	mux.Handle("DELETE /api/files/{id}", s.requireUser(s.deleteFile))
@@ -96,8 +96,8 @@ func (s *server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/r/{token}/logout", s.uploaderLogout)
 	s.previewRoutes(mux)
 	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
-	mux.Handle("POST /api/me/totp/setup", s.requireUser(s.totpSetup))
-	mux.Handle("POST /api/me/totp/enable", s.requireUser(s.totpEnable))
+	mux.Handle("POST /api/me/totp/setup", s.requireAccount(s.totpSetup))
+	mux.Handle("POST /api/me/totp/enable", s.requireAccount(s.totpEnable))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not_found")) })
 	mux.Handle("/", webui.Handler())
 	if s.Uploads != nil {

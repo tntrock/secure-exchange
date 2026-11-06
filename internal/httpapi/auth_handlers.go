@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/tntrock/secure-exchange/internal/audit"
@@ -58,6 +59,12 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, errBody("invalid_credentials"))
 		return
 	}
+	if !u.Active(time.Now()) { // pending, rejected, expired, or a vendor still without TOTP
+		s.record(r, audit.Event{Action: audit.ActLoginFail, ActorID: u.ID.String(), Result: "fail",
+			Detail: map[string]any{"email": Truncate(email, maxEmailLen), "stage": "inactive"}})
+		writeJSON(w, http.StatusUnauthorized, errBody("invalid_credentials"))
+		return
+	}
 	token, err := s.Sessions.Create(r.Context(), u.ID, !u.TOTPEnabled, s.ip(r), UserAgent(r), s.SessionTTL)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
@@ -85,7 +92,7 @@ func (s *server) totp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, err := s.Users.ByID(r.Context(), se.UserID)
-	if err != nil || u.Disabled || !u.TOTPEnabled || !s.Users.CheckTOTP(r.Context(), u.ID, in.Code) {
+	if err != nil || !u.Active(time.Now()) || !u.TOTPEnabled || !s.Users.CheckTOTP(r.Context(), u.ID, in.Code) {
 		s.record(r, audit.Event{Action: audit.ActLoginFail, ActorID: se.UserID.String(), Result: "fail", Detail: map[string]any{"stage": "totp"}})
 		writeJSON(w, http.StatusUnauthorized, errBody("invalid_code"))
 		return
@@ -112,8 +119,17 @@ func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) me(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "email": u.Email, "display_name": u.DisplayName,
-		"role": u.Role, "totp_enabled": u.TOTPEnabled})
+	out := map[string]any{"id": u.ID, "email": u.Email, "display_name": u.DisplayName,
+		"role": u.Role, "totp_enabled": u.TOTPEnabled, "expires_at": u.ExpiresAt}
+	if u.OrgID != nil {
+		var org string
+		if err := s.Pool.QueryRow(r.Context(), `SELECT name FROM vendor_orgs WHERE id=$1`, u.OrgID).Scan(&org); err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+			return
+		}
+		out["org"] = org
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) totpSetup(w http.ResponseWriter, r *http.Request) {

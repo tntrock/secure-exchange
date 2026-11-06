@@ -63,6 +63,7 @@
     "allowedExts": "允許的檔案類型：{{exts}}", "anyExt": "不限", "filesLeft": "還可上傳的檔案數：{{count}}", "bytesLeft": "剩餘容量：{{size}}",
     "yourFiles": "您已上傳的檔案", "noFiles": "您尚未上傳任何檔案",
     "error": {
+      "ipDenied": "您目前的網路位置不允許存取",
       "notFound": "找不到此上傳請求", "gone": "此上傳請求已過期或已被撤銷", "rateLimited": "嘗試次數過多，請稍後再試",
       "invalidCode": "驗證碼錯誤或已失效", "sessionEnded": "登入已結束，請重新驗證", "generic": "發生錯誤，請稍後再試",
       "extNotAllowed": "不允許此檔案類型", "tooManyFiles": "已達此請求的檔案數上限", "quotaExceeded": "剩餘容量不足以放下此檔案"

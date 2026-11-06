@@ -63,6 +63,7 @@
     "allowedExts": "Allowed file types: {{exts}}", "anyExt": "any", "filesLeft": "Files you can still upload: {{count}}", "bytesLeft": "Space left: {{size}}",
     "yourFiles": "Your uploaded files", "noFiles": "You have not uploaded anything yet",
     "error": {
+      "ipDenied": "Access from your network location is not allowed",
       "notFound": "Upload request not found", "gone": "This upload request has expired or been revoked", "rateLimited": "Too many attempts, please try again later",
       "invalidCode": "Incorrect or expired code", "sessionEnded": "Your session has ended, please verify again", "generic": "Something went wrong, please try again",
       "extNotAllowed": "This file type is not allowed", "tooManyFiles": "The file limit for this request has been reached", "quotaExceeded": "Not enough space left for this file"

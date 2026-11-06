@@ -86,3 +86,9 @@ test.each([
   submit();
   expect(await screen.findByText(msg)).toBeTruthy();
 });
+
+test("403 ip_denied on load shows the network-location message", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(403, { error: "ip_denied" })));
+  show();
+  expect(await screen.findByText(i18n.t("recipient.error.ipDenied"))).toBeTruthy();
+});

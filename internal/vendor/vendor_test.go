@@ -435,3 +435,44 @@ func TestInviteTokenLifecycle(t *testing.T) {
 		t.Fatal("unknown:", err)
 	}
 }
+
+func TestInviteInfoKeepsPendingSecret(t *testing.T) {
+	e := setup(t, "staff")
+	ctx := context.Background()
+	e.create(e.staff, "v@v.com")
+	tok := e.token("v@v.com")
+	_, first, err := e.svc.InviteInfo(ctx, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, second, err := e.svc.InviteInfo(ctx, tok)
+	if err != nil || first != second {
+		t.Fatalf("secret regenerated: %q vs %q (%v)", first, second, err)
+	}
+	if _, err := e.svc.Activate(ctx, tok, goodPW, codeAt(t, first, time.Now())); err != nil {
+		t.Fatal("code from the first QR rejected:", err)
+	}
+}
+
+func TestActivateRejectsSecretSwappedAfterCheck(t *testing.T) {
+	e := setup(t, "staff")
+	ctx := context.Background()
+	v := e.create(e.staff, "v@v.com")
+	tok := e.token("v@v.com")
+	_, otpauth, err := e.svc.InviteInfo(ctx, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterCodeCheck = func() { // another request replaces the pending secret mid-activation
+		if _, err := e.users.BeginTOTP(ctx, v.ID); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterCodeCheck = func() {} })
+	if _, err := e.svc.Activate(ctx, tok, goodPW, codeAt(t, otpauth, time.Now())); !errors.Is(err, ErrInviteGone) {
+		t.Fatal(err)
+	}
+	if u, _ := e.users.ByID(ctx, v.ID); u.TOTPEnabled || u.PasswordHash != "" {
+		t.Fatalf("enabled an unscanned secret: %+v", u)
+	}
+}

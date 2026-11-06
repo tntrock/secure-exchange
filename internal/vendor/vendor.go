@@ -381,13 +381,17 @@ func (s *Service) validInvite(ctx context.Context, token string) (*Vendor, error
 	return v, nil
 }
 
-// InviteInfo starts TOTP enrolment for the invitation: every call replaces the pending secret, so only the latest QR code works.
+// InviteInfo starts TOTP enrolment for the invitation. A pending secret is reused, so reloading the page
+// shows the same QR code and cannot swap the secret under an activation in flight.
 func (s *Service) InviteInfo(ctx context.Context, token string) (email, otpauthURL string, err error) {
 	v, err := s.validInvite(ctx, token)
 	if err != nil {
 		return "", "", err
 	}
-	otpauthURL, err = s.users.BeginTOTP(ctx, v.ID)
+	otpauthURL, err = s.users.PendingTOTP(ctx, v.ID)
+	if err == nil && otpauthURL == "" {
+		otpauthURL, err = s.users.BeginTOTP(ctx, v.ID)
+	}
 	if errors.Is(err, auth.ErrTOTPAlreadyEnabled) {
 		return "", "", ErrInviteGone
 	}
@@ -407,9 +411,14 @@ func (s *Service) Activate(ctx context.Context, token, password, code string) (u
 	if len(password) > maxPassword {
 		return uuid.Nil, invalid("password", "invalid")
 	}
+	var sealed []byte // the secret the code is checked against; only that one may be enabled
+	if err := s.pool.QueryRow(ctx, `SELECT totp_secret_sealed FROM users WHERE id = $1`, v.ID).Scan(&sealed); err != nil {
+		return uuid.Nil, err
+	}
 	if !s.users.CheckTOTP(ctx, v.ID, code) {
 		return v.ID, ErrBadCode
 	}
+	afterCodeCheck()
 	hash, err := auth.HashPassword(password)
 	if err != nil {
 		return uuid.Nil, err
@@ -419,7 +428,7 @@ func (s *Service) Activate(ctx context.Context, token, password, code string) (u
 		return uuid.Nil, err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE users SET password_hash = $2, totp_enabled = true WHERE id = $1 AND NOT totp_enabled`, v.ID, hash)
+	tag, err := tx.Exec(ctx, `UPDATE users SET password_hash = $2, totp_enabled = true WHERE id = $1 AND NOT totp_enabled AND totp_secret_sealed = $3`, v.ID, hash, sealed)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -435,3 +444,6 @@ func (s *Service) Activate(ctx context.Context, token, password, code string) (u
 	}
 	return v.ID, tx.Commit(ctx)
 }
+
+// afterCodeCheck lets tests run a concurrent request between the code check and the enabling update.
+var afterCodeCheck = func() {}

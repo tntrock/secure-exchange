@@ -129,11 +129,20 @@ func TestBeginTOTPRejectedWhenEnabled(t *testing.T) {
 	s := newUsers(t)
 	ctx := context.Background()
 	u, _ := s.Create(ctx, "t@x.com", "", "staff", "password-12345")
+	if p, err := s.PendingTOTP(ctx, u.ID); p != "" || err != nil {
+		t.Fatal("pending before begin:", p, err)
+	}
 	url, _ := s.BeginTOTP(ctx, u.ID)
+	if p, err := s.PendingTOTP(ctx, u.ID); p != url || err != nil {
+		t.Fatalf("pending %q != begun %q (%v)", p, url, err)
+	}
 	secret := secretFromURL(url)
 	code, _ := totp.GenerateCode(secret, time.Now())
 	if err := s.EnableTOTP(ctx, u.ID, code); err != nil {
 		t.Fatal(err)
+	}
+	if p, err := s.PendingTOTP(ctx, u.ID); p != "" || err != nil {
+		t.Fatal("pending after enable:", p, err)
 	}
 	if _, err := s.BeginTOTP(ctx, u.ID); !errors.Is(err, ErrTOTPAlreadyEnabled) {
 		t.Fatalf("got %v", err)

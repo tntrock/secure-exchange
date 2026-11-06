@@ -114,3 +114,23 @@ test("vendor recipient shows badge; add recipients sends vendor_ids", async () =
   const c = f.mock.calls.find((x) => x[0] === "/api/shares/s1/recipients") as unknown as [string, RequestInit];
   expect(JSON.parse(c[1].body as string)).toEqual({ emails: [], vendor_ids: ["v1"] });
 });
+
+test.each([
+  ["vendor_ids", "not_found", "share.error.vendor_ids.not_found"],
+  ["emails", "invalid", "share.error.emails.invalid"],
+])("add recipients 422 %s/%s shows the localized message", async (field, code, key) => {
+  const f = vi.fn((_url: string, init?: RequestInit) =>
+    Promise.resolve(init?.method === "POST" ? new Response(JSON.stringify({ error: "validation", field, code }), { status: 422 }) : new Response(JSON.stringify(detail))),
+  );
+  vi.stubGlobal("fetch", f);
+  render(
+    <MemoryRouter initialEntries={["/shares/s1"]}>
+      <Routes><Route path="/shares/:id" element={<ShareDetail />} /></Routes>
+    </MemoryRouter>,
+  );
+  await screen.findByText("ok@x.com");
+  fireEvent.change(screen.getByLabelText(i18n.t("share.addRecipients")), { target: { value: "bad" } });
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.add") }));
+  expect((await screen.findByRole("alert")).textContent).toBe(i18n.t(key));
+  expect(i18n.exists(key)).toBe(true);
+});

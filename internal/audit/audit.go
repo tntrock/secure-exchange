@@ -47,6 +47,14 @@ const (
 	ActVendorReinvite = "vendor.reinvite"
 	ActVendorActivate = "vendor.activate"
 
+	ActUserCreate    = "user.create"
+	ActUserDisable   = "user.disable"
+	ActUserEnable    = "user.enable"
+	ActUserRole      = "user.role"
+	ActUserTOTPReset = "user.totp_reset"
+	ActUserReinvite  = "user.reinvite"
+	ActUserActivate  = "user.activate"
+
 	ActRulesUpdate     = "rules.update"
 	ActRetentionDelete = "file.retention_delete"
 )

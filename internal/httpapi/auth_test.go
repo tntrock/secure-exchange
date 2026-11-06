@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pquerna/otp/totp"
 
+	"github.com/tntrock/secure-exchange/internal/account"
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
@@ -64,6 +65,7 @@ func newEnv(t *testing.T, mods ...func(*Deps)) *env {
 	d := Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour, Pool: pool, Keys: kr, Store: store, Rules: rs, Shares: share.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", rs),
 		Requests: intake.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", rs),
 		Vendors:  vendor.NewService(pool, e.users, auth.NewSessions(pool), mail.NewOutbox(pool, kr, &mail.Recorder{}), "https://x.example", "approval", rs),
+		Accounts: account.New(pool, e.users, auth.NewSessions(pool), mail.NewOutbox(pool, kr, &mail.Recorder{}), rs, "https://x.example"),
 		Uploads: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, auth.UserFrom(r.Context()).ID.String())
 		}), Mark: config.MarkConfig{MaxBytes: 256 << 20, MaxPixels: 50_000_000, Policy: "warn"}}
@@ -112,7 +114,7 @@ func TestLoginSuccessNoTOTP(t *testing.T) {
 	e := newEnv(t)
 	u := e.user(t, "a@x.com")
 	resp, body := e.login(t, "A@x.com", pw)
-	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != `{"mfa_required":false}` {
+	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != `{"mfa_required":false,"totp_setup_required":false}` {
 		t.Fatal(resp.StatusCode, string(body))
 	}
 	sc := resp.Header.Get("Set-Cookie")
@@ -181,7 +183,7 @@ func TestLoginWithTOTP(t *testing.T) {
 	e.do(t, "POST", "/api/auth/logout", nil)
 
 	resp, body = e.login(t, "t@x.com", pw)
-	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != `{"mfa_required":true}` {
+	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != `{"mfa_required":true,"totp_setup_required":false}` {
 		t.Fatal(resp.StatusCode, string(body))
 	}
 	if resp, _ := e.do(t, "GET", "/api/me", nil); resp.StatusCode != 401 {

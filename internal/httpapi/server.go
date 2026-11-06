@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/time/rate"
 
+	"github.com/tntrock/secure-exchange/internal/account"
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
@@ -36,6 +37,7 @@ type Deps struct {
 	Shares         *share.Service
 	Requests       *intake.Service
 	Vendors        *vendor.Service
+	Accounts       *account.Service
 	Rules          *rules.Service
 	FontFile       string // TTF for burned-in video watermarks (SX_FONT_FILE)
 	Mark           config.MarkConfig
@@ -67,6 +69,18 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/auth/login", perIP(http.HandlerFunc(s.login)))
 	mux.Handle("POST /api/auth/totp", perIP(http.HandlerFunc(s.totp)))
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
+	mux.Handle("POST /api/auth/totp/setup", http.HandlerFunc(s.totpSetupPending))
+	mux.Handle("POST /api/auth/totp/enroll", http.HandlerFunc(s.totpEnroll))
+	// local staff and admin accounts: admins manage them; the activation pages need no login (and no external-IP gate)
+	mux.Handle("GET /api/admin/users", s.requireAdmin(s.listUsers))
+	mux.Handle("POST /api/admin/users", s.requireAdmin(s.createUser))
+	mux.Handle("PATCH /api/admin/users/{id}", s.requireAdmin(s.setUserRole))
+	mux.Handle("POST /api/admin/users/{id}/disable", s.requireAdmin(s.userAction(audit.ActUserDisable, s.setUserDisabled(true))))
+	mux.Handle("POST /api/admin/users/{id}/enable", s.requireAdmin(s.userAction(audit.ActUserEnable, s.setUserDisabled(false))))
+	mux.Handle("POST /api/admin/users/{id}/reset-totp", s.requireAdmin(s.userAction(audit.ActUserTOTPReset, s.resetUserTOTP)))
+	mux.Handle("POST /api/admin/users/{id}/reinvite", s.requireAdmin(s.userAction(audit.ActUserReinvite, s.reinviteUser)))
+	mux.Handle("GET /api/activate/{token}", perIP(http.HandlerFunc(s.activateInfo)))
+	mux.Handle("POST /api/activate/{token}", perIP(http.HandlerFunc(s.activateStaff)))
 
 	mux.Handle("GET /api/me", s.requireAccount(s.me))
 	mux.Handle("GET /api/files", s.requireUser(s.listFiles))

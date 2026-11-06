@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 )
@@ -65,29 +67,31 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, errBody("invalid_credentials"))
 		return
 	}
-	if u.Role == "vendor" {
-		rl, err := s.Rules.Get(r.Context())
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, errBody("internal"))
-			return
-		}
-		if !rl.IPAllowed(s.addr(r)) {
-			s.record(r, audit.Event{Action: audit.ActLoginFail, ActorID: u.ID.String(), Result: "fail",
-				Detail: map[string]any{"email": Truncate(email, maxEmailLen), "stage": "ip_denied", "reason": "ip_denied"}})
-			writeJSON(w, http.StatusForbidden, errBody("ip_denied"))
-			return
-		}
+	rl, err := s.Rules.Get(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return
 	}
-	token, err := s.Sessions.Create(r.Context(), u.ID, !u.TOTPEnabled, s.ip(r), UserAgent(r), s.SessionTTL)
+	if u.Role == "vendor" && !rl.IPAllowed(s.addr(r)) {
+		s.record(r, audit.Event{Action: audit.ActLoginFail, ActorID: u.ID.String(), Result: "fail",
+			Detail: map[string]any{"email": Truncate(email, maxEmailLen), "stage": "ip_denied", "reason": "ip_denied"}})
+		writeJSON(w, http.StatusForbidden, errBody("ip_denied"))
+		return
+	}
+	// site rules force local staff and admins to enrol TOTP before the session is usable
+	setup := !u.TOTPEnabled && u.Role != "vendor" && u.AuthSource == "local" && rl.ForceTOTP
+	full := !u.TOTPEnabled && !setup
+	token, err := s.Sessions.Create(r.Context(), u.ID, full, s.ip(r), UserAgent(r), s.SessionTTL)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
 	}
 	s.setSessionCookie(w, token, int(s.SessionTTL.Seconds()))
-	if !u.TOTPEnabled { // fully logged in; with TOTP the OK event is written after the code step
+	if full { // fully logged in; otherwise the OK event is written after the code / enrolment step
+		s.touchLogin(r, u.ID)
 		s.record(r, audit.Event{Action: audit.ActLoginOK, ActorID: u.ID.String(), Result: "ok"})
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"mfa_required": u.TOTPEnabled})
+	writeJSON(w, http.StatusOK, map[string]bool{"mfa_required": u.TOTPEnabled, "totp_setup_required": setup})
 }
 
 func (s *server) totp(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +118,7 @@ func (s *server) totp(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
 	}
+	s.touchLogin(r, u.ID)
 	s.record(r, audit.Event{Action: audit.ActLoginOK, ActorID: u.ID.String(), Result: "ok", Detail: map[string]any{"stage": "totp"}})
 	writeJSON(w, http.StatusOK, map[string]bool{"mfa_required": false})
 }
@@ -201,3 +206,10 @@ func Truncate(s string, n int) string {
 
 // UserAgent is the request User-Agent capped for storage.
 func UserAgent(r *http.Request) string { return Truncate(r.UserAgent(), maxUALen) }
+
+// touchLogin stamps last_login_at; a failure is logged, never fatal to the login.
+func (s *server) touchLogin(r *http.Request, id uuid.UUID) {
+	if err := s.Users.TouchLogin(r.Context(), id); err != nil {
+		slog.Error("touch login", "err", err)
+	}
+}

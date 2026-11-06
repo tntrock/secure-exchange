@@ -18,14 +18,14 @@ services:
     ports:
       - "59000:9000"
   mailpit:
-    image: axllent/mailpit:v1.32
+    image: axllent/mailpit:v1.33
     ports:
       - "51025:1025"
       - "58025:8025"
   # ClamAV for the scan worker: docker compose -f docker-compose.dev.yml --profile scan up -d clamav
   # (first start downloads signatures, several minutes). SX_TEST_CLAMD_ADDR=localhost:53310
   clamav:
-    image: clamav/clamav:1.4
+    image: clamav/clamav:1.5
     profiles: [scan]
     volumes:
       - clamdb:/var/lib/clamav

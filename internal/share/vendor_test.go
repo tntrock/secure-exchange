@@ -95,8 +95,15 @@ func TestCreateWithVendors(t *testing.T) {
 		in.Emails[i] = uuid.NewString() + "@x.com"
 	}
 	in.VendorIDs = []uuid.UUID{v}
-	if _, err := e.svc.Create(ctx, e.owner, in); !isValidation(err, "emails", "too_many") {
+	if _, err := e.svc.Create(ctx, e.owner, in); !isValidation(err, "recipients", "too_many") {
 		t.Fatal(err)
+	}
+	in.Emails, in.VendorIDs = nil, make([]uuid.UUID, 51)
+	for i := range in.VendorIDs {
+		in.VendorIDs[i] = uuid.New()
+	}
+	if _, err := e.svc.Create(ctx, e.owner, in); !isValidation(err, "recipients", "too_many") {
+		t.Fatal("51 vendors:", err)
 	}
 	if n := count(t, e, `SELECT count(*) FROM shares`); n != 2 {
 		t.Fatalf("shares: %d", n)

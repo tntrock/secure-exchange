@@ -89,7 +89,7 @@
       "generic": "無法建立分享，請檢查表單",
       "expired": "此分享已過期，無法再新增收件人",
       "emails": { "required": "請至少輸入一位收件人", "too_many": "收件人過多（上限 50 位）", "invalid": "有 Email 格式不正確" },
-      "recipients": { "required": "請至少輸入一位收件人或選擇一位廠商" },
+      "recipients": { "required": "請至少輸入一位收件人或選擇一位廠商", "too_many": "收件人與廠商合計過多（最多 50 位）" },
       "vendor_ids": { "not_found": "所選廠商不存在或尚未啟用" },
       "file_ids": { "preview_pending": "部分檔案仍在處理預覽，請稍候", "not_previewable": "部分檔案無法線上預覽，請改為允許下載", "not_found": "找不到所選的檔案", "too_many": "檔案過多（上限 100 個）", "required": "請至少選擇一個檔案" },
       "expires_at": { "required": "必須設定有效期限", "out_of_range": "有效期限須介於 1 小時至系統允許的上限之間" },

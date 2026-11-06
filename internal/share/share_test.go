@@ -289,7 +289,7 @@ func TestAddRecipientsLimit(t *testing.T) {
 	}
 	_, err = e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"extra@x.com"}, nil)
 	var ve *ValidationError
-	if !errors.As(err, &ve) || ve.Code != "too_many" {
+	if !errors.As(err, &ve) || ve.Field != "recipients" || ve.Code != "too_many" {
 		t.Fatalf("got %v", err)
 	}
 }

@@ -69,7 +69,8 @@ func UploadInvitation(url, senderName, message string, expires time.Time) (strin
 			sep +
 			fmt.Sprintf("%s has asked you to upload files securely.%s\nOpen the link and enter the verification code sent to this address:\n%s\n\nThis link expires at %s.", senderName, enNote, url, ex)
 }
-
+// NotifyIntakeUpload tells the recipient of an upload (request owner or vendor-upload target) a file arrived;
+// skipped means it was too large to virus-scan.
 // NotifyIntakeUpload tells the requester a file arrived; skipped means it was too large to virus-scan.
 func NotifyIntakeUpload(uploader, fileName, requestURL string, skipped bool) (string, string) {
 	zhNote, enNote := "", ""
@@ -77,7 +78,7 @@ func NotifyIntakeUpload(uploader, fileName, requestURL string, skipped bool) (st
 		zhNote = "\n注意：此檔案超過病毒掃描大小上限，未經掃描。"
 		enNote = "\nNote: this file was not virus-scanned because it is over the scan size limit."
 	}
-	return subject("您收到一份上傳的檔案", "A file was uploaded to your request"),
+	return subject("您收到一份上傳的檔案", "A file was uploaded for you"),
 		fmt.Sprintf("%s 已上傳檔案「%s」。%s\n%s", uploader, fileName, zhNote, requestURL) +
 			sep +
 			fmt.Sprintf("%s uploaded the file \"%s\".%s\n%s", uploader, fileName, enNote, requestURL)

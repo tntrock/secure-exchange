@@ -113,7 +113,7 @@ func (s *Service) recipients(ctx context.Context, emails []string, vendorIDs []u
 	}
 	vendorIDs = dedupIDs(vendorIDs)
 	if len(vendorIDs) > maxRecipients {
-		return nil, nil, invalid("emails", "too_many")
+		return nil, nil, invalid("recipients", "too_many")
 	}
 	vendors := make([]*auth.User, 0, len(vendorIDs))
 	covered := map[string]bool{}
@@ -133,7 +133,7 @@ func (s *Service) recipients(ctx context.Context, emails []string, vendorIDs []u
 	case n == 0:
 		return nil, nil, invalid("recipients", "required")
 	case n > maxRecipients:
-		return nil, nil, invalid("emails", "too_many")
+		return nil, nil, invalid("recipients", "too_many")
 	}
 	return emails, vendors, nil
 }
@@ -513,7 +513,7 @@ func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID u
 		return nil, err
 	}
 	if total > maxRecipients {
-		return nil, invalid("emails", "too_many")
+		return nil, invalid("recipients", "too_many")
 	}
 	return added, tx.Commit(ctx)
 }

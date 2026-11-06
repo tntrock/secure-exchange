@@ -213,3 +213,11 @@ test("a file whose mark is still pending is not downloaded and shows the notice"
   expect(await screen.findByText(i18n.t("share.markPending"))).toBeTruthy();
   expect(go).not.toHaveBeenCalled();
 });
+
+test("download_forbidden + non-previewable file shows the admin-blocked note", async () => {
+  const body = { ...filesBody, allow_download: false, download_forbidden: true, files: [{ id: "f1", name: "a.zip", size: 1, available: true, previewable: false }] };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("/files") ? json(200, body) : json(200, landing))));
+  renderPage();
+  expect(await screen.findByText(i18n.t("recipient.blockedByAdmin"))).toBeTruthy();
+  expect(screen.queryByRole("button", { name: i18n.t("viewer.open") })).toBeNull();
+});

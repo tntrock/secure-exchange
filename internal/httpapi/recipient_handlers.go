@@ -47,6 +47,8 @@ func recipientErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusGone, errBody("gone"))
 	case errors.Is(err, share.ErrIPDenied):
 		writeJSON(w, http.StatusForbidden, errBody("ip_denied"))
+	case errors.Is(err, share.ErrDomainBlocked):
+		writeJSON(w, http.StatusForbidden, errBody("domain_blocked"))
 	case errors.Is(err, share.ErrBadCode):
 		writeJSON(w, http.StatusUnauthorized, errBody("invalid_code"))
 	case errors.Is(err, share.ErrViewLimit):
@@ -162,8 +164,11 @@ func (s *server) verifyCode(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		s.record(r, ev)
-	case errors.Is(err, share.ErrBadCode), errors.Is(err, share.ErrViewLimit):
+	case errors.Is(err, share.ErrBadCode), errors.Is(err, share.ErrViewLimit), errors.Is(err, share.ErrDomainBlocked):
 		reason := "invalid_code"
+		if errors.Is(err, share.ErrDomainBlocked) {
+			reason = "domain_blocked"
+		}
 		if errors.Is(err, share.ErrViewLimit) {
 			reason = "view_limit"
 		}
@@ -237,6 +242,11 @@ func (s *server) recipientFiles(ctx context.Context, a *share.Access) (map[strin
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	rl, err := s.Rules.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	forbid := rl.ForbidDownload
 	files := make([]map[string]any, len(sh.Files))
 	for i, f := range sh.Files {
 		p := previews[f.ID]
@@ -244,10 +254,11 @@ func (s *server) recipientFiles(ctx context.Context, a *share.Access) (map[strin
 			p = &preview.Preview{Kind: preview.KindNone, Status: preview.StatusUnsupported}
 		}
 		files[i] = map[string]any{"id": f.ID, "name": f.Name, "size": f.Size, "available": !f.Deleted,
-			"mark_pending": s.listPlan(f.Name, f.Size, p, sh.Watermark).Pending}
+			"mark_pending": s.listPlan(f.Name, f.Size, p, sh.Watermark).Pending,
+			"previewable":  p.Status != preview.StatusFailed && p.Status != preview.StatusUnsupported && p.Status != preview.StatusTooLarge}
 	}
 	return map[string]any{"message": sh.Message, "expires_at": ts(&sh.ExpiresAt), "allow_download": sh.AllowDownload,
-		"watermark": sh.Watermark, "files": files}, nil
+		"watermark": sh.Watermark, "download_forbidden": forbid, "files": files}, nil
 }
 
 func (s *server) listRecipientFiles(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/mail/mailtest"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -37,7 +38,11 @@ func setup(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(pool, mail.NewOutbox(pool, keys, nil), keys, "https://sx.example", 30)
+	rs := rules.New(pool, 1<<30)
+	if err := rs.Seed(context.Background(), 30); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(pool, mail.NewOutbox(pool, keys, nil), keys, "https://sx.example", rs)
 	e := &env{pool: pool, keys: keys, svc: svc, now: time.Now().Truncate(time.Second)}
 	svc.now = func() time.Time { return e.now }
 	e.owner = e.user(t, "owner@x.com", "Olivia")
@@ -289,5 +294,36 @@ func TestGetFailsOnUnreadableLink(t *testing.T) {
 	}
 	if _, err := e.svc.Get(context.Background(), e.owner.ID, r.ID); err == nil || errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v, want a decryption error", err)
+	}
+}
+
+func TestCreateHonoursRuleMaxDays(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	r, err := e.svc.rules.Get(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.ShareMaxDays, r.ShareDefaultDays = 3, 3
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.rules.Update(ctx, tx, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	in := e.input()
+	in.ExpiresAt = e.now.Add(4 * 24 * time.Hour)
+	_, err = e.svc.Create(ctx, e.owner, in)
+	var ve *ValidationError
+	if !errors.As(err, &ve) || ve.Field != "expires_at" || ve.Code != "out_of_range" {
+		t.Fatalf("got %v", err)
+	}
+	in.ExpiresAt = e.now.Add(2 * 24 * time.Hour)
+	if _, err := e.svc.Create(ctx, e.owner, in); err != nil {
+		t.Fatal(err)
 	}
 }

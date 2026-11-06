@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
@@ -24,6 +26,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/mail/mailtest"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/upload"
 )
@@ -47,11 +50,12 @@ func TestIntakePatchAfterRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := intake.NewService(pool, mail.NewOutbox(pool, keys, &mail.Recorder{}), keys, "https://x.example", 30)
+	rs := seedRules(t, pool)
+	svc := intake.NewService(pool, mail.NewOutbox(pool, keys, &mail.Recorder{}), keys, "https://x.example", rs)
 	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
-		Pool: pool, Keys: keys, Store: store, Requests: svc,
-		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}),
+		Pool: pool, Keys: keys, Store: store, Requests: svc, Rules: rs,
+		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}, rs),
 	}))
 	defer ts.Close()
 	c := ts.Client()
@@ -157,11 +161,12 @@ func TestIntakeRateLimitOnlyCreates(t *testing.T) {
 		t.Fatal(err)
 	}
 	users, log := auth.NewUsers(pool, keys), audit.New(pool)
-	svc := intake.NewService(pool, mail.NewOutbox(pool, keys, &mail.Recorder{}), keys, "https://x.example", 30)
+	rs := seedRules(t, pool)
+	svc := intake.NewService(pool, mail.NewOutbox(pool, keys, &mail.Recorder{}), keys, "https://x.example", rs)
 	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
-		Pool: pool, Keys: keys, Store: store, Requests: svc,
-		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}),
+		Pool: pool, Keys: keys, Store: store, Requests: svc, Rules: rs,
+		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}, rs),
 	}))
 	defer ts.Close()
 	send := func(method string) int {
@@ -188,4 +193,13 @@ func TestIntakeRateLimitOnlyCreates(t *testing.T) {
 	if !limited {
 		t.Fatal("POST was never rate limited")
 	}
+}
+
+func seedRules(t *testing.T, pool *pgxpool.Pool) *rules.Service {
+	t.Helper()
+	rs := rules.New(pool, 1<<30)
+	if err := rs.Seed(context.Background(), 30); err != nil {
+		t.Fatal(err)
+	}
+	return rs
 }

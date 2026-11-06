@@ -2,6 +2,7 @@ package mail
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -116,4 +117,13 @@ func VendorApprovalNeeded(vendorEmail, creatorName, url string) (string, string)
 		fmt.Sprintf("%s 申請建立廠商帳號 %s，請核准或拒絕：\n%s", creatorName, vendorEmail, url) +
 			sep +
 			fmt.Sprintf("%s asked to create the vendor account %s. Approve or reject it:\n%s", creatorName, vendorEmail, url)
+}
+
+// RulesTightened tells a share owner which of their active shares a new site rule affects; each line is "<share URL> — <reason>".
+func RulesTightened(lines []string) (string, string) {
+	list := strings.Join(lines, "\n")
+	return subject("網站規則已收緊，影響您的分享", "Site rules were tightened and affect your shares"),
+		"管理員收緊了網站規則，以下分享受到影響：\n" + list +
+			sep +
+			"An administrator tightened the site rules. These shares are affected:\n" + list
 }

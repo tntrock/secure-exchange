@@ -45,10 +45,11 @@ func TestEndToEnd(t *testing.T) {
 	if _, err := users.Create(context.Background(), "a@x.com", "A", "staff", "password-12345"); err != nil {
 		t.Fatal(err)
 	}
+	rs := seedRules(t, pool)
 	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
 		Pool: pool, Keys: keys, Store: store,
-		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}),
+		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}, rs),
 	}))
 	defer ts.Close()
 	c := ts.Client()

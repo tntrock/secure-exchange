@@ -174,3 +174,23 @@ func (s *server) requireAdmin(next http.HandlerFunc) http.Handler {
 		next(w, r)
 	})
 }
+
+// external refuses requests from outside the admin's external IP allow list on the routes meant for
+// recipients, uploaders and vendors; staff routes are untouched.
+func (s *server) external(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		if strings.HasPrefix(p, "/api/s/") || strings.HasPrefix(p, "/api/r/") || strings.HasPrefix(p, "/api/vendor/") || strings.HasPrefix(p, "/api/invite/") {
+			rl, err := s.Rules.Get(r.Context())
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+				return
+			}
+			if !rl.IPAllowed(s.addr(r)) {
+				writeJSON(w, http.StatusForbidden, errBody("ip_denied"))
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}

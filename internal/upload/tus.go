@@ -33,6 +33,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/httpapi"
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/preview"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/vendor"
 )
@@ -53,6 +54,7 @@ type handler struct {
 	maxSize    int64
 	trusted    []netip.Prefix
 	preview    config.PreviewConfig
+	rules      *rules.Service
 	mux        *http.ServeMux
 
 	// ponytail: in-process lock — single instance only; use a lease column for multi-instance
@@ -63,8 +65,8 @@ type handler struct {
 // NewHandler serves the tus endpoints at /api/uploads/ (staff), /api/r/{token}/uploads/
 // (external uploaders) and /api/vendor/uploads/ (vendors). The caller must put
 // the user in the request context (auth.WithUser) and create stagingDir.
-func NewHandler(pool *pgxpool.Pool, keys *sxcrypto.Keyring, store blob.Store, audit *audit.Log, stagingDir string, maxSize int64, trusted []netip.Prefix, pcfg config.PreviewConfig) http.Handler {
-	h := &handler{pool: pool, keys: keys, store: store, audit: audit, stagingDir: stagingDir, maxSize: maxSize, trusted: trusted, preview: pcfg, mux: http.NewServeMux(), active: map[uuid.UUID]bool{}}
+func NewHandler(pool *pgxpool.Pool, keys *sxcrypto.Keyring, store blob.Store, audit *audit.Log, stagingDir string, maxSize int64, trusted []netip.Prefix, pcfg config.PreviewConfig, rules *rules.Service) http.Handler {
+	h := &handler{pool: pool, keys: keys, store: store, audit: audit, stagingDir: stagingDir, maxSize: maxSize, trusted: trusted, preview: pcfg, rules: rules, mux: http.NewServeMux(), active: map[uuid.UUID]bool{}}
 	for _, p := range []string{"/api/uploads/", "/api/r/{token}/uploads/", "/api/vendor/uploads/"} { // staff, external uploaders, vendors
 		h.mux.HandleFunc("OPTIONS "+p, h.options)
 		h.mux.HandleFunc("POST "+p+"{$}", h.create)
@@ -179,6 +181,20 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		}
 		u.owner = rcpt
 	}
+	rl, err := h.rules.Get(r.Context())
+	if err != nil {
+		fail(w, "rules", err)
+		return
+	}
+	external := u.uploaderID != nil || u.vendorID != nil
+	switch {
+	case rl.MaxFileBytes > 0 && size > rl.MaxFileBytes, external && rl.UploadMaxBytes > 0 && size > rl.UploadMaxBytes:
+		forbid(w, "file_too_large")
+		return
+	case external && !rl.ExtAllowed(u.name):
+		forbid(w, "ext_not_allowed")
+		return
+	}
 	dek, wrapped, keyID, err := h.keys.NewDEK()
 	if err != nil {
 		fail(w, "new dek", err)
@@ -205,10 +221,18 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		err = cerr
 	}
 	if err == nil {
-		err = h.insertUpload(r, u)
+		err = h.insertUpload(r, u, rl.QuotaBytes)
 	}
 	if err != nil {
 		os.Remove(h.stagingPath(u.id))
+		if errors.Is(err, errStorageFull) {
+			code := "storage_full"
+			if external {
+				code = "recipient_storage_full"
+			}
+			forbid(w, code)
+			return
+		}
 		if code := intakeCode(err); code != "" {
 			forbid(w, code)
 			return
@@ -261,7 +285,7 @@ func intakeCode(err error) string {
 
 // insertUpload records the upload; an external one first passes the request's
 // limits, in the same tx so concurrent uploads are counted one after another.
-func (h *handler) insertUpload(r *http.Request, u *upload) error {
+func (h *handler) insertUpload(r *http.Request, u *upload, quota int64) error {
 	ctx := r.Context()
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
@@ -273,11 +297,37 @@ func (h *handler) insertUpload(r *http.Request, u *upload) error {
 			return err
 		}
 	}
+	if err := h.checkQuota(ctx, tx, u, quota); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO uploads (id, owner_id, name, content_type, size, wrapped_dek, key_id, hash_state, request_id, uploader_id, vendor_id)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, u.id, u.owner, u.name, u.contentType, u.size, u.wrappedDEK, u.keyID, u.hashState, u.requestID, u.uploaderID, u.vendorID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+var errStorageFull = errors.New("upload: storage full")
+
+// checkQuota enforces the site quota on the owner's stored files plus
+// in-progress uploads; the owner row lock serialises concurrent creates.
+func (h *handler) checkQuota(ctx context.Context, tx pgx.Tx, u *upload, quota int64) error {
+	if quota == 0 {
+		return nil
+	}
+	var one int
+	if err := tx.QueryRow(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, u.owner).Scan(&one); err != nil {
+		return err
+	}
+	var used int64
+	if err := tx.QueryRow(ctx, `SELECT (SELECT COALESCE(sum(size),0) FROM files WHERE owner_id = $1 AND deleted_at IS NULL)
+		+ (SELECT COALESCE(sum(size),0) FROM uploads WHERE owner_id = $1)`, u.owner).Scan(&used); err != nil {
+		return err
+	}
+	if used+u.size > quota {
+		return errStorageFull
+	}
+	return nil
 }
 
 // sealHash encrypts the marshalled sha256 state: it carries the unprocessed

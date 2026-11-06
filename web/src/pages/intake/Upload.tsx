@@ -9,6 +9,7 @@ type Step = "loading" | "email" | "code" | "upload" | "fatal";
 
 function errKey(e: unknown) {
   if (e instanceof ApiError) {
+    if (e.status === 403 && e.message === "ip_denied") return "ipDenied";
     if (e.status === 404) return "notFound";
     if (e.status === 410) return "gone";
     if (e.status === 429) return "rateLimited";
@@ -18,7 +19,7 @@ function errKey(e: unknown) {
 }
 
 // tus 403 bodies
-const uploadErr: Record<string, string> = { ext_not_allowed: "extNotAllowed", too_many_files: "tooManyFiles", quota_exceeded: "quotaExceeded" };
+const uploadErr: Record<string, string> = { too_many_files: "tooManyFiles", quota_exceeded: "quotaExceeded" };
 
 const extOf = (name: string) => (name.includes(".") ? name.split(".").pop()!.toLowerCase() : "");
 

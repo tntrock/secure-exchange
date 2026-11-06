@@ -65,7 +65,7 @@ func TestVendorShareFlow(t *testing.T) {
 	resp, b = e.get(t, "/api/vendor/shares")
 	var list []map[string]any
 	json.Unmarshal(b, &list)
-	if resp.StatusCode != 200 || len(list) != 1 || len(list[0]) != 7 || list[0]["id"] != id || list[0]["owner_name"] != "D" ||
+	if resp.StatusCode != 200 || len(list) != 1 || len(list[0]) != 8 || list[0]["id"] != id || list[0]["owner_name"] != "D" ||
 		list[0]["message"] != "hi" || list[0]["file_count"] != 2.0 || list[0]["allow_download"] != true || list[0]["watermark"] != false || list[0]["expires_at"] == nil {
 		t.Fatal(resp.StatusCode, string(b))
 	}

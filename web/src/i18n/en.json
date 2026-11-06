@@ -16,12 +16,13 @@
     "preview": { "label": "Preview", "pending": "Processing", "ready": "Ready", "failed": "Preview failed", "unsupported": "Not previewable", "too_large": "Too large to preview" }
   },
   "upload": {
+    "error": { "file_too_large": "File is too large", "storage_full": "Storage is full", "recipient_storage_full": "The recipient's storage is full", "ext_not_allowed": "This file type is not allowed" },
     "drop": "Drop files here, or click to choose", "pause": "Pause", "resume": "Resume", "cancel": "Cancel",
     "done": "Upload complete", "failed": "Upload failed"
   },
-  "recipient": {"title":"Access shared files","from":"{{name}} shared files with you","expires":"Expires: {{at}}","email":"Your email","sendCode":"Send code","code":"6-digit code","verify":"Verify","resend":"Resend code","changeEmail":"Use a different email","codeSent":"If you are on the recipient list, a code has been sent","filesTitle":"Shared files","fileUnavailable":"Unavailable","leave":"Leave","error":{"notFound":"Share not found","gone":"This share has expired or been revoked","ipDenied":"Access from your network location is not allowed","rateLimited":"Too many attempts, please try again later","invalidCode":"Incorrect or expired code","viewLimit":"This share has reached its view limit","sessionEnded":"Your session has ended, please verify again","generic":"Something went wrong, please try again"}},
+  "recipient": {"blockedByAdmin":"This file is currently unavailable (download is disabled by the administrator)","title":"Access shared files","from":"{{name}} shared files with you","expires":"Expires: {{at}}","email":"Your email","sendCode":"Send code","code":"6-digit code","verify":"Verify","resend":"Resend code","changeEmail":"Use a different email","codeSent":"If you are on the recipient list, a code has been sent","filesTitle":"Shared files","fileUnavailable":"Unavailable","leave":"Leave","error":{"domain_blocked":"Your email domain is not allowed to access this share","notFound":"Share not found","gone":"This share has expired or been revoked","ipDenied":"Access from your network location is not allowed","rateLimited":"Too many attempts, please try again later","invalidCode":"Incorrect or expired code","viewLimit":"This share has reached its view limit","sessionEnded":"Your session has ended, please verify again","generic":"Something went wrong, please try again"}},
   "viewer": { "reLogin": "Your login has expired, please sign in again", "view_limit": "This share has reached its view limit", "ip_denied": "Access from your network location is not allowed", "open": "View", "close": "Close", "prev": "Previous page", "next": "Next page", "zoomIn": "Zoom in", "zoomOut": "Zoom out", "page": "Page {{n}}", "pending": "Preview is still processing, please try again later", "notReady": "This file cannot be previewed", "gone": "This share is no longer available", "ended": "Your session has ended, please verify again", "error": "Could not load the preview", "title": "File viewer" },
-  "nav": { "files": "My files", "shares": "My shares", "trace": "Leak tracing", "requests": "Requests", "vendors": "Vendors", "sharedWithMe": "Shared with me", "vendorUpload": "Upload" },
+  "nav": { "rules": "Rules", "files": "My files", "shares": "My shares", "trace": "Leak tracing", "requests": "Requests", "vendors": "Vendors", "sharedWithMe": "Shared with me", "vendorUpload": "Upload" },
   "vendorPortal": {
     "title": "Shared with me", "empty": "Nothing has been shared with you yet", "owner": "From", "message": "Message", "expires": "Expires", "files": "Files",
     "open": "Open", "back": "Back to shared with me", "uploadTitle": "Upload files", "recipient": "Recipient", "choose": "Choose a recipient…",
@@ -62,6 +63,7 @@
     "allowedExts": "Allowed file types: {{exts}}", "anyExt": "any", "filesLeft": "Files you can still upload: {{count}}", "bytesLeft": "Space left: {{size}}",
     "yourFiles": "Your uploaded files", "noFiles": "You have not uploaded anything yet",
     "error": {
+      "ipDenied": "Access from your network location is not allowed",
       "notFound": "Upload request not found", "gone": "This upload request has expired or been revoked", "rateLimited": "Too many attempts, please try again later",
       "invalidCode": "Incorrect or expired code", "sessionEnded": "Your session has ended, please verify again", "generic": "Something went wrong, please try again",
       "extNotAllowed": "This file type is not allowed", "tooManyFiles": "The file limit for this request has been reached", "quotaExceeded": "Not enough space left for this file"
@@ -78,6 +80,7 @@
     "markNone": "These files get no embedded mark; only the downloader and the file fingerprint are recorded:",
     "officeAsPdf": "With the watermark on, recipients receive these Office files as watermarked PDFs:",
     "markBlocked": "The administrator blocks sharing these files for download with a watermark. Turn off download or the watermark, or remove them:",
+    "lockedByAdmin": "Set by administrator",
     "markPending": "The file is still being prepared, please try again shortly",
     "listTitle": "My shares", "empty": "No shares yet", "createdAt": "Created", "files": "Files", "recipientCount": "Recipients", "views": "Views",
     "status": { "active": "Active", "expired": "Expired", "revoked": "Revoked" },
@@ -89,10 +92,12 @@
     "error": {
       "generic": "Could not create the share, please check the form",
       "expired": "This share has expired; recipients can no longer be added",
-      "emails": { "required": "Enter at least one recipient", "too_many": "Too many recipients (max 50)", "invalid": "One or more email addresses are invalid" },
+      "emails": { "domain_blocked": "A recipient's email domain is not allowed", "required": "Enter at least one recipient", "too_many": "Too many recipients (max 50)", "invalid": "One or more email addresses are invalid" },
+      "allow_download": { "locked": "Download is disabled by the administrator" },
+      "watermark": { "locked": "The administrator requires a watermark" },
       "recipients": { "required": "Enter at least one recipient or vendor", "too_many": "Too many recipients and vendors (max 50)" },
-      "vendor_ids": { "not_found": "A selected vendor was not found or is not active" },
-      "file_ids": { "preview_pending": "Some files are still being processed for preview, please wait", "not_previewable": "Some files cannot be previewed online; allow download instead", "not_found": "A selected file was not found", "too_many": "Too many files (max 100)", "required": "Select at least one file" },
+      "vendor_ids": { "domain_blocked": "A selected vendor's email domain is not allowed", "not_found": "A selected vendor was not found or is not active" },
+      "file_ids": { "too_large": "The selected files exceed the maximum share size", "preview_pending": "Some files are still being processed for preview, please wait", "not_previewable": "Some files cannot be previewed online; allow download instead", "not_found": "A selected file was not found", "too_many": "Too many files (max 100)", "required": "Select at least one file" },
       "expires_at": { "required": "Expiry is required", "out_of_range": "Expiry must be between 1 hour and the maximum allowed from now" },
       "max_views": { "out_of_range": "Max views is out of range" },
       "ip_allow": { "invalid": "Invalid IP or CIDR", "too_many": "Too many IP entries" },
@@ -111,11 +116,12 @@
       "email_taken": "This email address is already in use",
       "wrong_state": "That action is not allowed in the account's current state",
       "forbidden": "You do not have permission to do that",
-      "email": { "required": "Email is required", "invalid": "Invalid email address" },
+      "email": { "domain_blocked": "This email domain is not allowed", "required": "Email is required", "invalid": "Invalid email address" },
       "display_name": { "required": "Display name is required", "out_of_range": "Display name is too long" },
       "org": { "out_of_range": "Organisation name is too long" },
       "expires_at": { "required": "Expiry is required", "out_of_range": "Expiry must be between tomorrow and 3 years from now" }
     }
   },
+  "rules": {"title":"Rules","save":"Save","saved":"Saved.","affected":"Affected shares: {{n}}","ipHint":"External users can then only connect from these networks","section":{"sharing":"Sharing","recipients":"Recipients","external":"External uploads","storage":"Storage"},"force_watermark":"Always apply a watermark","forbid_download":"Forbid downloads (view only)","share_max_days":"Maximum share lifetime (days)","share_default_days":"Default share lifetime (days)","retention_days":"Retention (days, 0 = keep)","max_file_bytes":"Maximum file size (MiB, 0 = server limit)","max_share_bytes":"Maximum share size (MiB, 0 = unlimited)","upload_max_bytes":"Maximum external upload size (MiB, 0 = unlimited)","quota_bytes":"Storage quota per user (MiB, 0 = unlimited)","domain_block":"Blocked email domains (one per line)","domain_allow":"Allowed email domains (one per line, empty = all)","upload_exts":"Allowed upload extensions (one per line, empty = all)","external_ip_allow":"Allowed networks for external users (CIDR, one per line)","error":{"generic":"Could not save the rules, please check the form","share_max_days":{"out_of_range":"Must be between 1 and 365 days"},"share_default_days":{"out_of_range":"Must be between 1 day and the maximum lifetime"},"retention_days":{"out_of_range":"Out of range"},"max_file_bytes":{"out_of_range":"Out of range"},"max_share_bytes":{"out_of_range":"Out of range"},"upload_max_bytes":{"out_of_range":"Out of range"},"quota_bytes":{"out_of_range":"Out of range"},"domain_block":{"invalid":"Invalid domain"},"domain_allow":{"invalid":"Invalid domain"},"upload_exts":{"invalid":"Extensions may only contain letters and digits"},"external_ip_allow":{"invalid":"Invalid CIDR"}}},
   "trace": {"title":"Leak tracing","intro":"Find who downloaded a leaked file. Screenshots cannot be analysed: look up the tracking code printed on the visible watermark instead.","code":"Tracking code","sha256":"SHA-256","file":"Suspect file (analysed in memory, never stored)","search":"Search","undetermined":"Undetermined","notAnalyzed":"The file content was not analysed (too large); only its SHA-256 was checked.","forbidden": "You do not have permission to use leak tracing", "error":"Lookup failed, check the input and try again","col":{"source":"Source","method":"Method","code":"Code","file":"File","owner":"Owner","recipient":"Downloader","ip":"IP","at":"Time"},"source":{"download":"Download","view":"Online view","file":"Original upload"},"via":{"code":"tracking code","metadata":"file metadata","text_layer":"hidden text layer","invisible":"invisible watermark","sha256":"file fingerprint"},"method":{"pdf_pages":"Watermarked PDF pages","pdf_meta":"PDF metadata","image_visible":"Visible + invisible watermark","image_invisible":"Invisible watermark","ooxml_meta":"Office metadata","odf_meta":"OpenDocument metadata","none":"Unmarked"}}
 }

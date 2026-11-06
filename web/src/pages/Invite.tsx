@@ -12,7 +12,7 @@ export default function Invite() {
   const { t } = useTranslation();
   const [info, setInfo] = useState<{ email: string; qr: string } | null>(null);
   const [gone, setGone] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(""); // i18n key of the load error
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [code, setCode] = useState("");
@@ -27,7 +27,7 @@ export default function Invite() {
       } catch (e) {
         const s = e instanceof ApiError ? e.status : 0;
         if (s === 410 || s === 404) setGone(true);
-        else setLoadFailed(true);
+        else setLoadFailed(e instanceof ApiError && s === 403 && e.message === "ip_denied" ? "recipient.error.ipDenied" : "app.error");
       }
     })();
   }, [token]);
@@ -43,7 +43,7 @@ export default function Invite() {
     } catch (e) {
       const s = e instanceof ApiError ? e.status : 0;
       if (s === 410) setGone(true);
-      else setErr(s === 401 ? "invite.invalidCode" : s === 422 ? (e instanceof ApiError && e.code === "too_short" ? "invite.tooShort" : "invite.badPassword") : "app.error");
+      else setErr(e instanceof ApiError && s === 403 && e.message === "ip_denied" ? "recipient.error.ipDenied" : s === 401 ? "invite.invalidCode" : s === 422 ? (e instanceof ApiError && e.code === "too_short" ? "invite.tooShort" : "invite.badPassword") : "app.error");
     }
   };
 
@@ -51,7 +51,7 @@ export default function Invite() {
     <main>
       <div style={{ textAlign: "right" }}><LangSwitch /></div>
       <h1>{t("invite.title")}</h1>
-      {gone ? <p role="alert">{t("invite.gone")}</p> : loadFailed ? <p role="alert">{t("app.error")}</p> : !info ? <p>{t("app.loading")}</p> : done ? (
+      {gone ? <p role="alert">{t("invite.gone")}</p> : loadFailed ? <p role="alert">{t(loadFailed)}</p> : !info ? <p>{t("app.loading")}</p> : done ? (
         <>
           <p>{t("invite.success")}</p>
           <Link to="/login">{t("login.submit")}</Link>

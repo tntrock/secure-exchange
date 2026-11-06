@@ -14,7 +14,7 @@ export default function Login() {
   const [err, setErr] = useState("");
 
   const fail = (e: unknown, invalidKey: string) =>
-    setErr(e instanceof ApiError && e.status === 429 ? t("login.rateLimited") : e instanceof ApiError && e.status === 401 ? t(invalidKey) : t("app.error"));
+    setErr(e instanceof ApiError && e.status === 429 ? t("login.rateLimited") : e instanceof ApiError && e.status === 403 && e.message === "ip_denied" ? t("recipient.error.ipDenied") : e instanceof ApiError && e.status === 401 ? t(invalidKey) : t("app.error"));
 
   // vendors land on their portal; a failed /api/me falls back to the staff home
   const home = async () => nav((await api.me().catch(() => null))?.role === "vendor" ? "/vendor/shares" : "/files");

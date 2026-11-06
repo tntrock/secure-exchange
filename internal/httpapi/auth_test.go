@@ -27,6 +27,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/vendor"
@@ -59,9 +60,10 @@ func newEnv(t *testing.T, mods ...func(*Deps)) *env {
 		t.Fatal(err)
 	}
 	e := &env{users: auth.NewUsers(pool, kr), audit: audit.New(pool), pool: pool, keys: kr, store: store}
-	d := Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour, Pool: pool, Keys: kr, Store: store, Shares: share.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", 30),
-		Requests: intake.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", 30),
-		Vendors:  vendor.NewService(pool, e.users, auth.NewSessions(pool), mail.NewOutbox(pool, kr, &mail.Recorder{}), "https://x.example", "approval"),
+	rs := seedRules(t, pool)
+	d := Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour, Pool: pool, Keys: kr, Store: store, Rules: rs, Shares: share.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", rs),
+		Requests: intake.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", rs),
+		Vendors:  vendor.NewService(pool, e.users, auth.NewSessions(pool), mail.NewOutbox(pool, kr, &mail.Recorder{}), "https://x.example", "approval", rs),
 		Uploads: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, auth.UserFrom(r.Context()).ID.String())
 		}), Mark: config.MarkConfig{MaxBytes: 256 << 20, MaxPixels: 50_000_000, Policy: "warn"}}
@@ -360,4 +362,13 @@ func TestRecordSurvivesCanceledRequest(t *testing.T) {
 	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDelete}); err != nil || len(ents) != 1 {
 		t.Fatalf("audit: %v %d", err, len(ents))
 	}
+}
+
+func seedRules(t *testing.T, pool *pgxpool.Pool) *rules.Service {
+	t.Helper()
+	rs := rules.New(pool, 1<<30)
+	if err := rs.Seed(context.Background(), 30); err != nil {
+		t.Fatal(err)
+	}
+	return rs
 }

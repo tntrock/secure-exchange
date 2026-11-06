@@ -16,6 +16,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/intake"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/vendor"
@@ -35,6 +36,7 @@ type Deps struct {
 	Shares         *share.Service
 	Requests       *intake.Service
 	Vendors        *vendor.Service
+	Rules          *rules.Service
 	FontFile       string // TTF for burned-in video watermarks (SX_FONT_FILE)
 	Mark           config.MarkConfig
 	CodeDelay      time.Duration // recipient /code and /verify answer no sooner than this after the request starts (P10)
@@ -54,7 +56,7 @@ func NewServer(deps Deps) http.Handler {
 	}
 	s := &server{Deps: deps, dummyHash: dummy, accountLimit: newLimiter(rate.Every(12*time.Second), 5),
 		codeLimit: newLimiter(rate.Every(200*time.Second), 3)}
-	return securityHeaders(http.NewCrossOriginProtection().Handler(s.routes()))
+	return securityHeaders(http.NewCrossOriginProtection().Handler(s.external(s.routes())))
 }
 
 func (s *server) routes() *http.ServeMux {
@@ -114,6 +116,8 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("GET /api/invite/{token}", recipIP(s.inviteInfo))
 	mux.Handle("POST /api/invite/{token}", recipIP(s.activateVendor))
 	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
+	mux.Handle("GET /api/rules", s.requireUser(s.getRules))
+	mux.Handle("PUT /api/admin/rules", s.requireAdmin(s.putRules))
 	mux.Handle("POST /api/me/totp/setup", s.requireAccount(s.totpSetup))
 	mux.Handle("POST /api/me/totp/enable", s.requireAccount(s.totpEnable))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not_found")) })

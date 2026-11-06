@@ -195,3 +195,13 @@ test("without metadata the default fingerprint is kept", async () => {
   await waitFor(() => expect(ctor).toHaveBeenCalled());
   expect(ctor.mock.calls[0][1].fingerprint).toBeUndefined();
 });
+
+test("403 ext_not_allowed shows its message, cleared on resume", async () => {
+  const { container } = render(<Uploader onDone={() => {}} />);
+  pick(container, "a.txt");
+  await waitFor(() => expect(uploads[0]?.start).toHaveBeenCalled());
+  act(() => uploads[0].opts.onError({ originalResponse: { getStatus: () => 403, getBody: () => "ext_not_allowed" } }));
+  expect(screen.getByRole("alert").textContent).not.toBe("");
+  fireEvent.click(screen.getByRole("button", { name: /resume/i }));
+  expect(screen.queryByRole("alert")).toBeNull();
+});

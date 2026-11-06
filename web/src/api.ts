@@ -29,7 +29,8 @@ export interface VendorReq { email: string; display_name: string; org: string; e
 export interface RecipientLanding { owner_name: string; message: string; expires_at: string }
 export interface RecipientFiles {
   message: string; expires_at: string; allow_download: boolean; watermark: boolean;
-  files: { id: string; name: string; size: number; available: boolean; mark_pending?: boolean }[];
+  download_forbidden?: boolean;
+  files: { id: string; name: string; size: number; available: boolean; mark_pending?: boolean; previewable?: boolean }[];
 }
 
 export interface VendorShareSummary { id: string; owner_name: string; message: string; expires_at: string; file_count: number; allow_download: boolean; watermark: boolean }
@@ -50,6 +51,12 @@ export interface RequestReq {
 }
 export interface IntakeLanding { owner_name: string; message: string; expires_at: string; max_files: number; max_total_bytes: number; allowed_exts: string[] }
 export interface IntakeFiles { files: { id: string; name: string; size: number; created_at: string }[]; files_left: number; bytes_left: number }
+
+export interface Rules {
+  force_watermark: boolean; forbid_download: boolean; share_max_days: number; share_default_days: number; retention_days: number;
+  max_file_bytes: number; max_share_bytes: number; upload_max_bytes: number; quota_bytes: number;
+  domain_block: string[]; domain_allow: string[]; upload_exts: string[]; external_ip_allow: string[];
+}
 
 export interface TraceHit {
   source: string; via: string; code: string; file_id: string; file_name: string; share_id: string | null;
@@ -122,6 +129,8 @@ export const api = {
     }
     return call<TraceResult>("POST", "/api/admin/trace", q);
   },
+  rules: () => call<Rules>("GET", "/api/rules"),
+  saveRules: (r: Rules) => call<{ rules: Rules; affected_shares: number }>("PUT", "/api/admin/rules", r),
   vendors: (activeOnly = false) => call<VendorInfo[]>("GET", activeOnly ? "/api/vendors?active=1" : "/api/vendors"),
   createVendor: (r: VendorReq) => call<VendorInfo>("POST", "/api/vendors", r),
   approveVendor: (id: string) => call<void>("POST", `/api/vendors/${id}/approve`),

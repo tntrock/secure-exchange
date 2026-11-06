@@ -225,3 +225,9 @@ test("a transient error on the refresh keeps the upload step and the running upl
   expect(container.querySelector("input[type=file]")).toBeTruthy();
   expect(screen.getByText("a.pdf")).toBeTruthy();
 });
+
+test("403 ip_denied on the landing shows the network-location message", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(403, { error: "ip_denied" })));
+  renderPage();
+  expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("intake.error.ipDenied"));
+});

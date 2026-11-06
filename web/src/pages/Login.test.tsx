@@ -88,3 +88,8 @@ test("vendor goes to /vendor/shares", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Log in" }));
   expect(await screen.findByText("vendor home")).toBeTruthy();
 });
+
+test("403 ip_denied shows the network-location message", async () => {
+  setup(json(403, { error: "ip_denied" }));
+  expect(await screen.findByText(i18n.t("recipient.error.ipDenied"))).toBeTruthy();
+});

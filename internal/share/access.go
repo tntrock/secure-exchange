@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/rules"
 )
 
 const (
@@ -27,11 +28,12 @@ const (
 )
 
 var (
-	ErrGone         = errors.New("share: revoked or expired")
-	ErrIPDenied     = errors.New("share: source address not allowed")
-	ErrBadCode      = errors.New("share: invalid verification code")
-	ErrViewLimit    = errors.New("share: view limit reached")
-	ErrUnauthorized = errors.New("share: no valid recipient session")
+	ErrGone          = errors.New("share: revoked or expired")
+	ErrIPDenied      = errors.New("share: source address not allowed")
+	ErrBadCode       = errors.New("share: invalid verification code")
+	ErrViewLimit     = errors.New("share: view limit reached")
+	ErrUnauthorized  = errors.New("share: no valid recipient session")
+	ErrDomainBlocked = errors.New("share: recipient domain not allowed")
 )
 
 // Access is a verified recipient's view of one share.
@@ -52,6 +54,35 @@ func ipAllowed(list []netip.Prefix, ip netip.Addr) bool {
 		}
 	}
 	return false
+}
+
+// enforce applies the current admin rules to a loaded share: a download ban and forced watermark override
+// the share's own settings, and a non-empty email must be on an allowed domain.
+func (s *Service) enforce(ctx context.Context, sh *Share, email string) error {
+	r, err := s.rules.Get(ctx)
+	if err != nil {
+		return err
+	}
+	return applyRules(r, sh, email)
+}
+
+// enforceTx is enforce for callers holding a tx: reading through it avoids taking a second pool connection,
+// which under concurrency can starve the pool while every tx waits for one.
+func (s *Service) enforceTx(ctx context.Context, tx pgx.Tx, sh *Share, email string) error {
+	r, err := s.rules.GetTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	return applyRules(r, sh, email)
+}
+
+func applyRules(r rules.Rules, sh *Share, email string) error {
+	sh.AllowDownload = sh.AllowDownload && !r.ForbidDownload
+	sh.Watermark = sh.Watermark || r.ForceWatermark
+	if email != "" && !r.DomainAllowed(email) {
+		return ErrDomainBlocked
+	}
+	return nil
 }
 
 // check reports whether sh may be served now to ip. The allow list itself is never revealed.
@@ -91,6 +122,9 @@ func (s *Service) Landing(ctx context.Context, token string, ip netip.Addr) (*Sh
 	if err := s.check(sh, ip); err != nil {
 		return nil, err
 	}
+	if err := s.enforce(ctx, sh, ""); err != nil {
+		return nil, err
+	}
 	return sh, nil
 }
 
@@ -105,6 +139,7 @@ func (s *Service) RequestCode(ctx context.Context, token, email string, ip netip
 	if !ok {
 		return false, nil
 	}
+	// the domain rule is deliberately not applied here: the recipient gets a code and learns the reason at VerifyCode
 	var rid uuid.UUID
 	err = s.pool.QueryRow(ctx, `SELECT id FROM share_recipients WHERE share_id = $1 AND lower(email) = $2 AND revoked_at IS NULL AND vendor_id IS NULL`,
 		sh.ID, email).Scan(&rid)
@@ -195,6 +230,10 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 		}
 		return "", nil, ErrBadCode
 	}
+	// only after a valid code, so the domain policy is not disclosed to someone without one
+	if err := s.enforceTx(ctx, tx, sh, email); err != nil {
+		return "", nil, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE share_otps SET used_at = now() WHERE id = $1`, otpID); err != nil {
 		return "", nil, err
 	}
@@ -284,6 +323,9 @@ func (s *Service) VendorAccess(ctx context.Context, vendorID, shareID uuid.UUID,
 	if err := s.check(sh, ip); err != nil {
 		return nil, err
 	}
+	if err := s.enforce(ctx, sh, r.Email); err != nil {
+		return nil, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -337,6 +379,9 @@ func (s *Service) Authorize(ctx context.Context, sessionToken string, ip netip.A
 		return nil, err // the session's FK cascade means the share exists
 	}
 	if err := s.check(sh, ip); err != nil {
+		return nil, err
+	}
+	if err := s.enforce(ctx, sh, r.Email); err != nil {
 		return nil, err
 	}
 	if err := s.loadFiles(ctx, sh); err != nil {

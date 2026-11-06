@@ -19,6 +19,7 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -93,12 +94,12 @@ type Service struct {
 	keys    *sxcrypto.Keyring
 	users   *auth.Users
 	baseURL string
-	maxDays int
+	rules   *rules.Service
 	now     func() time.Time
 }
 
-func NewService(pool *pgxpool.Pool, outbox *mail.Outbox, keys *sxcrypto.Keyring, baseURL string, maxDays int) *Service {
-	return &Service{pool: pool, outbox: outbox, keys: keys, users: auth.NewUsers(pool, keys), baseURL: baseURL, maxDays: maxDays, now: time.Now}
+func NewService(pool *pgxpool.Pool, outbox *mail.Outbox, keys *sxcrypto.Keyring, baseURL string, rules *rules.Service) *Service {
+	return &Service{pool: pool, outbox: outbox, keys: keys, users: auth.NewUsers(pool, keys), baseURL: baseURL, rules: rules, now: time.Now}
 }
 
 func invalid(field, code string) error { return &ValidationError{field, code} }
@@ -129,6 +130,16 @@ func (s *Service) recipients(ctx context.Context, emails []string, vendorIDs []u
 		covered[strings.ToLower(u.Email)] = true
 	}
 	emails = slices.DeleteFunc(emails, func(e string) bool { return covered[e] })
+	rl, err := s.rules.Get(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if slices.ContainsFunc(emails, func(e string) bool { return !rl.DomainAllowed(e) }) {
+		return nil, nil, invalid("emails", "domain_blocked")
+	}
+	if slices.ContainsFunc(vendors, func(v *auth.User) bool { return !rl.DomainAllowed(v.Email) }) {
+		return nil, nil, invalid("vendor_ids", "domain_blocked")
+	}
 	switch n := len(emails) + len(vendors); {
 	case n == 0:
 		return nil, nil, invalid("recipients", "required")
@@ -210,24 +221,12 @@ func normEmails(in []string) ([]string, error) {
 }
 
 func parseIPs(in []string) ([]netip.Prefix, error) {
-	if len(in) > maxIPAllow {
+	out, err := rules.ParsePrefixes(in, maxIPAllow)
+	switch {
+	case errors.Is(err, rules.ErrTooMany):
 		return nil, invalid("ip_allow", "too_many")
-	}
-	out := make([]netip.Prefix, 0, len(in))
-	for _, s := range in {
-		p, err := netip.ParsePrefix(s)
-		if err != nil {
-			a, aerr := netip.ParseAddr(s)
-			if aerr != nil {
-				return nil, invalid("ip_allow", "invalid")
-			}
-			a = a.Unmap()
-			p = netip.PrefixFrom(a, a.BitLen())
-		}
-		if p.Addr().Is4In6() && p.Bits() >= 96 { // ::ffff:a.b.c.d/n is the v4 prefix /n-96
-			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
-		}
-		out = append(out, p.Masked()) // cidr columns reject host bits
+	case err != nil:
+		return nil, invalid("ip_allow", "invalid")
 	}
 	return out, nil
 }
@@ -248,7 +247,17 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 		return nil, invalid("expires_at", "required")
 	}
 	now := s.now()
-	if in.ExpiresAt.Before(now.Add(time.Hour)) || in.ExpiresAt.After(now.AddDate(0, 0, s.maxDays)) {
+	rl, err := s.rules.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if in.AllowDownload && rl.ForbidDownload {
+		return nil, invalid("allow_download", "locked")
+	}
+	if !in.Watermark && rl.ForceWatermark {
+		return nil, invalid("watermark", "locked")
+	}
+	if in.ExpiresAt.Before(now.Add(time.Hour)) || in.ExpiresAt.After(now.AddDate(0, 0, rl.ShareMaxDays)) {
 		return nil, invalid("expires_at", "out_of_range")
 	}
 	if in.MaxViews != nil && (*in.MaxViews < 1 || *in.MaxViews > maxViewsCap) {
@@ -280,11 +289,20 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 	}
 	defer tx.Rollback(ctx)
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM files WHERE id = ANY($1) AND owner_id = $2 AND deleted_at IS NULL`, fileIDs, owner.ID).Scan(&n); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM (SELECT id FROM files WHERE id = ANY($1) AND owner_id = $2 AND deleted_at IS NULL FOR SHARE) f`, fileIDs, owner.ID).Scan(&n); err != nil {
 		return nil, err
 	}
 	if n != len(fileIDs) {
 		return nil, invalid("file_ids", "not_found")
+	}
+	if rl.MaxShareBytes > 0 {
+		var total int64
+		if err := tx.QueryRow(ctx, `SELECT coalesce(sum(size),0)::bigint FROM files WHERE id = ANY($1)`, fileIDs).Scan(&total); err != nil {
+			return nil, err
+		}
+		if total > rl.MaxShareBytes {
+			return nil, invalid("file_ids", "too_large")
+		}
 	}
 	var unscanned int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM files WHERE id = ANY($1) AND scan_status NOT IN ('none','clean','skipped')`, fileIDs).Scan(&unscanned); err != nil {

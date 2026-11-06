@@ -23,6 +23,7 @@ Self-hosted secure file exchange, open source (AGPL-3.0). One Go binary with the
 - Upload requests: collect files from people without an account via a link; uploaders verify by email code.
 - ClamAV scanning of every external upload; infected files are quarantined.
 - Vendor accounts for long-term partners: password plus mandatory TOTP, a "Shared with me" list, and direct uploads to staff.
+- Admin enforcement rules: on the **Rules** page set download ban, forced watermark, email-domain and external-IP restrictions, expiry and size limits, storage quota and retention; changes apply immediately, including to existing shares, and are audited.
 
 User and administrator manuals (Traditional Chinese): [docs/user-manual.md](docs/user-manual.md), [docs/admin-manual.md](docs/admin-manual.md).
 

@@ -62,7 +62,7 @@ func (s *server) routes() *http.ServeMux {
 
 	mux.Handle("POST /api/auth/login", perIP(http.HandlerFunc(s.login)))
 	mux.Handle("POST /api/auth/totp", perIP(http.HandlerFunc(s.totp)))
-	mux.Handle("POST /api/auth/logout", s.requireAccount(s.logout))
+	mux.HandleFunc("POST /api/auth/logout", s.logout)
 
 	mux.Handle("GET /api/me", s.requireAccount(s.me))
 	mux.Handle("GET /api/files", s.requireUser(s.listFiles))

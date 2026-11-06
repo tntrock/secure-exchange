@@ -151,3 +151,26 @@ func TestLoginRejectsInactiveVendor(t *testing.T) {
 		})
 	}
 }
+
+func TestLogoutWorksBeforeTOTP(t *testing.T) {
+	e := newEnv(t)
+	e.mkVendor(t, "v@x.com")
+	if resp, b := e.login(t, "v@x.com", pw); resp.StatusCode != 200 {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	count := func() (n int) {
+		e.pool.QueryRow(context.Background(), `SELECT count(*) FROM sessions`).Scan(&n)
+		return
+	}
+	if count() != 1 {
+		t.Fatal("expected one pending session")
+	}
+	resp, _ := e.do(t, "POST", "/api/auth/logout", nil)
+	cleared := false
+	for _, c := range resp.Cookies() {
+		cleared = cleared || (c.Name == cookieName && c.MaxAge < 0)
+	}
+	if resp.StatusCode != 204 || !cleared || count() != 0 {
+		t.Fatal(resp.StatusCode, cleared, count())
+	}
+}

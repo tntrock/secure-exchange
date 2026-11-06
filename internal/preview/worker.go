@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tntrock/secure-exchange/internal/blob"
@@ -139,7 +140,7 @@ func (w *Worker) runJob(ctx context.Context, j *Job) {
 			return
 		}
 		// also done when the next attempt starts; here so a job that then hits maxAttempts keeps no partial artifacts
-		if derr := DeleteItems(ctx, w.Pool, w.Store, j.FileID); derr != nil {
+		if derr := w.cleanup(ctx, j.FileID); derr != nil {
 			slog.Error("preview: delete items of requeued job", "job", j.ID, "err", derr)
 		}
 		return
@@ -157,7 +158,7 @@ func (w *Worker) runJob(ctx context.Context, j *Job) {
 		return // not ours any more: leave the items to the current attempt
 	}
 	// a failed (or deleted) file keeps no partial artifacts
-	if derr := DeleteItems(ctx, w.Pool, w.Store, j.FileID); derr != nil {
+	if derr := w.cleanup(ctx, j.FileID); derr != nil {
 		slog.Error("preview: delete items of failed job", "job", j.ID, "err", derr)
 	}
 }
@@ -237,4 +238,12 @@ func (w *Worker) render(ctx context.Context, p pipeline, ext string, src io.Read
 		return Result{}, retryable(fmt.Errorf("decrypt input: %w", err)) // ENOSPC: too_large, see runJob
 	}
 	return p(&jobEnv{ctx: ctx, cfg: w.Cfg, dir: dir, in: in, put: put})
+}
+
+// cleanup drops a job's partial items. It outlives ctx so a shutdown landing
+// right after the status write cannot leave orphaned artifacts behind.
+func (w *Worker) cleanup(ctx context.Context, fileID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	return DeleteItems(ctx, w.Pool, w.Store, fileID)
 }

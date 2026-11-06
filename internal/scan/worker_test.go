@@ -432,3 +432,32 @@ func TestScanInfectedNotifiesDisabledOwner(t *testing.T) {
 		t.Fatal(to)
 	}
 }
+
+func TestScanVendorUploadNotifies(t *testing.T) {
+	for _, tc := range []struct{ reply, status string }{{"stream: OK", "clean"}, {"stream: X FOUND", "infected"}} {
+		t.Run(tc.status, func(t *testing.T) {
+			f := newFakeClamd(t, tc.reply)
+			e := newEnv(t, f.addr)
+			v := uuid.New()
+			e.user(t, v, "vic@vendor.example", "vendor", false)
+			e.user(t, uuid.New(), "adm@example.com", "admin", false)
+			id := e.file(t, []byte("hello"))
+			if _, err := e.pool.Exec(ctx, `UPDATE files SET request_id = NULL, uploader_id = NULL, vendor_id = $2 WHERE id = $1`, id, v); err != nil {
+				t.Fatal(err)
+			}
+			e.run(t)
+			if s, _ := e.status(t, id); s != tc.status {
+				t.Fatal(s)
+			}
+			to, bodies := e.mails(t)
+			owner := len(to) - 1 // "adm@" sorts before "owner@"
+			if to[owner] != "owner@example.com" || !strings.Contains(bodies[owner], "vic@vendor.example") ||
+				!strings.Contains(bodies[owner], "https://sx.example/files\n") || strings.Contains(bodies[owner], "/requests/") {
+				t.Fatalf("%v %q", to, bodies)
+			}
+			if tc.status == "infected" && (len(to) != 2 || strings.Contains(bodies[0], "https://") || !strings.Contains(bodies[0], "vic@vendor.example")) {
+				t.Fatalf("admin copy: %v %q", to, bodies)
+			}
+		})
+	}
+}

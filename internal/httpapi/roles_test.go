@@ -101,6 +101,9 @@ func TestRoleGates(t *testing.T) {
 		{"GET", "/api/vendor/shares/" + zero + "/files/" + zero + "/preview/pages/0", []string{"staff", "admin"}},
 		{"GET", "/api/vendor/shares/" + zero + "/files/" + zero + "/preview/video.m3u8", []string{"staff", "admin"}},
 		{"GET", "/api/vendor/shares/" + zero + "/files/" + zero + "/preview/segments/0.ts", []string{"staff", "admin"}},
+		{"GET", "/api/vendor/recipients", []string{"staff", "admin"}},
+		{"GET", "/api/vendor/uploads", []string{"staff", "admin"}},
+		{"POST", "/api/vendor/uploads/", []string{"staff", "admin"}},
 	}
 	logins := []struct{ role, email, secret string }{
 		{"staff", "staff@x.com", ""}, {"admin", "adm@x.com", ""}, {"vendor", "v@x.com", vsecret},

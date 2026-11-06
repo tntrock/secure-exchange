@@ -109,6 +109,8 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("GET /api/vendor/shares", s.requireVendor(s.listVendorShares))
 	mux.Handle("GET /api/vendor/shares/{id}", s.requireVendorShare(s.listRecipientFiles))
 	mux.Handle("GET /api/vendor/shares/{id}/files/{fid}/content", s.requireVendorShare(s.recipientDownload))
+	mux.Handle("GET /api/vendor/recipients", s.requireVendor(s.listVendorRecipients))
+	mux.Handle("GET /api/vendor/uploads", s.requireVendor(s.listVendorUploads))
 	mux.Handle("GET /api/invite/{token}", recipIP(s.inviteInfo))
 	mux.Handle("POST /api/invite/{token}", recipIP(s.activateVendor))
 	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
@@ -121,15 +123,18 @@ func (s *server) routes() *http.ServeMux {
 		// only creating an upload is limited; HEAD/PATCH/DELETE/OPTIONS on an existing one are bounded by the
 		// uploader session and the per-upload lock, and a multi-file upload sends many of them
 		perIPUpload := rateLimit(s.ip, rate.Every(time.Second), 120)
-		uploads := s.requireUploader(s.Uploads.ServeHTTP)
-		limited := perIPUpload(uploads)
-		mux.Handle("/api/r/{token}/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodPost {
-				limited.ServeHTTP(w, r)
-				return
-			}
-			uploads.ServeHTTP(w, r)
-		}))
+		postLimited := func(h http.Handler) http.Handler {
+			limited := perIPUpload(h)
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					limited.ServeHTTP(w, r)
+					return
+				}
+				h.ServeHTTP(w, r)
+			})
+		}
+		mux.Handle("/api/r/{token}/uploads/", postLimited(s.requireUploader(s.Uploads.ServeHTTP)))
+		mux.Handle("/api/vendor/uploads/", postLimited(s.requireVendor(s.Uploads.ServeHTTP)))
 	}
 	return mux
 }

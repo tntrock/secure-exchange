@@ -46,6 +46,9 @@ const (
 	ActVendorExpiry   = "vendor.expiry"
 	ActVendorReinvite = "vendor.reinvite"
 	ActVendorActivate = "vendor.activate"
+
+	ActRulesUpdate     = "rules.update"
+	ActRetentionDelete = "file.retention_delete"
 )
 
 const lockKey = 7461

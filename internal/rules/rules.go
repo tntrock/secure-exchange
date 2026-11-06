@@ -270,3 +270,6 @@ func canonPrefix(p netip.Prefix) netip.Prefix {
 	}
 	return p.Masked()
 }
+
+// GetTx reads the stored rules inside tx (e.g. the normalised result of an Update not yet committed).
+func (s *Service) GetTx(ctx context.Context, tx pgx.Tx) (Rules, error) { return scan(ctx, tx, "") }

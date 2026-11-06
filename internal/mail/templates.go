@@ -22,6 +22,20 @@ func Invitation(shareURL, senderName, message string, expires time.Time) (string
 			fmt.Sprintf("%s has shared files with you.%s\nOpen the link and enter the verification code sent to this address:\n%s\n\nThis share expires at %s.", senderName, enNote, shareURL, ex)
 }
 
+// VendorShared tells a vendor account that files await it in its signed-in list; it carries no share token.
+func VendorShared(listURL, senderName, message string, expires time.Time) (string, string) {
+	zhNote, enNote := "", ""
+	if message != "" {
+		zhNote = "\n附言：\n" + message + "\n"
+		enNote = "\nMessage:\n" + message + "\n"
+	}
+	ex := expires.UTC().Format("2006-01-02 15:04 UTC")
+	return subject("您收到一份安全分享的檔案", "A file has been securely shared with you"),
+		fmt.Sprintf("%s 與您分享了檔案。%s\n請登入您的廠商帳號查看：\n%s\n\n此分享將於 %s 到期。", senderName, zhNote, listURL, ex) +
+			sep +
+			fmt.Sprintf("%s has shared files with you.%s\nSign in to your vendor account to view them:\n%s\n\nThis share expires at %s.", senderName, enNote, listURL, ex)
+}
+
 func OTPCode(code string) (string, string) {
 	return subject("您的驗證碼", "Your verification code"),
 		fmt.Sprintf("您的驗證碼是：%s\n驗證碼 10 分鐘內有效，且只能使用一次。若這不是您的操作，請忽略此信。", code) +
@@ -56,14 +70,15 @@ func UploadInvitation(url, senderName, message string, expires time.Time) (strin
 			fmt.Sprintf("%s has asked you to upload files securely.%s\nOpen the link and enter the verification code sent to this address:\n%s\n\nThis link expires at %s.", senderName, enNote, url, ex)
 }
 
-// NotifyIntakeUpload tells the requester a file arrived; skipped means it was too large to virus-scan.
+// NotifyIntakeUpload tells the recipient of an upload (request owner or vendor-upload target) a file arrived;
+// skipped means it was too large to virus-scan.
 func NotifyIntakeUpload(uploader, fileName, requestURL string, skipped bool) (string, string) {
 	zhNote, enNote := "", ""
 	if skipped {
 		zhNote = "\n注意：此檔案超過病毒掃描大小上限，未經掃描。"
 		enNote = "\nNote: this file was not virus-scanned because it is over the scan size limit."
 	}
-	return subject("您收到一份上傳的檔案", "A file was uploaded to your request"),
+	return subject("您收到一份上傳的檔案", "A file was uploaded for you"),
 		fmt.Sprintf("%s 已上傳檔案「%s」。%s\n%s", uploader, fileName, zhNote, requestURL) +
 			sep +
 			fmt.Sprintf("%s uploaded the file \"%s\".%s\n%s", uploader, fileName, enNote, requestURL)
@@ -86,4 +101,19 @@ func NotifyScanError(uploader, fileName, requestURL string) (string, string) {
 		fmt.Sprintf("%s 上傳的檔案「%s」多次掃描失敗，已封鎖，無法下載。\n%s", uploader, fileName, requestURL) +
 			sep +
 			fmt.Sprintf("The file \"%s\" uploaded by %s could not be virus-scanned after several attempts. It is blocked and cannot be downloaded.\n%s", fileName, uploader, requestURL)
+}
+
+func VendorInvitation(url, inviterName string, expires time.Time) (string, string) {
+	ex := expires.UTC().Format("2006-01-02 15:04 UTC")
+	return subject("您受邀使用 secure-exchange 帳號", "You are invited to a secure-exchange account"),
+		fmt.Sprintf("%s 為您建立了 secure-exchange 帳號。請開啟連結設定密碼與兩步驟驗證（TOTP）：\n%s\n\n此連結將於 %s 到期，且只能使用一次。", inviterName, url, ex) +
+			sep +
+			fmt.Sprintf("%s has created a secure-exchange account for you. Open the link to set your password and two-step verification (TOTP):\n%s\n\nThis link expires at %s and can be used once.", inviterName, url, ex)
+}
+
+func VendorApprovalNeeded(vendorEmail, creatorName, url string) (string, string) {
+	return subject("廠商帳號待核准", "A vendor account needs approval"),
+		fmt.Sprintf("%s 申請建立廠商帳號 %s，請核准或拒絕：\n%s", creatorName, vendorEmail, url) +
+			sep +
+			fmt.Sprintf("%s asked to create the vendor account %s. Approve or reject it:\n%s", creatorName, vendorEmail, url)
 }

@@ -16,6 +16,9 @@ export default function Login() {
   const fail = (e: unknown, invalidKey: string) =>
     setErr(e instanceof ApiError && e.status === 429 ? t("login.rateLimited") : e instanceof ApiError && e.status === 401 ? t(invalidKey) : t("app.error"));
 
+  // vendors land on their portal; a failed /api/me falls back to the staff home
+  const home = async () => nav((await api.me().catch(() => null))?.role === "vendor" ? "/vendor/shares" : "/files");
+
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     setErr("");
@@ -23,10 +26,10 @@ export default function Login() {
       if (!mfa) {
         const r = await api.login(email, password);
         if (r.mfa_required) setMfa(true);
-        else nav("/files");
+        else await home();
       } else {
         await api.totp(code);
-        nav("/files");
+        await home();
       }
     } catch (e) {
       fail(e, mfa ? "login.invalidCode" : "login.invalid");

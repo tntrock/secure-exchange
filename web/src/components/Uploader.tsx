@@ -13,7 +13,7 @@ const shouldRetry = (err: DetailedError) => {
   return (status < 400 || status >= 500 || [409, 423, 429].includes(status)) && (typeof navigator === "undefined" || navigator.onLine !== false);
 };
 
-function UploadItem({ file, endpoint, onDone, onError }: { file: File; endpoint: string; onDone: () => void; onError?: OnError }) {
+function UploadItem({ file, endpoint, metadata, onDone, onError }: { file: File; endpoint: string; metadata?: Record<string, string>; onDone: () => void; onError?: OnError }) {
   const { t } = useTranslation();
   const up = useRef<Upload | null>(null);
   const [pct, setPct] = useState(0);
@@ -26,8 +26,14 @@ function UploadItem({ file, endpoint, onDone, onError }: { file: File; endpoint:
       chunkSize: 64 * 1024 * 1024,
       retryDelays: [0, 1000, 3000, 5000, 10000],
       onShouldRetry: shouldRetry,
-      metadata: { filename: file.name, filetype: file.type },
+      metadata: { filename: file.name, filetype: file.type, ...metadata },
       storeFingerprintForResuming: true,
+      // The default fingerprint ignores metadata; with extra metadata (the vendor upload recipient) a resume
+      // must only pick up an upload started with the same metadata, or the file lands at the wrong person.
+      ...(metadata && {
+        fingerprint: (f: File, o: { endpoint?: string | null }) =>
+          Promise.resolve(["tus-br", f.name, f.type, f.size, f.lastModified, o.endpoint, JSON.stringify(metadata)].join("-")),
+      }),
       onProgress: (sent, total) => setPct(total ? Math.floor((sent / total) * 100) : 0),
       onSuccess: () => {
         setPct(100);
@@ -91,9 +97,10 @@ type Props = {
   accept?: string;
   check?: (f: File) => string | null; // i18n key when the file is rejected before upload
   onError?: OnError;
+  metadata?: Record<string, string>; // extra tus metadata, e.g. the vendor upload recipient
 };
 
-export default function Uploader({ onDone, endpoint = "/api/uploads/", accept, check, onError }: Props) {
+export default function Uploader({ onDone, endpoint = "/api/uploads/", accept, check, onError, metadata }: Props) {
   const { t } = useTranslation();
   const [files, setFiles] = useState<File[]>([]);
   const [over, setOver] = useState(false);
@@ -142,7 +149,7 @@ export default function Uploader({ onDone, endpoint = "/api/uploads/", accept, c
       </div>
       {rejected.map((k, i) => <p key={i} className="error" role="alert">{t(k)}</p>)}
       {files.map((f, i) => (
-        <UploadItem key={i} file={f} endpoint={endpoint} onDone={onDone} onError={onError} />
+        <UploadItem key={i} file={f} endpoint={endpoint} metadata={metadata} onDone={onDone} onError={onError} />
       ))}
     </div>
   );

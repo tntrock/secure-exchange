@@ -4,8 +4,10 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/time/rate"
 
@@ -126,8 +128,23 @@ func (s *server) session(r *http.Request) (string, *auth.Session, bool) {
 	return c.Value, se, true
 }
 
-// requireUser needs a fully authenticated (MFA passed) session of an enabled user.
+// requireAccount needs a fully authenticated (MFA passed) session of an Active user of any role.
+func (s *server) requireAccount(next http.HandlerFunc) http.Handler {
+	return s.requireRole(next)
+}
+
+// requireUser is requireAccount restricted to staff and admin; vendors get 403.
 func (s *server) requireUser(next http.HandlerFunc) http.Handler {
+	return s.requireRole(next, "staff", "admin")
+}
+
+// requireVendor is requireAccount restricted to vendors; staff and admins get 403.
+func (s *server) requireVendor(next http.HandlerFunc) http.Handler {
+	return s.requireRole(next, "vendor")
+}
+
+// requireRole admits an Active user whose role is in roles (any role when empty).
+func (s *server) requireRole(next http.HandlerFunc, roles ...string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, se, ok := s.session(r)
 		if !ok || !se.MFAPassed {
@@ -135,8 +152,12 @@ func (s *server) requireUser(next http.HandlerFunc) http.Handler {
 			return
 		}
 		u, err := s.Users.ByID(r.Context(), se.UserID)
-		if err != nil || u.Disabled {
+		if err != nil || !u.Active(time.Now()) {
 			writeJSON(w, http.StatusUnauthorized, errBody("unauthorized"))
+			return
+		}
+		if len(roles) > 0 && !slices.Contains(roles, u.Role) {
+			writeJSON(w, http.StatusForbidden, errBody("forbidden"))
 			return
 		}
 		next(w, r.WithContext(auth.WithUser(r.Context(), u)))

@@ -27,3 +27,15 @@ test("requests link for everyone", () => {
   show("user");
   expect(screen.getByRole("link", { name: i18n.t("nav.requests") }).getAttribute("href")).toBe("/requests");
 });
+
+test("vendors link for staff and admin", () => {
+  show("user");
+  expect(screen.getByRole("link", { name: i18n.t("nav.vendors") }).getAttribute("href")).toBe("/vendors");
+});
+
+test("vendor nav is shared-with-me and upload only", () => {
+  show("vendor");
+  expect(screen.getByRole("link", { name: i18n.t("nav.sharedWithMe") }).getAttribute("href")).toBe("/vendor/shares");
+  expect(screen.getByRole("link", { name: i18n.t("nav.vendorUpload") }).getAttribute("href")).toBe("/vendor/upload");
+  for (const k of ["files", "shares", "requests", "vendors"]) expect(screen.queryByRole("link", { name: i18n.t(`nav.${k}`) })).toBeNull();
+});

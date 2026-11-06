@@ -254,3 +254,22 @@ func TestLoadScan(t *testing.T) {
 		}
 	}
 }
+
+func TestVendorCreation(t *testing.T) {
+	c, err := Load(env(required()))
+	if err != nil || c.VendorCreation != "approval" {
+		t.Fatal(c, err)
+	}
+	for _, v := range []string{"staff", "approval", "admin"} {
+		m := required()
+		m["SX_VENDOR_CREATION"] = v
+		if c, err := Load(env(m)); err != nil || c.VendorCreation != v {
+			t.Fatal(v, err)
+		}
+	}
+	m := required()
+	m["SX_VENDOR_CREATION"] = "bogus"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_VENDOR_CREATION") {
+		t.Fatal(err)
+	}
+}

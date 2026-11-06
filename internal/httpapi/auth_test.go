@@ -29,6 +29,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
+	"github.com/tntrock/secure-exchange/internal/vendor"
 )
 
 const pw = "password-12345"
@@ -60,6 +61,7 @@ func newEnv(t *testing.T, mods ...func(*Deps)) *env {
 	e := &env{users: auth.NewUsers(pool, kr), audit: audit.New(pool), pool: pool, keys: kr, store: store}
 	d := Deps{Users: e.users, Sessions: auth.NewSessions(pool), Audit: e.audit, SessionTTL: time.Hour, Pool: pool, Keys: kr, Store: store, Shares: share.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", 30),
 		Requests: intake.NewService(pool, mail.NewOutbox(pool, kr, &mail.Recorder{}), kr, "https://x.example", 30),
+		Vendors:  vendor.NewService(pool, e.users, auth.NewSessions(pool), mail.NewOutbox(pool, kr, &mail.Recorder{}), "https://x.example", "approval"),
 		Uploads: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, auth.UserFrom(r.Context()).ID.String())
 		}), Mark: config.MarkConfig{MaxBytes: 256 << 20, MaxPixels: 50_000_000, Policy: "warn"}}

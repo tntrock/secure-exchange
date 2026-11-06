@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -18,6 +19,9 @@ type User struct {
 	Email, DisplayName, Role, AuthSource string
 	PasswordHash                         string
 	TOTPEnabled, Disabled                bool
+	ExpiresAt                            *time.Time
+	Approval                             string // pending, approved or rejected
+	OrgID, CreatedBy                     *uuid.UUID
 }
 
 type Users struct {
@@ -27,11 +31,11 @@ type Users struct {
 
 func NewUsers(pool *pgxpool.Pool, keys *sxcrypto.Keyring) *Users { return &Users{pool, keys} }
 
-const userCols = `id, email, display_name, role, auth_source, coalesce(password_hash,''), totp_enabled, disabled`
+const userCols = `id, email, display_name, role, auth_source, coalesce(password_hash,''), totp_enabled, disabled, expires_at, approval, vendor_org_id, created_by`
 
 func scanUser(row pgx.Row) (*User, error) {
 	u := &User{}
-	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.AuthSource, &u.PasswordHash, &u.TOTPEnabled, &u.Disabled)
+	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.AuthSource, &u.PasswordHash, &u.TOTPEnabled, &u.Disabled, &u.ExpiresAt, &u.Approval, &u.OrgID, &u.CreatedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -80,4 +84,12 @@ func (s *Users) EnsureInitialAdmin(ctx context.Context, email, password string) 
 		return nil
 	}
 	return err
+}
+
+// Active reports whether the account may hold a session at now. A vendor also needs a password and TOTP.
+func (u *User) Active(now time.Time) bool {
+	if u.Disabled || u.Approval != "approved" || (u.ExpiresAt != nil && !now.Before(*u.ExpiresAt)) {
+		return false
+	}
+	return u.Role != "vendor" || (u.PasswordHash != "" && u.TOTPEnabled)
 }

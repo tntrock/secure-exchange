@@ -3,10 +3,13 @@ package auth
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base32"
+	"errors"
 	"net/url"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 )
@@ -81,4 +84,30 @@ func secretFromURL(u string) string {
 		return ""
 	}
 	return p.Query().Get("secret")
+}
+
+// PendingTOTP returns the otpauth URL of the stored, not yet enabled secret, or "" when there is none.
+func (s *Users) PendingTOTP(ctx context.Context, id uuid.UUID) (string, error) {
+	var email string
+	var sealed []byte
+	err := s.pool.QueryRow(ctx, `SELECT email, totp_secret_sealed FROM users WHERE id=$1 AND NOT totp_enabled`, id).Scan(&email, &sealed)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && sealed == nil) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	secret, err := s.keys.Open(sealed, totpAAD(id))
+	if err != nil {
+		return "", err
+	}
+	raw, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(string(secret))
+	if err != nil {
+		return "", err
+	}
+	key, err := totp.Generate(totp.GenerateOpts{Issuer: "secure-exchange", AccountName: email, Secret: raw})
+	if err != nil {
+		return "", err
+	}
+	return key.URL(), nil
 }

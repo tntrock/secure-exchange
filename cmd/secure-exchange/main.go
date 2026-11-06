@@ -25,6 +25,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/upload"
+	"github.com/tntrock/secure-exchange/internal/vendor"
 )
 
 func main() {
@@ -89,10 +90,12 @@ func serve(ctx context.Context) error {
 	outbox := mail.NewOutbox(pool, keys, mail.NewSMTP(cfg.SMTP))
 	go outbox.Run(ctx)
 	go upload.RunJanitor(ctx, pool, store, cfg.StagingDir, 24*time.Hour)
+	sessions := auth.NewSessions(pool)
 	handler := httpapi.NewServer(httpapi.Deps{
-		Users: users, Sessions: auth.NewSessions(pool), Audit: auditLog,
+		Users: users, Sessions: sessions, Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
 		Requests:       intake.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
+		Vendors:        vendor.NewService(pool, users, sessions, outbox, cfg.BaseURL, cfg.VendorCreation),
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL, CodeDelay: 300 * time.Millisecond,
 		FontFile: cfg.FontFile, Mark: cfg.Mark,
 		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies, cfg.Preview),

@@ -10,9 +10,19 @@ export default function Shell({ role, children }: { role: string; children: Reac
     <>
       <header>
         <strong>{t("app.title")}</strong>
-        <Link to="/files">{t("nav.files")}</Link>
-        <Link to="/shares">{t("nav.shares")}</Link>
-        <Link to="/requests">{t("nav.requests")}</Link>
+        {role === "vendor" ? (
+          <>
+            <Link to="/vendor/shares">{t("nav.sharedWithMe")}</Link>
+            <Link to="/vendor/upload">{t("nav.vendorUpload")}</Link>
+          </>
+        ) : (
+          <>
+            <Link to="/files">{t("nav.files")}</Link>
+            <Link to="/shares">{t("nav.shares")}</Link>
+            <Link to="/requests">{t("nav.requests")}</Link>
+            <Link to="/vendors">{t("nav.vendors")}</Link>
+          </>
+        )}
         {role === "admin" && <Link to="/admin/trace">{t("nav.trace")}</Link>}
         <span className="spacer" />
         <LangSwitch />

@@ -52,6 +52,7 @@ type recipientJSON struct {
 	Revoked       bool      `json:"revoked"`
 	FirstOpenedAt *string   `json:"first_opened_at"`
 	LastAccessAt  *string   `json:"last_access_at"`
+	Vendor        bool      `json:"vendor"`
 }
 
 func shareBase(sh *share.Share) map[string]any {
@@ -75,7 +76,7 @@ func shareDetail(sh *share.Share) map[string]any {
 	m["files"] = files
 	rs := make([]recipientJSON, len(sh.Recipients))
 	for i, r := range sh.Recipients {
-		rs[i] = recipientJSON{r.ID, r.Email, r.RevokedAt != nil, ts(r.FirstOpenedAt), ts(r.LastAccessAt)}
+		rs[i] = recipientJSON{r.ID, r.Email, r.RevokedAt != nil, ts(r.FirstOpenedAt), ts(r.LastAccessAt), r.VendorID != nil}
 	}
 	m["recipients"] = rs
 	return m
@@ -91,6 +92,7 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 		MaxViews      *int        `json:"max_views"`
 		IPAllow       []string    `json:"ip_allow"`
 		Message       string      `json:"message"`
+		VendorIDs     []uuid.UUID `json:"vendor_ids"`
 	}
 	if !readJSONMax(w, r, &in, 64<<10) {
 		return
@@ -109,7 +111,7 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sh, err := s.Shares.Create(r.Context(), u, share.CreateInput{FileIDs: in.FileIDs, Emails: in.Emails, AllowDownload: in.AllowDownload,
-		Watermark: in.Watermark, ExpiresAt: in.ExpiresAt, MaxViews: in.MaxViews, IPAllow: in.IPAllow, Message: in.Message})
+		Watermark: in.Watermark, ExpiresAt: in.ExpiresAt, MaxViews: in.MaxViews, IPAllow: in.IPAllow, Message: in.Message, VendorIDs: in.VendorIDs})
 	if err != nil {
 		shareErr(w, err)
 		return
@@ -166,20 +168,21 @@ func (s *server) addRecipients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Emails []string `json:"emails"`
+		Emails    []string    `json:"emails"`
+		VendorIDs []uuid.UUID `json:"vendor_ids"`
 	}
 	if !readJSONMax(w, r, &in, 64<<10) {
 		return
 	}
 	u := auth.UserFrom(r.Context())
-	added, err := s.Shares.AddRecipients(r.Context(), u, id, in.Emails)
+	added, err := s.Shares.AddRecipients(r.Context(), u, id, in.Emails, in.VendorIDs)
 	if err != nil {
 		shareErr(w, err)
 		return
 	}
 	out := make([]recipientJSON, len(added))
 	for i, a := range added {
-		out[i] = recipientJSON{ID: a.ID, Email: a.Email}
+		out[i] = recipientJSON{ID: a.ID, Email: a.Email, Vendor: a.VendorID != nil}
 		s.record(r, s.shareEvent(u, audit.ActShareRecipientAdd, id, map[string]any{"recipient_id": a.ID}))
 	}
 	writeJSON(w, http.StatusOK, out)

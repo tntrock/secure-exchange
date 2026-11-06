@@ -6,7 +6,7 @@ import Files from "./Files";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 const file = (id: string, name: string, preview_status: string) => ({
-  id, name, content_type: "application/pdf", size: 2048, sha256: "abcdef0123456789abcdef", created_at: "2030-01-01T00:00:00Z", preview_status, preview_kind: "pages", scan_status: "none", scan_result: null, request_id: null,
+  id, name, content_type: "application/pdf", size: 2048, sha256: "abcdef0123456789abcdef", created_at: "2030-01-01T00:00:00Z", preview_status, preview_kind: "pages", scan_status: "none", scan_result: null, request_id: null, vendor_email: null,
 });
 
 // routes by method + url; `list` answers GET /api/files in order (last one repeats)
@@ -148,4 +148,11 @@ test("staff uploads show no scan badge", async () => {
   renderPage();
   await screen.findByText("a.pdf");
   expect(screen.queryByText("No virus found")).toBeNull();
+});
+
+test("vendor upload shows source", async () => {
+  mockApi([json(200, [{ ...file("f1", "a.pdf", "ready"), vendor_email: "al@v.com" }, { ...file("f2", "b.pdf", "ready"), request_id: "rq1" }])]);
+  renderPage();
+  expect(await screen.findByText(`${i18n.t("files.fromVendor")} al@v.com`)).toBeTruthy();
+  expect(screen.getByRole("link", { name: i18n.t("files.fromRequest") }).getAttribute("href")).toBe("/requests/rq1");
 });

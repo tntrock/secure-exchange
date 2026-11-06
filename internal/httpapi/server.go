@@ -18,6 +18,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
+	"github.com/tntrock/secure-exchange/internal/vendor"
 	"github.com/tntrock/secure-exchange/internal/webui"
 )
 
@@ -33,6 +34,7 @@ type Deps struct {
 	Store          blob.Store
 	Shares         *share.Service
 	Requests       *intake.Service
+	Vendors        *vendor.Service
 	FontFile       string // TTF for burned-in video watermarks (SX_FONT_FILE)
 	Mark           config.MarkConfig
 	CodeDelay      time.Duration // recipient /code and /verify answer no sooner than this after the request starts (P10)
@@ -64,7 +66,7 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/auth/totp", perIP(http.HandlerFunc(s.totp)))
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
 
-	mux.Handle("GET /api/me", s.requireUser(s.me))
+	mux.Handle("GET /api/me", s.requireAccount(s.me))
 	mux.Handle("GET /api/files", s.requireUser(s.listFiles))
 	mux.Handle("GET /api/files/{id}/content", s.requireUser(s.downloadFile))
 	mux.Handle("DELETE /api/files/{id}", s.requireUser(s.deleteFile))
@@ -95,9 +97,25 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("GET /api/r/{token}/files", s.requireUploader(s.listUploaderFiles))
 	mux.HandleFunc("POST /api/r/{token}/logout", s.uploaderLogout)
 	s.previewRoutes(mux)
+	// vendor accounts: staff manage them; the invitation pages need no login
+	mux.Handle("GET /api/vendors", s.requireUser(s.listVendors))
+	mux.Handle("POST /api/vendors", s.requireUser(s.createVendor))
+	mux.Handle("PATCH /api/vendors/{id}", s.requireUser(s.setVendorExpiry))
+	mux.Handle("POST /api/vendors/{id}/approve", s.requireAdmin(s.vendorAction(audit.ActVendorApprove, s.Vendors.Approve)))
+	mux.Handle("POST /api/vendors/{id}/reject", s.requireAdmin(s.vendorAction(audit.ActVendorReject, s.Vendors.Reject)))
+	mux.Handle("POST /api/vendors/{id}/disable", s.requireUser(s.vendorAction(audit.ActVendorDisable, s.setDisabled(true))))
+	mux.Handle("POST /api/vendors/{id}/enable", s.requireUser(s.vendorAction(audit.ActVendorEnable, s.setDisabled(false))))
+	mux.Handle("POST /api/vendors/{id}/reinvite", s.requireUser(s.vendorAction(audit.ActVendorReinvite, s.Vendors.Reinvite)))
+	mux.Handle("GET /api/vendor/shares", s.requireVendor(s.listVendorShares))
+	mux.Handle("GET /api/vendor/shares/{id}", s.requireVendorShare(s.listRecipientFiles))
+	mux.Handle("GET /api/vendor/shares/{id}/files/{fid}/content", s.requireVendorShare(s.recipientDownload))
+	mux.Handle("GET /api/vendor/recipients", s.requireVendor(s.listVendorRecipients))
+	mux.Handle("GET /api/vendor/uploads", s.requireVendor(s.listVendorUploads))
+	mux.Handle("GET /api/invite/{token}", recipIP(s.inviteInfo))
+	mux.Handle("POST /api/invite/{token}", recipIP(s.activateVendor))
 	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
-	mux.Handle("POST /api/me/totp/setup", s.requireUser(s.totpSetup))
-	mux.Handle("POST /api/me/totp/enable", s.requireUser(s.totpEnable))
+	mux.Handle("POST /api/me/totp/setup", s.requireAccount(s.totpSetup))
+	mux.Handle("POST /api/me/totp/enable", s.requireAccount(s.totpEnable))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not_found")) })
 	mux.Handle("/", webui.Handler())
 	if s.Uploads != nil {
@@ -105,15 +123,18 @@ func (s *server) routes() *http.ServeMux {
 		// only creating an upload is limited; HEAD/PATCH/DELETE/OPTIONS on an existing one are bounded by the
 		// uploader session and the per-upload lock, and a multi-file upload sends many of them
 		perIPUpload := rateLimit(s.ip, rate.Every(time.Second), 120)
-		uploads := s.requireUploader(s.Uploads.ServeHTTP)
-		limited := perIPUpload(uploads)
-		mux.Handle("/api/r/{token}/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodPost {
-				limited.ServeHTTP(w, r)
-				return
-			}
-			uploads.ServeHTTP(w, r)
-		}))
+		postLimited := func(h http.Handler) http.Handler {
+			limited := perIPUpload(h)
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					limited.ServeHTTP(w, r)
+					return
+				}
+				h.ServeHTTP(w, r)
+			})
+		}
+		mux.Handle("/api/r/{token}/uploads/", postLimited(s.requireUploader(s.Uploads.ServeHTTP)))
+		mux.Handle("/api/vendor/uploads/", postLimited(s.requireVendor(s.Uploads.ServeHTTP)))
 	}
 	return mux
 }

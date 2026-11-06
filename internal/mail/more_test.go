@@ -254,7 +254,7 @@ func TestIntakeTemplates(t *testing.T) {
 	}{
 		{"invitation", inv("hello"), []string{"upload files", "Alice", "https://sx/r/tok", "附言：\nhello", "Message:\nhello", "2026-01-01 19:04 UTC", sep}, nil},
 		{"invitation no message", inv(""), []string{"https://sx/r/tok"}, []string{"附言", "Message:"}},
-		{"upload", up(false), []string{"bob@x.com", `"a.pdf"`, "「a.pdf」", "https://sx/requests/1"}, []string{"not virus-scanned", "未經掃描"}},
+		{"upload", up(false), []string{"A file was uploaded for you", "bob@x.com", `"a.pdf"`, "「a.pdf」", "https://sx/requests/1"}, []string{"not virus-scanned", "未經掃描", "your request"}},
 		{"upload skipped", up(true), []string{"not virus-scanned", "未經掃描"}, nil},
 		{"infected", inf(), []string{"Eicar-Test", "bob@x.com", "「a.pdf」", "quarantined", "https://sx/requests/1"}, nil},
 		{"infected no link", func() [2]string {
@@ -274,10 +274,26 @@ func TestIntakeTemplates(t *testing.T) {
 				}
 			}
 			for _, s := range c.wantNot {
-				if strings.Contains(c.got[1], s) {
-					t.Errorf("body has %q", s)
+				if strings.Contains(c.got[1], s) || strings.Contains(c.got[0], s) {
+					t.Errorf("has %q", s)
 				}
 			}
 		})
+	}
+}
+
+func TestVendorSharedTemplate(t *testing.T) {
+	exp := time.Date(2026, 1, 2, 3, 4, 0, 0, time.FixedZone("x", 8*3600))
+	s, b := VendorShared("https://sx/vendor/shares", "Alice", "hello", exp)
+	for _, want := range []string{"Alice 與您分享了檔案", "附言：\nhello", "Message:\nhello", "https://sx/vendor/shares", "2026-01-01 19:04 UTC", "Sign in to your vendor account"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("body lacks %q:\n%s", want, b)
+		}
+	}
+	if !strings.Contains(s, "securely shared") {
+		t.Error(s)
+	}
+	if _, b := VendorShared("https://sx/vendor/shares", "Alice", "", exp); strings.Contains(b, "Message:") {
+		t.Error(b)
 	}
 }

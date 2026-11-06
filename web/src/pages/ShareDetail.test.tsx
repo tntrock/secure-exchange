@@ -15,7 +15,7 @@ const detail = {
   files: [{ id: "f1", name: "a.pdf", size: 1, deleted: false }],
   recipients: [
     { id: "r1", email: "gone@x.com", revoked: true, first_opened_at: null, last_access_at: null },
-    { id: "r2", email: "ok@x.com", revoked: false, first_opened_at: null, last_access_at: null },
+    { id: "r2", email: "ok@x.com", revoked: false, vendor: false, first_opened_at: null, last_access_at: null },
   ],
 };
 
@@ -93,4 +93,44 @@ test("status column uses the status label", async () => {
   await screen.findByText("ok@x.com");
   expect(i18n.exists("share.statusLabel")).toBe(true);
   expect(screen.getByRole("columnheader", { name: i18n.t("share.statusLabel") })).toBeTruthy();
+});
+
+test("vendor recipient shows badge; add recipients sends vendor_ids", async () => {
+  const vendors = [{ id: "v1", email: "al@v.com", display_name: "Al", org: "Acme", status: "active", expires_at: "2030-01-01T00:00:00Z", created_by_name: "S", created_at: "x", can_manage: false }];
+  const d = { ...detail, recipients: [{ id: "r3", email: "al@v.com", revoked: false, vendor: true, first_opened_at: null, last_access_at: null }] };
+  const f = vi.fn((url: string, init?: RequestInit) =>
+    Promise.resolve(url.startsWith("/api/vendors") ? new Response(JSON.stringify(vendors)) : init?.method === "POST" ? new Response("[]") : new Response(JSON.stringify(d))),
+  );
+  vi.stubGlobal("fetch", f);
+  render(
+    <MemoryRouter initialEntries={["/shares/s1"]}>
+      <Routes><Route path="/shares/:id" element={<ShareDetail />} /></Routes>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText(i18n.t("share.vendorBadge"))).toBeTruthy();
+  fireEvent.click(await screen.findByRole("checkbox", { name: /Al <al@v.com>/ }));
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.add") }));
+  await waitFor(() => expect(f.mock.calls.some((c) => c[0] === "/api/shares/s1/recipients")).toBe(true));
+  const c = f.mock.calls.find((x) => x[0] === "/api/shares/s1/recipients") as unknown as [string, RequestInit];
+  expect(JSON.parse(c[1].body as string)).toEqual({ emails: [], vendor_ids: ["v1"] });
+});
+
+test.each([
+  ["vendor_ids", "not_found", "share.error.vendor_ids.not_found"],
+  ["emails", "invalid", "share.error.emails.invalid"],
+])("add recipients 422 %s/%s shows the localized message", async (field, code, key) => {
+  const f = vi.fn((_url: string, init?: RequestInit) =>
+    Promise.resolve(init?.method === "POST" ? new Response(JSON.stringify({ error: "validation", field, code }), { status: 422 }) : new Response(JSON.stringify(detail))),
+  );
+  vi.stubGlobal("fetch", f);
+  render(
+    <MemoryRouter initialEntries={["/shares/s1"]}>
+      <Routes><Route path="/shares/:id" element={<ShareDetail />} /></Routes>
+    </MemoryRouter>,
+  );
+  await screen.findByText("ok@x.com");
+  fireEvent.change(screen.getByLabelText(i18n.t("share.addRecipients")), { target: { value: "bad" } });
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.add") }));
+  expect((await screen.findByRole("alert")).textContent).toBe(i18n.t(key));
+  expect(i18n.exists(key)).toBe(true);
 });

@@ -45,7 +45,7 @@ test("mfa login asks for the code, then navigates", async () => {
   fireEvent.change(screen.getByLabelText("Code (6 digits)"), { target: { value: "123456" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
   expect(await screen.findByText("files page")).toBeTruthy();
-  expect(f).toHaveBeenLastCalledWith("/api/auth/totp", expect.objectContaining({ body: JSON.stringify({ code: "123456" }) }));
+  expect(f).toHaveBeenCalledWith("/api/auth/totp", expect.objectContaining({ body: JSON.stringify({ code: "123456" }) }));
 });
 
 test("wrong mfa code shows invalid code", async () => {
@@ -73,4 +73,18 @@ test("network failure shows the generic error", async () => {
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
   fireEvent.click(screen.getByRole("button", { name: "Log in" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Something went wrong, please try again");
+});
+
+test("vendor goes to /vendor/shares", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("/login") ? json(200, { mfa_required: false }) : json(200, { role: "vendor" }))));
+  void i18n.changeLanguage("en");
+  render(
+    <MemoryRouter initialEntries={["/login"]}>
+      <Routes><Route path="/login" element={<Login />} /><Route path="/vendor/shares" element={<p>vendor home</p>} /></Routes>
+    </MemoryRouter>,
+  );
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "v@x.com" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  expect(await screen.findByText("vendor home")).toBeTruthy();
 });

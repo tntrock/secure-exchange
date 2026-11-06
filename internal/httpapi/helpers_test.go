@@ -91,10 +91,12 @@ func TestErrorMappingDefaultsToInternal(t *testing.T) {
 	if w.Code != 403 {
 		t.Fatal(w.Code)
 	}
-	w = httptest.NewRecorder()
-	shareErr(w, errors.New("db down"))
-	if w.Code != 500 || strings.TrimSpace(w.Body.String()) != `{"error":"internal"}` {
-		t.Fatal(w.Code, w.Body)
+	for _, f := range []func(http.ResponseWriter, error){shareErr, vendorErr} {
+		w = httptest.NewRecorder()
+		f(w, errors.New("db down"))
+		if w.Code != 500 || strings.TrimSpace(w.Body.String()) != `{"error":"internal"}` {
+			t.Fatal(w.Code, w.Body)
+		}
 	}
 }
 

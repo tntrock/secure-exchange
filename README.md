@@ -145,6 +145,24 @@ The detail page shows the link (copy it and send it to the uploaders yourself), 
 
 Your own uploads are not scanned and show no badge.
 
+## Vendor accounts
+
+Vendor accounts are for outside people you work with often. Unlike a one-time share recipient, a vendor has a password and mandatory two-factor authentication (TOTP), and sees what is shared with them in a "Shared with me" list.
+
+**Creating a vendor.** Open **Vendors** (`/vendors`), enter the email, display name, optional organisation and an expiry date, and press **Create and invite**. Who may create vendors is set by `SX_VENDOR_CREATION`:
+
+| Value | Meaning |
+|---|---|
+| `staff` | Any staff member creates active vendor accounts directly. |
+| `approval` (default) | Staff create a request; an administrator approves or rejects it on the same page. |
+| `admin` | Only administrators create vendor accounts. |
+
+**Invitation.** The vendor receives an email with a link (`/invite/<token>`, valid 7 days, single use). On that page they scan the QR code with an authenticator app, choose a password (at least 12 characters) and enter the 6-digit code. A newer invitation (**Reinvite**) replaces the old link. Accounts can be disabled (all their sessions end at once) and expire on the chosen date.
+
+**Sharing.** In the share dialog, pick vendors in addition to or instead of email recipients. Any staff member may share to any active vendor. Vendors skip the email-code step; view mode, watermark, expiry, view limit and IP rules apply as for one-time shares, and the watermark names the vendor's email.
+
+**What vendors see.** After login they land on **Shared with me** (`/vendor/shares`): each share with its owner, message, expiry and files, where they can view and download. **Upload** (`/vendor/upload`) lets them send files to staff who shared with them or who created their account; they never see the full staff list. Vendor uploads are scanned by ClamAV like upload request files and appear in the staff member's **My files** with the vendor's name.
+
 ## ClamAV virus scanning
 
 Files uploaded through upload request links by external users are scanned by ClamAV before the requester can download them. The `clamav` service starts with the stack and the worker feeds it each file (decrypted in memory only, never written to disk).

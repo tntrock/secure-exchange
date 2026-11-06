@@ -38,7 +38,7 @@ var (
 type Access struct {
 	Share       *Share
 	Recipient   Recipient
-	SessionHash []byte // sha256 of the session token, as stored in share_sessions
+	SessionHash []byte // sha256 of the share session token; for a vendor, vendorViewKey of the login session
 }
 
 func ipAllowed(list []netip.Prefix, ip netip.Addr) bool {
@@ -106,7 +106,7 @@ func (s *Service) RequestCode(ctx context.Context, token, email string, ip netip
 		return false, nil
 	}
 	var rid uuid.UUID
-	err = s.pool.QueryRow(ctx, `SELECT id FROM share_recipients WHERE share_id = $1 AND lower(email) = $2 AND revoked_at IS NULL`,
+	err = s.pool.QueryRow(ctx, `SELECT id FROM share_recipients WHERE share_id = $1 AND lower(email) = $2 AND revoked_at IS NULL AND vendor_id IS NULL`,
 		sh.ID, email).Scan(&rid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -174,7 +174,7 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 	r := Recipient{}
 	err = tx.QueryRow(ctx, `SELECT o.id, o.code_hash, o.attempts, r.id, r.email, r.first_opened_at
 		FROM share_otps o JOIN share_recipients r ON r.id = o.recipient_id
-		WHERE r.share_id = $1 AND lower(r.email) = $2 AND r.revoked_at IS NULL AND o.used_at IS NULL AND o.expires_at > $3
+		WHERE r.share_id = $1 AND lower(r.email) = $2 AND r.revoked_at IS NULL AND r.vendor_id IS NULL AND o.used_at IS NULL AND o.expires_at > $3
 		ORDER BY o.created_at DESC LIMIT 1 FOR UPDATE OF o`, sh.ID, email, s.now()).
 		Scan(&otpID, &hash, &attempts, &r.ID, &r.Email, &r.FirstOpenedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -198,19 +198,7 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 	if _, err := tx.Exec(ctx, `UPDATE share_otps SET used_at = now() WHERE id = $1`, otpID); err != nil {
 		return "", nil, err
 	}
-	err = tx.QueryRow(ctx, `UPDATE shares SET view_count = view_count + 1 WHERE id = $1 AND (max_views IS NULL OR view_count < max_views)
-		AND revoked_at IS NULL AND expires_at > $2 RETURNING view_count`, sh.ID, s.now()).Scan(&sh.ViewCount)
-	if errors.Is(err, pgx.ErrNoRows) {
-		var gone bool
-		if err := tx.QueryRow(ctx, `SELECT revoked_at IS NOT NULL OR expires_at <= $2 FROM shares WHERE id = $1`, sh.ID, s.now()).Scan(&gone); err != nil {
-			return "", nil, err
-		}
-		if gone {
-			return "", nil, ErrGone
-		}
-		return "", nil, ErrViewLimit
-	}
-	if err != nil {
+	if err := s.countView(ctx, tx, sh); err != nil {
 		return "", nil, err
 	}
 	b := make([]byte, 32)
@@ -222,18 +210,7 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 		hashString(session), r.ID, ip.String(), ua, s.now().Add(sessionTTL)); err != nil {
 		return "", nil, err
 	}
-	tag, err := tx.Exec(ctx, `UPDATE share_recipients SET first_opened_at = now() WHERE id = $1 AND first_opened_at IS NULL`, r.ID)
-	if err != nil {
-		return "", nil, err
-	}
-	if tag.RowsAffected() == 1 {
-		subject, body := mail.NotifyFirstOpen(r.Email, s.shareURL(sh))
-		if err := s.outbox.Enqueue(ctx, tx, mail.Message{To: sh.OwnerEmail, Subject: subject, Body: body}); err != nil {
-			return "", nil, err
-		}
-	}
-	if err := tx.QueryRow(ctx, `UPDATE share_recipients SET last_access_at = now() WHERE id = $1 RETURNING first_opened_at, last_access_at`, r.ID).
-		Scan(&r.FirstOpenedAt, &r.LastAccessAt); err != nil {
+	if err := s.opened(ctx, tx, sh, &r); err != nil {
 		return "", nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -243,6 +220,99 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 		return "", nil, err
 	}
 	return session, &Access{Share: sh, Recipient: r, SessionHash: hashString(session)}, nil
+}
+
+// countView spends one of sh's views in tx: ErrViewLimit when none are left, ErrGone if the share
+// was revoked or expired meanwhile.
+func (s *Service) countView(ctx context.Context, tx pgx.Tx, sh *Share) error {
+	err := tx.QueryRow(ctx, `UPDATE shares SET view_count = view_count + 1 WHERE id = $1 AND (max_views IS NULL OR view_count < max_views)
+		AND revoked_at IS NULL AND expires_at > $2 RETURNING view_count`, sh.ID, s.now()).Scan(&sh.ViewCount)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	var gone bool
+	if err := tx.QueryRow(ctx, `SELECT revoked_at IS NOT NULL OR expires_at <= $2 FROM shares WHERE id = $1`, sh.ID, s.now()).Scan(&gone); err != nil {
+		return err
+	}
+	if gone {
+		return ErrGone
+	}
+	return ErrViewLimit
+}
+
+// opened stamps r's last access in tx, and its first open, which the owner is told about once.
+func (s *Service) opened(ctx context.Context, tx pgx.Tx, sh *Share, r *Recipient) error {
+	tag, err := tx.Exec(ctx, `UPDATE share_recipients SET first_opened_at = now() WHERE id = $1 AND first_opened_at IS NULL`, r.ID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		subject, body := mail.NotifyFirstOpen(r.Email, s.shareURL(sh))
+		if err := s.outbox.Enqueue(ctx, tx, mail.Message{To: sh.OwnerEmail, Subject: subject, Body: body}); err != nil {
+			return err
+		}
+	}
+	return tx.QueryRow(ctx, `UPDATE share_recipients SET last_access_at = now() WHERE id = $1 RETURNING first_opened_at, last_access_at`, r.ID).
+		Scan(&r.FirstOpenedAt, &r.LastAccessAt)
+}
+
+// vendorViewKey derives a per-share key from a vendor's login session: one login spans many shares, but
+// view_traces dedupe on (session_hash, file_id), so a file seen through two shares needs two keys.
+func vendorViewKey(sessionHash []byte, shareID uuid.UUID) []byte {
+	h := sha256.Sum256(append(append([]byte{}, sessionHash...), shareID[:]...))
+	return h[:]
+}
+
+// VendorAccess is Authorize for a signed-in vendor, on every request: the vendor must be a non-revoked
+// recipient of the share (else ErrNotFound, so other shares' existence is not revealed), then the share
+// checks apply. The first call per (sessionHash, share) counts a view under max_views and stamps the open.
+func (s *Service) VendorAccess(ctx context.Context, vendorID, shareID uuid.UUID, sessionHash []byte, ip netip.Addr) (*Access, error) {
+	sessionHash = vendorViewKey(sessionHash, shareID)
+	r := Recipient{VendorID: &vendorID}
+	err := s.pool.QueryRow(ctx, `SELECT id, email, first_opened_at, last_access_at FROM share_recipients
+		WHERE share_id = $1 AND vendor_id = $2 AND revoked_at IS NULL`, shareID, vendorID).Scan(&r.ID, &r.Email, &r.FirstOpenedAt, &r.LastAccessAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	sh, err := scanShare(s.pool.QueryRow(ctx, `SELECT `+shareCols+` FROM shares s JOIN users u ON u.id = s.owner_id WHERE s.id = $1`, shareID))
+	if err != nil {
+		return nil, err // the recipient row's FK means the share exists
+	}
+	if err := s.check(sh, ip); err != nil {
+		return nil, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	// a concurrent first call by the same session waits on this row's key, then sees it taken
+	tag, err := tx.Exec(ctx, `INSERT INTO vendor_share_views (session_hash, share_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, sessionHash, shareID)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 1 {
+		if err := s.countView(ctx, tx, sh); err != nil {
+			return nil, err
+		}
+		err = s.opened(ctx, tx, sh, &r)
+	} else {
+		_, err = tx.Exec(ctx, `UPDATE share_recipients SET last_access_at = now()
+			WHERE id = $1 AND (last_access_at IS NULL OR last_access_at < now() - interval '1 minute')`, r.ID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.loadFiles(ctx, sh); err != nil {
+		return nil, err
+	}
+	return &Access{Share: sh, Recipient: r, SessionHash: sessionHash}, nil
 }
 
 // Authorize resolves a recipient session and rechecks the recipient and share on every call.

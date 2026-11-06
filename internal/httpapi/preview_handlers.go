@@ -33,25 +33,30 @@ func (s *server) previewRoutes(mux *http.ServeMux) {
 			}
 		})
 	}
-	recip := func(h previewHandler) http.Handler {
-		inner := s.requireRecipient(func(w http.ResponseWriter, r *http.Request) {
-			a := accessFrom(r.Context())
-			if fid, ok := s.sharedFile(w, r, a); ok {
-				viewHeaders(w)
-				h(w, r, fid, a)
-			}
-		})
-		// a HEAD would trace, audit and burn like a GET while showing nothing
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodHead {
-				w.Header().Set("Allow", "GET")
-				writeJSON(w, http.StatusMethodNotAllowed, errBody("method_not_allowed"))
-				return
-			}
-			inner.ServeHTTP(w, r)
-		})
+	// shared serves a share's file to whoever guard admits (an emailed recipient or a vendor account)
+	shared := func(guard func(http.HandlerFunc) http.Handler) func(previewHandler) http.Handler {
+		return func(h previewHandler) http.Handler {
+			inner := guard(func(w http.ResponseWriter, r *http.Request) {
+				a := accessFrom(r.Context())
+				if fid, ok := s.sharedFile(w, r, a); ok {
+					viewHeaders(w)
+					h(w, r, fid, a)
+				}
+			})
+			// a HEAD would trace, audit and burn like a GET while showing nothing
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodHead {
+					w.Header().Set("Allow", "GET")
+					writeJSON(w, http.StatusMethodNotAllowed, errBody("method_not_allowed"))
+					return
+				}
+				inner.ServeHTTP(w, r)
+			})
+		}
 	}
-	for prefix, wrap := range map[string]func(previewHandler) http.Handler{"/api/files/{id}": own, "/api/s/{token}/files/{fid}": recip} {
+	recip, vendorShare := shared(s.requireRecipient), shared(s.requireVendorShare)
+	for prefix, wrap := range map[string]func(previewHandler) http.Handler{"/api/files/{id}": own, "/api/s/{token}/files/{fid}": recip,
+		"/api/vendor/shares/{id}/files/{fid}": vendorShare} {
 		mux.Handle("GET "+prefix+"/preview", wrap(s.previewStatus))
 		mux.Handle("GET "+prefix+"/preview/pages/{n}", wrap(s.previewPage))
 		mux.Handle("GET "+prefix+"/preview/video.m3u8", wrap(s.previewPlaylist))

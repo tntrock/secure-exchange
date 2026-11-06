@@ -133,7 +133,7 @@ func TestOwnerWritesAtomic(t *testing.T) {
 			}},
 		{"add recipients", "share_recipients",
 			func(svc *Service, e *env, sh *Share) error {
-				_, err := svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"carol@x.com"})
+				_, err := svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"carol@x.com"}, nil)
 				return err
 			},
 			func(t *testing.T, e *env, sh *Share) {
@@ -143,7 +143,7 @@ func TestOwnerWritesAtomic(t *testing.T) {
 			}},
 		{"add recipients mail", "mail_outbox",
 			func(svc *Service, e *env, sh *Share) error {
-				_, err := svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"carol@x.com"})
+				_, err := svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"carol@x.com"}, nil)
 				return err
 			},
 			func(t *testing.T, e *env, sh *Share) {

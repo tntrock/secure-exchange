@@ -24,8 +24,8 @@ func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	rows, err := s.Pool.Query(r.Context(), `SELECT f.id, f.name, f.content_type, f.size, f.sha256, f.created_at,
 			COALESCE(p.status, 'unsupported'), COALESCE(p.kind, 'none'),
-			f.scan_status, f.scan_result, f.request_id
-		FROM files f LEFT JOIN file_previews p ON p.file_id = f.id
+			f.scan_status, f.scan_result, f.request_id, v.email
+		FROM files f LEFT JOIN file_previews p ON p.file_id = f.id LEFT JOIN users v ON v.id = f.vendor_id
 		WHERE f.owner_id = $1 AND f.deleted_at IS NULL ORDER BY f.created_at DESC`, u.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
@@ -44,6 +44,7 @@ func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 		ScanStatus    string     `json:"scan_status"`
 		ScanResult    string     `json:"scan_result"`
 		RequestID     *uuid.UUID `json:"request_id"`
+		VendorEmail   *string    `json:"vendor_email"`
 		Mark          fileMark   `json:"mark"`
 	}
 	out := []item{}
@@ -51,7 +52,7 @@ func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 		var it item
 		var sum []byte
 		var at time.Time
-		if err := rows.Scan(&it.ID, &it.Name, &it.ContentType, &it.Size, &sum, &at, &it.PreviewStatus, &it.PreviewKind, &it.ScanStatus, &it.ScanResult, &it.RequestID); err != nil {
+		if err := rows.Scan(&it.ID, &it.Name, &it.ContentType, &it.Size, &sum, &at, &it.PreviewStatus, &it.PreviewKind, &it.ScanStatus, &it.ScanResult, &it.RequestID, &it.VendorEmail); err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 			return
 		}

@@ -1,17 +1,17 @@
 export interface Me { id: string; email: string; display_name: string; role: string; totp_enabled: boolean }
 export type MarkMethod = "pdf_pages" | "pdf_meta" | "image_visible" | "image_invisible" | "ooxml_meta" | "odf_meta" | "none";
 export type ScanStatus = "none" | "pending" | "clean" | "infected" | "skipped" | "error";
-export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string; preview_status: "pending" | "ready" | "failed" | "unsupported" | "too_large"; preview_kind: string; scan_status: ScanStatus; scan_result: string | null; request_id: string | null; mark: { watermark: MarkMethod; plain: MarkMethod; degraded: boolean } }
+export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string; preview_status: "pending" | "ready" | "failed" | "unsupported" | "too_large"; preview_kind: string; scan_status: ScanStatus; scan_result: string | null; request_id: string | null; vendor_email: string | null; mark: { watermark: MarkMethod; plain: MarkMethod; degraded: boolean } }
 
 export interface ShareReq {
-  file_ids: string[]; emails: string[]; allow_download: boolean; watermark: boolean;
+  file_ids: string[]; emails: string[]; vendor_ids?: string[]; allow_download: boolean; watermark: boolean;
   expires_at: string; max_views: number | null; ip_allow: string[]; message: string;
 }
 export interface ShareSummary {
   id: string; created_at: string; expires_at: string; revoked: boolean; expired: boolean;
   file_count: number; recipient_count: number; view_count: number; max_views: number | null;
 }
-export interface Recipient { id: string; email: string; revoked: boolean; first_opened_at: string | null; last_access_at: string | null }
+export interface Recipient { id: string; email: string; revoked: boolean; vendor?: boolean; first_opened_at: string | null; last_access_at: string | null }
 export interface ShareDetailInfo {
   id: string; message: string; allow_download: boolean; watermark: boolean; expires_at: string; max_views: number | null;
   view_count: number; ip_allow: string[]; revoked: boolean; expired: boolean; created_at: string;
@@ -19,11 +19,22 @@ export interface ShareDetailInfo {
   recipients: Recipient[];
 }
 
+export type VendorStatus = "pending" | "rejected" | "disabled" | "expired" | "invited" | "active";
+export interface VendorInfo {
+  id: string; email: string; display_name: string; org: string; status: VendorStatus;
+  expires_at: string; created_by_name: string; created_at: string; can_manage: boolean;
+}
+export interface VendorReq { email: string; display_name: string; org: string; expires_at: string }
+
 export interface RecipientLanding { owner_name: string; message: string; expires_at: string }
 export interface RecipientFiles {
   message: string; expires_at: string; allow_download: boolean; watermark: boolean;
   files: { id: string; name: string; size: number; available: boolean; mark_pending?: boolean }[];
 }
+
+export interface VendorShareSummary { id: string; owner_name: string; message: string; expires_at: string; file_count: number; allow_download: boolean; watermark: boolean }
+export interface VendorTarget { id: string; name: string; email: string }
+export interface VendorUploadInfo { id: string; name: string; size: number; recipient_name: string; created_at: string }
 
 export interface UploadRequest {
   id: string; created_at: string; expires_at: string; revoked: boolean; expired: boolean;
@@ -88,7 +99,7 @@ export const api = {
   shares: () => call<ShareSummary[]>("GET", "/api/shares"),
   share: (id: string) => call<ShareDetailInfo>("GET", `/api/shares/${id}`),
   revokeShare: (id: string) => call<void>("POST", `/api/shares/${id}/revoke`),
-  addRecipients: (id: string, emails: string[]) => call<Recipient[]>("POST", `/api/shares/${id}/recipients`, { emails }),
+  addRecipients: (id: string, emails: string[], vendor_ids: string[] = []) => call<Recipient[]>("POST", `/api/shares/${id}/recipients`, { emails, vendor_ids }),
   revokeRecipient: (id: string, rid: string) => call<void>("POST", `/api/shares/${id}/recipients/${rid}/revoke`),
   recipientLanding: (tk: string) => call<RecipientLanding>("GET", `/api/s/${encodeURIComponent(tk)}`),
   recipientCode: (tk: string, email: string) => call<{ sent: boolean }>("POST", `/api/s/${encodeURIComponent(tk)}/code`, { email }),
@@ -111,6 +122,20 @@ export const api = {
     }
     return call<TraceResult>("POST", "/api/admin/trace", q);
   },
+  vendors: (activeOnly = false) => call<VendorInfo[]>("GET", activeOnly ? "/api/vendors?active=1" : "/api/vendors"),
+  createVendor: (r: VendorReq) => call<VendorInfo>("POST", "/api/vendors", r),
+  approveVendor: (id: string) => call<void>("POST", `/api/vendors/${id}/approve`),
+  rejectVendor: (id: string) => call<void>("POST", `/api/vendors/${id}/reject`),
+  disableVendor: (id: string) => call<void>("POST", `/api/vendors/${id}/disable`),
+  enableVendor: (id: string) => call<void>("POST", `/api/vendors/${id}/enable`),
+  reinviteVendor: (id: string) => call<void>("POST", `/api/vendors/${id}/reinvite`),
+  setVendorExpiry: (id: string, expires_at: string) => call<void>("PATCH", `/api/vendors/${id}`, { expires_at }),
+  vendorShares: () => call<VendorShareSummary[]>("GET", "/api/vendor/shares"),
+  vendorShareFiles: (id: string) => call<RecipientFiles>("GET", `/api/vendor/shares/${encodeURIComponent(id)}`),
+  vendorRecipients: () => call<VendorTarget[]>("GET", "/api/vendor/recipients"),
+  vendorUploads: () => call<VendorUploadInfo[]>("GET", "/api/vendor/uploads"),
+  inviteInfo: (tk: string) => call<{ email: string; otpauth_url: string }>("GET", `/api/invite/${encodeURIComponent(tk)}`),
+  inviteActivate: (tk: string, password: string, code: string) => call<void>("POST", `/api/invite/${encodeURIComponent(tk)}`, { password, code }),
   recipientLogout: (tk: string) => call<void>("POST", `/api/s/${encodeURIComponent(tk)}/logout`),
 };
 

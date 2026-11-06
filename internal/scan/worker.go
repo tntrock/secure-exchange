@@ -65,7 +65,7 @@ type file struct {
 	keyID, attempts int
 	deleted         bool
 	owner, uploader string
-	requestID       uuid.UUID
+	requestID       *uuid.UUID // nil for a vendor upload
 }
 
 // RunOnce claims and scans one file; false means the queue is empty.
@@ -87,8 +87,9 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if err := w.Pool.QueryRow(ctx, `SELECT f.name, f.size, f.wrapped_dek, f.key_id, f.storage_key, f.deleted_at IS NOT NULL,
-			o.email, COALESCE(f.request_id, '00000000-0000-0000-0000-000000000000'), COALESCE(u.email, '')
+			o.email, f.request_id, COALESCE(u.email, v.email, '')
 		FROM files f JOIN users o ON o.id = f.owner_id LEFT JOIN request_uploaders u ON u.id = f.uploader_id
+		  LEFT JOIN users v ON v.id = f.vendor_id
 		WHERE f.id = $1`, f.id).Scan(&f.name, &f.size, &f.wrapped, &f.keyID, &f.key, &f.deleted, &f.owner, &f.requestID, &f.uploader); err != nil {
 		return true, w.retry(ctx, f, err)
 	}
@@ -165,8 +166,11 @@ func (w *Worker) finish(ctx context.Context, f *file, status, result string) err
 		return err
 	}
 	to, subject, body := []string{f.owner}, "", ""
-	var adminBody string // admins cannot open the owner's request page, so their copy has no link
-	url := w.BaseURL + "/requests/" + f.requestID.String()
+	var adminBody string        // admins cannot open the owner's request page, so their copy has no link
+	url := w.BaseURL + "/files" // a vendor upload lands in the owner's files
+	if f.requestID != nil {
+		url = w.BaseURL + "/requests/" + f.requestID.String()
+	}
 	switch status {
 	case "clean", "skipped":
 		subject, body = mail.NotifyIntakeUpload(f.uploader, f.name, url, status == "skipped")

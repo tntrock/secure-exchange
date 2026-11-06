@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, type FileInfo } from "../api";
+import VendorPicker from "./VendorPicker";
 
 const lines = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
 
@@ -22,6 +23,7 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
   const { t, i18n } = useTranslation();
   const nav = useNavigate();
   const [emails, setEmails] = useState("");
+  const [vendorIds, setVendorIds] = useState<string[]>([]);
   const [allowDownload, setAllowDownload] = useState(false);
   const [watermark, setWatermark] = useState(true);
   const [expires, setExpires] = useState(localDefault);
@@ -59,6 +61,7 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
       const r = await api.createShare({
         file_ids: fileIds,
         emails: lines(emails),
+        vendor_ids: vendorIds,
         allow_download: allowDownload,
         watermark,
         expires_at: isNaN(d.getTime()) ? "" : d.toISOString(),
@@ -82,8 +85,10 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
         {fieldErr("file_ids")}
         <label>{t("share.recipients")}
           <textarea rows={3} value={emails} onChange={(e) => setEmails(e.target.value)} />
-          {fieldErr("emails")}
+          {fieldErr("emails")}{fieldErr("recipients")}
         </label>
+        <VendorPicker selected={vendorIds} onChange={setVendorIds} />
+        {fieldErr("vendor_ids")}
         <label className="check"><input type="checkbox" checked={allowDownload} onChange={(e) => setAllowDownload(e.target.checked)} />{t("share.allowDownload")}</label>
         {!allowDownload && <p>{t("share.viewOnlyNote")}</p>}
         {!allowDownload && notReady && <p role="status">{t("share.previewHint")}</p>}

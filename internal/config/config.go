@@ -62,6 +62,7 @@ type Config struct {
 	Scan              ScanConfig
 	WorkerTmp         string
 	FontFile          string // drawtext font for video watermarks
+	VendorCreation    string // web only: "staff", "approval" or "admin"
 }
 
 // Load reads configuration via getenv (e.g. os.Getenv). All problems are
@@ -107,6 +108,7 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 		InitAdminEmail:    get("SX_INIT_ADMIN_EMAIL", ""),
 		InitAdminPassword: get("SX_INIT_ADMIN_PASSWORD", ""),
 		ShareMaxDays:      30,
+		VendorCreation:    get("SX_VENDOR_CREATION", "approval"),
 		WorkerTmp:         get("SX_WORKER_TMP", "/work"),
 		FontFile:          get("SX_FONT_FILE", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
 		// input + rendered output must fit the 4 GiB /work tmpfs (see .env.example)
@@ -225,6 +227,11 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 			if _, err := mail.ParseAddress(c.SMTP.From); err != nil {
 				bad("SX_SMTP_FROM", err)
 			}
+		}
+		switch c.VendorCreation {
+		case "staff", "approval", "admin":
+		default:
+			bad("SX_VENDOR_CREATION", fmt.Errorf("%q must be staff, approval or admin", c.VendorCreation))
 		}
 		switch c.SMTP.TLS {
 		case "starttls", "tls":

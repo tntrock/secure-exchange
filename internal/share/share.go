@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/netip"
+	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -70,6 +72,7 @@ type Recipient struct {
 	ID                                     uuid.UUID
 	Email                                  string
 	RevokedAt, FirstOpenedAt, LastAccessAt *time.Time
+	VendorID                               *uuid.UUID // set for a vendor account recipient
 }
 
 type CreateInput struct {
@@ -81,22 +84,110 @@ type CreateInput struct {
 	MaxViews      *int
 	IPAllow       []string
 	Message       string
+	VendorIDs     []uuid.UUID
 }
 
 type Service struct {
 	pool    *pgxpool.Pool
 	outbox  *mail.Outbox
 	keys    *sxcrypto.Keyring
+	users   *auth.Users
 	baseURL string
 	maxDays int
 	now     func() time.Time
 }
 
 func NewService(pool *pgxpool.Pool, outbox *mail.Outbox, keys *sxcrypto.Keyring, baseURL string, maxDays int) *Service {
-	return &Service{pool: pool, outbox: outbox, keys: keys, baseURL: baseURL, maxDays: maxDays, now: time.Now}
+	return &Service{pool: pool, outbox: outbox, keys: keys, users: auth.NewUsers(pool, keys), baseURL: baseURL, maxDays: maxDays, now: time.Now}
 }
 
 func invalid(field, code string) error { return &ValidationError{field, code} }
+
+// recipients validates a recipient list: addresses plus vendor accounts, at least one and at most 50 in all.
+// Every vendor must be an Active vendor account; an address that is also a listed vendor's is dropped,
+// the vendor row covers it.
+func (s *Service) recipients(ctx context.Context, emails []string, vendorIDs []uuid.UUID) ([]string, []*auth.User, error) {
+	emails, err := normEmails(emails)
+	if err != nil {
+		return nil, nil, err
+	}
+	vendorIDs = dedupIDs(vendorIDs)
+	if len(vendorIDs) > maxRecipients {
+		return nil, nil, invalid("recipients", "too_many")
+	}
+	vendors := make([]*auth.User, 0, len(vendorIDs))
+	covered := map[string]bool{}
+	for _, id := range vendorIDs {
+		u, err := s.users.ByID(ctx, id)
+		if errors.Is(err, auth.ErrNotFound) || err == nil && (u.Role != "vendor" || !u.Active(s.now())) {
+			return nil, nil, invalid("vendor_ids", "not_found")
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		vendors = append(vendors, u)
+		covered[strings.ToLower(u.Email)] = true
+	}
+	emails = slices.DeleteFunc(emails, func(e string) bool { return covered[e] })
+	switch n := len(emails) + len(vendors); {
+	case n == 0:
+		return nil, nil, invalid("recipients", "required")
+	case n > maxRecipients:
+		return nil, nil, invalid("recipients", "too_many")
+	}
+	return emails, vendors, nil
+}
+
+// addRecipients inserts recipient rows, skipping any already on the share, and queues each new one its
+// invitation: the link for an address, a pointer to the signed-in list for a vendor.
+func (s *Service) addRecipients(ctx context.Context, tx pgx.Tx, shareID uuid.UUID, emails []string, vendors []*auth.User,
+	link, sender, message string, expires time.Time) ([]Recipient, error) {
+	rows := make([]Recipient, 0, len(emails)+len(vendors))
+	for _, e := range emails {
+		rows = append(rows, Recipient{ID: uuid.New(), Email: e})
+	}
+	for _, v := range vendors {
+		rows = append(rows, Recipient{ID: uuid.New(), Email: v.Email, VendorID: &v.ID})
+	}
+	subject, body := mail.Invitation(link, sender, message, expires)
+	vSubject, vBody := mail.VendorShared(s.baseURL+"/vendor/shares", sender, message, expires)
+	var added []Recipient
+	for _, r := range rows {
+		tag, err := tx.Exec(ctx, `INSERT INTO share_recipients (id, share_id, email, vendor_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+			r.ID, shareID, r.Email, r.VendorID)
+		if err != nil {
+			return nil, err
+		}
+		if tag.RowsAffected() == 0 && r.VendorID != nil {
+			// the vendor's address is already a live email recipient: that row becomes the vendor's,
+			// keeping its id and history; its email sessions end, as codes no longer reach it.
+			// A revoked row stays revoked, as for a re-added email.
+			err := tx.QueryRow(ctx, `UPDATE share_recipients SET vendor_id = $3
+				WHERE share_id = $1 AND lower(email) = lower($2) AND vendor_id IS NULL AND revoked_at IS NULL RETURNING id`,
+				shareID, r.Email, r.VendorID).Scan(&r.ID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM share_sessions WHERE recipient_id = $1`, r.ID); err != nil {
+				return nil, err
+			}
+		} else if tag.RowsAffected() == 0 {
+			continue
+		}
+		added = append(added, r)
+		m := mail.Message{To: r.Email, Subject: subject, Body: body}
+		if r.VendorID != nil {
+			m.Subject, m.Body = vSubject, vBody
+		}
+		if err := s.outbox.Enqueue(ctx, tx, m); err != nil {
+			return nil, err
+		}
+	}
+	return added, nil
+}
 
 // normEmails normalizes and de-duplicates addresses (order kept).
 func normEmails(in []string) ([]string, error) {
@@ -111,9 +202,6 @@ func normEmails(in []string) ([]string, error) {
 			seen[a] = true
 			out = append(out, a)
 		}
-	}
-	if len(out) == 0 {
-		return nil, invalid("emails", "required")
 	}
 	if len(out) > maxRecipients {
 		return nil, invalid("emails", "too_many")
@@ -145,7 +233,7 @@ func parseIPs(in []string) ([]netip.Prefix, error) {
 }
 
 func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) (*Share, error) {
-	emails, err := normEmails(in.Emails)
+	emails, vendors, err := s.recipients(ctx, in.Emails, in.VendorIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -227,15 +315,8 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 	if _, err := tx.Exec(ctx, `INSERT INTO share_files (share_id, file_id) SELECT $1, unnest($2::uuid[])`, id, fileIDs); err != nil {
 		return nil, err
 	}
-	name := senderName(owner)
-	subject, body := mail.Invitation(s.baseURL+"/s/"+token, name, in.Message, in.ExpiresAt)
-	for _, e := range emails {
-		if _, err := tx.Exec(ctx, `INSERT INTO share_recipients (id, share_id, email) VALUES ($1,$2,$3)`, uuid.New(), id, e); err != nil {
-			return nil, err
-		}
-		if err := s.outbox.Enqueue(ctx, tx, mail.Message{To: e, Subject: subject, Body: body}); err != nil {
-			return nil, err
-		}
+	if _, err := s.addRecipients(ctx, tx, id, emails, vendors, s.baseURL+"/s/"+token, senderName(owner), in.Message, in.ExpiresAt); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -275,8 +356,18 @@ func scanShare(row pgx.Row) (*Share, error) {
 
 // List returns the owner's shares, newest first, without Files/Recipients.
 func (s *Service) List(ctx context.Context, ownerID uuid.UUID) ([]Share, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+shareCols+` FROM shares s JOIN users u ON u.id = s.owner_id
-		WHERE s.owner_id = $1 ORDER BY s.created_at DESC`, ownerID)
+	return s.list(ctx, `WHERE s.owner_id = $1 ORDER BY s.created_at DESC`, ownerID)
+}
+
+// VendorShares lists live shares (not revoked/expired) where vendorID is a non-revoked recipient, newest first.
+func (s *Service) VendorShares(ctx context.Context, vendorID uuid.UUID) ([]Share, error) {
+	return s.list(ctx, `JOIN share_recipients r ON r.share_id = s.id
+		WHERE r.vendor_id = $1 AND r.revoked_at IS NULL AND s.revoked_at IS NULL AND s.expires_at > $2
+		ORDER BY s.created_at DESC`, vendorID, s.now())
+}
+
+func (s *Service) list(ctx context.Context, where string, args ...any) ([]Share, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+shareCols+` FROM shares s JOIN users u ON u.id = s.owner_id `+where, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +395,7 @@ func (s *Service) Get(ctx context.Context, ownerID, id uuid.UUID) (*Share, error
 	if err := s.loadFiles(ctx, sh); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id, email, revoked_at, first_opened_at, last_access_at FROM share_recipients
+	rows, err := s.pool.Query(ctx, `SELECT id, email, revoked_at, first_opened_at, last_access_at, vendor_id FROM share_recipients
 		WHERE share_id = $1 ORDER BY created_at, email`, id)
 	if err != nil {
 		return nil, err
@@ -312,7 +403,7 @@ func (s *Service) Get(ctx context.Context, ownerID, id uuid.UUID) (*Share, error
 	defer rows.Close()
 	for rows.Next() {
 		var r Recipient
-		if err := rows.Scan(&r.ID, &r.Email, &r.RevokedAt, &r.FirstOpenedAt, &r.LastAccessAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Email, &r.RevokedAt, &r.FirstOpenedAt, &r.LastAccessAt, &r.VendorID); err != nil {
 			return nil, err
 		}
 		sh.Recipients = append(sh.Recipients, r)
@@ -378,10 +469,10 @@ func (s *Service) RevokeRecipient(ctx context.Context, ownerID, shareID, recipie
 	return tx.Commit(ctx)
 }
 
-// AddRecipients adds addresses not already on the share and returns the new ones.
+// AddRecipients adds addresses and vendor accounts not already on the share and returns the new ones.
 // Each new recipient is sent the same invitation as the original ones.
-func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID uuid.UUID, emails []string) ([]Recipient, error) {
-	emails, err := normEmails(emails)
+func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID uuid.UUID, emails []string, vendorIDs []uuid.UUID) ([]Recipient, error) {
+	emails, vendors, err := s.recipients(ctx, emails, vendorIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -413,27 +504,16 @@ func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID u
 	if err != nil {
 		return nil, err
 	}
-	subject, body := mail.Invitation(s.baseURL+"/s/"+string(tok), senderName(owner), message, expires)
-	var total int
+	added, err := s.addRecipients(ctx, tx, shareID, emails, vendors, s.baseURL+"/s/"+string(tok), senderName(owner), message, expires)
+	if err != nil {
+		return nil, err
+	}
+	var total int // counted after adding: a converted row is not a new one
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM share_recipients WHERE share_id = $1`, shareID).Scan(&total); err != nil {
 		return nil, err
 	}
-	var added []Recipient
-	for _, e := range emails {
-		r := Recipient{ID: uuid.New(), Email: e}
-		tag, err := tx.Exec(ctx, `INSERT INTO share_recipients (id, share_id, email) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, r.ID, shareID, e)
-		if err != nil {
-			return nil, err
-		}
-		if tag.RowsAffected() == 1 {
-			added = append(added, r)
-			if err := s.outbox.Enqueue(ctx, tx, mail.Message{To: e, Subject: subject, Body: body}); err != nil {
-				return nil, err
-			}
-		}
-	}
-	if total+len(added) > maxRecipients {
-		return nil, invalid("emails", "too_many")
+	if total > maxRecipients {
+		return nil, invalid("recipients", "too_many")
 	}
 	return added, tx.Commit(ctx)
 }

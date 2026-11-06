@@ -7,38 +7,43 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](web/package.json)
 [![License: AGPL-3.0](https://img.shields.io/github/license/tntrock/secure-exchange)](LICENSE)
 
-English | [繁體中文](README.zh-TW.md)
+繁體中文 | [English](README.en.md)
 
-Self-hosted secure file exchange, open source (AGPL-3.0). One Go binary with the web UI embedded, PostgreSQL for metadata, and local disk or S3-compatible storage for file contents.
+自架的安全檔案交換系統，開源（AGPL-3.0）。單一 Go 執行檔（內嵌網頁介面）、以 PostgreSQL 存放中繼資料、檔案內容存放於本機磁碟或 S3 相容儲存。
 
-## Features (phase 1-4)
+## 功能（第一至六階段）
 
-- Resumable uploads (tus) of very large files; files are encrypted (AES-256-GCM, per-file key wrapped by your master key) before anything touches disk or S3.
-- Password login with argon2id, optional TOTP two-factor authentication, rate limiting, hash-chained audit log.
-- Web UI in Traditional Chinese and English.
-- `rotate-keys` subcommand to move stored data to a new master key.
-- One-time shares: send files to named recipients, each verified by an emailed one-time code; expiry, view limit, IP restriction, revocation and notifications.
-- Online viewer: documents, images and videos are shown as server-rendered pages and video segments, optionally watermarked per recipient; rendering happens in an isolated worker container.
-- Download trace marks: every recipient download gets a tracking code and, where the file type allows, an embedded mark; administrators trace leaked files back to the recipient on the **Leak tracing** page.
+- 支援超大檔案的可續傳上傳（tus）；檔案在寫入磁碟或 S3 之前一律先加密（AES-256-GCM，每個檔案一把金鑰，再由主金鑰包裝）。
+- argon2id 密碼登入、可選的 TOTP 雙因素驗證、速率限制、雜湊鏈稽核紀錄。
+- 網頁介面支援繁體中文與英文。
+- `rotate-keys` 子命令，可將已存資料換到新的主金鑰。
+- 一次性分享：將檔案分享給指定收件人，每位收件人以 email 一次性驗證碼驗證；支援期限、檢視次數、IP 限制、撤銷與通知。
+- 線上檢視：文件、圖片與影片以伺服器端產生的頁面圖片與影片片段呈現，可依收件人加上浮水印；轉檔在隔離的 worker 容器中進行。
+- 下載追蹤標記：收件人的每次下載都有追蹤碼，並依檔案類型嵌入標記；管理員可在「溯源查詢」頁把外流檔案追回收件人。
+- 上傳請求：以連結向沒有帳號的人收取檔案，上傳者以 email 驗證碼驗證。
+- 所有外部上傳都經 ClamAV 掃描，感染的檔案會被隔離。
+- 廠商帳號：供長期合作的外部人員使用，密碼加上強制雙因素驗證，有「與我分享」清單，並可直接上傳檔案給員工。
 
-## Quick deployment
+操作說明請見[使用者手冊](docs/user-manual.md)與[管理員手冊](docs/admin-manual.md)。
 
-Requires Docker with Compose and a DNS name pointing at the host (ports 80/443 open). Caddy obtains a TLS certificate automatically.
+## 快速部署
+
+需要 Docker（含 Compose），以及指向本主機的網域名稱（開放 80/443 埠）。Caddy 會自動申請 TLS 憑證。
 
 ```sh
 cp .env.example .env
-# edit .env: SX_DOMAIN, POSTGRES_PASSWORD, SX_MASTER_KEYS, initial admin
-openssl rand -base64 32      # use the output as the key in SX_MASTER_KEYS=1:<key>
+# 編輯 .env：SX_DOMAIN、POSTGRES_PASSWORD、SX_MASTER_KEYS、初始管理員
+openssl rand -base64 32      # 輸出值填入 SX_MASTER_KEYS=1:<金鑰>
 docker compose up -d
 ```
 
-Open `https://<SX_DOMAIN>` and sign in with `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD`. For a local trial use `SX_DOMAIN=localhost` (Caddy's local CA; use `curl -k`). `scripts/smoke.sh` runs an end-to-end upload, resume, download, share and online-viewer check on a throwaway stack (needs Docker; refuses to run if a `.env` exists).
+開啟 `https://<SX_DOMAIN>`，以 `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD` 登入。本機試用可設 `SX_DOMAIN=localhost`（使用 Caddy 本機 CA，`curl` 請加 `-k`）。`scripts/smoke.sh` 會在用完即丟的環境做上傳／續傳／下載／分享／線上檢視的端對端檢查（需 Docker；已有 `.env` 時拒絕執行）。
 
-Configuration is entirely through environment variables; every `SX_*` setting is documented in `.env.example`.
+所有設定皆為環境變數；每個 `SX_*` 設定都在 `.env.example` 中說明。
 
-## Email (SMTP)
+## 電子郵件（SMTP）
 
-Share invitations, verification codes and notifications are sent by email, so SMTP settings are **required** (the app will not start without `SX_SMTP_HOST` and `SX_SMTP_FROM`). Example for a typical relay, in `.env`:
+分享邀請、驗證碼與通知都以電子郵件寄出，因此 SMTP 設定為**必填**（未設定 `SX_SMTP_HOST` 與 `SX_SMTP_FROM` 時程式無法啟動）。一般郵件中繼的 `.env` 範例：
 
 ```sh
 SX_SMTP_HOST=smtp.example.com
@@ -46,41 +51,41 @@ SX_SMTP_PORT=587
 SX_SMTP_USERNAME=apikey-or-user
 SX_SMTP_PASSWORD=secret
 SX_SMTP_FROM="Secure Exchange <noreply@example.com>"
-SX_SMTP_TLS=starttls        # starttls (default), tls (implicit TLS, usually port 465) or none
+SX_SMTP_TLS=starttls        # starttls（預設）、tls（隱式 TLS，通常為 465 埠）或 none
 ```
 
-`SX_SMTP_TLS=none` sends mail unencrypted and is accepted only for `localhost`, `127.0.0.1` and `mailpit`; use it for local testing only. `SX_SHARE_MAX_DAYS` (default 30) caps how long a share may last.
+`SX_SMTP_TLS=none` 會以未加密方式寄信，只接受 `localhost`、`127.0.0.1` 與 `mailpit`，僅供本機測試。`SX_SHARE_MAX_DAYS`（預設 30）為分享期限的上限天數。
 
-## One-time shares
+## 一次性分享
 
-1. In **Shares**, pick files, enter the recipients' email addresses (up to 50), choose whether they may download, an expiry (1 hour up to `SX_SHARE_MAX_DAYS`, default 7 days), and optionally a view limit, IP restriction and a short message.
-2. Each recipient gets an invitation email with the share link `https://<SX_DOMAIN>/s/<token>`. There is no password and no open link: the link only works together with a one-time code.
-3. The recipient opens the link, enters their email address and receives a 6-digit code (valid 10 minutes, single use, 5 attempts). After entering it they see the files for one hour. Addresses not on the list get exactly the same response, so the list cannot be probed.
-4. The view limit counts successful code verifications. IP restrictions and revocation are checked on every request.
-5. Revoke a whole share, or a single recipient, at any time; open sessions end immediately. You can also add recipients to an existing share (they get their own invitation).
-6. You are notified by email the first time each recipient opens the share (passes verification) and the first time they download each file; later opens and downloads are not mailed. Every step is recorded in the audit log.
+1. 在「分享」頁選擇檔案、輸入收件人的 email（最多 50 位），設定是否允許下載、期限（1 小時至 `SX_SHARE_MAX_DAYS`，預設 7 天），並可選填檢視次數上限、IP 限制與簡短附言。
+2. 每位收件人會收到邀請信，內含分享連結 `https://<SX_DOMAIN>/s/<token>`。沒有密碼，也沒有免驗證連結：連結必須搭配一次性驗證碼才能使用。
+3. 收件人開啟連結、輸入自己的 email 後，會收到 6 位數驗證碼（10 分鐘有效、僅能使用一次、最多嘗試 5 次）。驗證通過後可在 1 小時內檢視檔案。不在名單內的 email 會得到完全相同的回應，無法藉此探測名單。
+4. 檢視次數上限計算的是驗證碼成功驗證的次數。每次請求都會重新檢查 IP 限制與撤銷狀態。
+5. 可隨時撤銷整個分享或單一收件人，已開啟的連線會立即失效。也可對既有分享追加收件人（對方會收到自己的邀請信）。
+6. 每位收件人第一次開啟分享（通過驗證）、以及第一次下載每個檔案時，你會收到通知信；之後的開啟與下載不再寄信。每個步驟都記錄於稽核紀錄。
 
-For view-only shares the recipient sees the files in the online viewer (below); the download button and API are disabled.
+設為「僅線上檢視」的分享，收件人以線上檢視（見下節）觀看檔案；下載按鈕與下載 API 對其停用。
 
-For local development, `docker-compose.dev.yml` includes mailpit (SMTP on `:51025`, web UI on `http://localhost:58025`); `scripts/smoke.sh` runs the whole flow against a throwaway stack.
+本機開發時，`docker-compose.dev.yml` 內含 mailpit（SMTP 在 `:51025`，網頁介面在 `http://localhost:58025`）；`scripts/smoke.sh` 會在一個用完即丟的環境跑完整流程。
 
-## Online viewer
+## 線上檢視
 
-Files can be viewed in the browser without downloading them. The browser only ever receives images and video segments the server rendered; the original file, PDF or Office document is never sent by the viewer.
+檔案可直接在瀏覽器中檢視，不必下載。瀏覽器收到的只有伺服器端產生的圖片與影片片段；檢視功能從不送出原始檔、PDF 或 Office 檔。
 
-- **Formats:** documents are rendered page by page (PDF, Word/Excel/PowerPoint and OpenDocument, RTF, CSV, plain text, Markdown, JSON/XML/YAML, logs and common source code, HTML); images (JPEG, PNG, GIF, WebP, BMP, TIFF); video (MP4, MOV, M4V, MKV, WebM, AVI) is transcoded to H.264/AAC, up to 720p, streamed as HLS. Other files can still be shared for download.
-- **Limits** (environment variables, see `.env.example`): `SX_PREVIEW_MAX_BYTES` (documents/images, default 1 GiB), `SX_PREVIEW_MAX_PAGES` (500), `SX_PREVIEW_MAX_VIDEO_BYTES` (1.5 GiB), `SX_PREVIEW_MAX_VIDEO_SECONDS` (7200), `SX_RENDER_DPI` (110). Larger files are marked as not previewable. **Sizing rule:** the decrypted input and all rendered output share the worker's `/work` tmpfs, which counts against its memory limit, so keep *largest preview input + output ≤ `/work` size (4 GiB) < `mem_limit` (6 GiB)*, with swap disabled. Raise the tmpfs size and `mem_limit` in `docker-compose.yml` together with the limits; a job that still fills `/work` ends as not previewable.
-- **View-only shares** require a ready preview: while it is still rendering, the share cannot include the file; files that cannot be previewed can only go in shares that allow download.
-- **Watermark:** turn on *watermark* for a share and every page and video segment the recipient sees carries a tiled, semi-transparent line with a tracking code, the time (UTC), their IP and their email address. It is drawn per request and never cached. Your own previews have no watermark.
+- **支援格式：** 文件逐頁轉成圖片（PDF、Word／Excel／PowerPoint 與 OpenDocument、RTF、CSV、純文字、Markdown、JSON／XML／YAML、記錄檔與常見原始碼、HTML）；圖片（JPEG、PNG、GIF、WebP、BMP、TIFF）；影片（MP4、MOV、M4V、MKV、WebM、AVI）轉為 H.264／AAC、最高 720p，以 HLS 串流。其他檔案仍可用允許下載的分享傳送。
+- **預覽上限**（環境變數，見 `.env.example`）：`SX_PREVIEW_MAX_BYTES`（文件與圖片，預設 1 GiB）、`SX_PREVIEW_MAX_PAGES`（500）、`SX_PREVIEW_MAX_VIDEO_BYTES`（1.5 GiB）、`SX_PREVIEW_MAX_VIDEO_SECONDS`（7200）、`SX_RENDER_DPI`（110）。超過上限的檔案視為無法預覽。**容量規則：** 解密後的輸入檔與所有產出都放在 worker 的 `/work` tmpfs，而 tmpfs 會計入容器記憶體上限，因此須維持「*最大預覽輸入 + 產出 ≤ `/work` 大小（4 GiB）< `mem_limit`（6 GiB）*」，且不使用 swap。調高上限時，請一併調高 `docker-compose.yml` 中的 tmpfs 大小與 `mem_limit`；仍把 `/work` 寫滿的工作會視為無法預覽。
+- **僅線上檢視的分享**需要預覽已完成：預覽仍在產生時不能加入該檔案；無法預覽的檔案只能放在允許下載的分享。
+- **浮水印：** 分享開啟「浮水印」後，收件人看到的每一頁、每一個影片片段都帶有平鋪、半透明的一行文字：追蹤碼、時間（UTC）、IP 與收件人 email。浮水印於每次請求時繪製，不會快取。檢視自己的檔案時不加浮水印。
 
-Previews are rendered by a separate **worker** container (`docker compose up -d` starts it). It runs LibreOffice, poppler and FFmpeg on untrusted files, so it is locked down:
+預覽由獨立的 **worker** 容器產生（`docker compose up -d` 會一併啟動）。它要以 LibreOffice、poppler 與 FFmpeg 處理不受信任的檔案，因此有以下隔離：
 
-- **No outbound network:** it is attached only to the internal `backend` network (with PostgreSQL and the app); it cannot reach the internet.
-- **Read-only root filesystem;** decrypted files and intermediates live only on a tmpfs at `/work` (`SX_WORKER_TMP`, 4 GiB) and are deleted after each job. Rendered pages and segments are encrypted before they are stored.
-- **No swap:** `memswap_limit` equals `mem_limit`, so decrypted pages on the tmpfs can never be swapped to disk. The worker refuses to start if `/work` is not a tmpfs (`SX_WORKER_ALLOW_NON_TMPFS=1` overrides this for development only).
-- **Resource limits:** 6 GiB memory (including the 4 GiB tmpfs), 2 CPUs, 512 processes; all capabilities dropped, `no-new-privileges`, runs as uid 65532. Every external program has a timeout.
+- **無對外網路：** 只接內部網路 `backend`（與 PostgreSQL、app 相連），無法連上網際網路。
+- **根檔案系統唯讀；** 解密後的檔案與中間檔只放在 `/work` 的 tmpfs（`SX_WORKER_TMP`，4 GiB），每個工作結束即刪除。產生的頁面與片段在儲存前一律加密。
+- **不使用 swap：** `memswap_limit` 等於 `mem_limit`，tmpfs 上的解密資料不會被換出到磁碟。若 `/work` 不是 tmpfs，worker 會拒絕啟動（`SX_WORKER_ALLOW_NON_TMPFS=1` 可略過此檢查，僅限開發使用）。
+- **資源上限：** 記憶體 6 GiB（含 4 GiB tmpfs）、2 顆 CPU、512 個 process；移除所有 capabilities、`no-new-privileges`、以 uid 65532 執行。每個外部程式都有逾時。
 
-**External S3:** with `SX_STORAGE=s3` and an S3 endpoint outside the compose stack, the worker needs a route to it. Attach it to an additional network in a `docker-compose.override.yml`:
+**外部 S3：** 使用 `SX_STORAGE=s3` 且 S3 位於 compose 之外時，worker 需要能連到它。以 `docker-compose.override.yml` 讓它多接一個網路：
 
 ```yaml
 services:
@@ -90,148 +95,148 @@ networks:
   s3: {}
 ```
 
-That network gives the worker outbound access again, so restrict it at your firewall to the S3 endpoint only.
+這個網路會讓 worker 重新能對外連線，請在防火牆上限制為只能連到 S3 端點。
 
-## Download trace marks
+## 下載追蹤標記
 
-Every download by a share recipient is recorded with a fresh 10-character tracking code (`SX-<code>`), the recipient, IP and time, and the file is marked so a leaked copy can be traced back. Your own downloads are not marked. Methods depend on the file type and on the share's *watermark* setting:
+分享收件人的每次下載，都會記錄一組新的 10 字元追蹤碼（`SX-<code>`）、收件人、IP 與時間，並在檔案上加標記，讓外流的副本可以追回來源。你自己下載自己的檔案不會加標記。標記方式依檔案類型與分享的「浮水印」設定而定：
 
-| Type | Watermark on | Watermark off |
+| 類型 | 浮水印開 | 浮水印關 |
 |---|---|---|
-| PDF | `pdf_pages`: preview pages re-assembled into a PDF with a visible and an invisible watermark; the code is also in the metadata and a hidden text layer | `pdf_meta`: original file with the code written into its metadata |
-| Office that can be paged (`.doc .docx .odt .rtf .xls .xlsx .ods .ppt .pptx .odp`) | `pdf_pages`; the recipient receives a watermarked **PDF** (`<name>.pdf`) | `.docx .xlsx .pptx`: `ooxml_meta`; `.odt .ods .odp`: `odf_meta`; `.doc .xls .ppt .rtf`: `none` |
-| JPEG / PNG images | `image_visible`: visible and invisible watermark, same format | `image_invisible`: invisible watermark only, same format |
-| Everything else (GIF, WebP, TIFF, BMP, video, archives, ...) | `none` | `none` |
+| PDF | `pdf_pages`：預覽頁面重新組成 PDF，加上可見與不可見浮水印；追蹤碼同時寫入中繼資料與隱藏文字層 | `pdf_meta`：原檔，追蹤碼寫入中繼資料 |
+| 可轉頁面的 Office（`.doc .docx .odt .rtf .xls .xlsx .ods .ppt .pptx .odp`） | `pdf_pages`；收件人拿到加上浮水印的 **PDF**（`<檔名>.pdf`） | `.docx .xlsx .pptx`：`ooxml_meta`；`.odt .ods .odp`：`odf_meta`；`.doc .xls .ppt .rtf`：`none` |
+| JPEG／PNG 圖片 | `image_visible`：可見加不可見浮水印，格式不變 | `image_invisible`：只加不可見浮水印，格式不變 |
+| 其他（GIF、WebP、TIFF、BMP、影片、壓縮檔…） | `none` | `none` |
 
-`none` records only who downloaded the file and its fingerprint (SHA-256); repeated downloads of the same file by the same recipient share one record and support Range requests. Marked downloads are streamed, so they do not support Range.
+`none` 只記錄下載者與檔案指紋（SHA-256）；同一收件人重複下載同一檔案只會有一筆紀錄，並支援 Range 請求。有標記的下載以串流送出，不支援 Range。
 
-Marked images are re-encoded upright (a JPEG's EXIF orientation is applied) and carry no EXIF or ICC colour profile, so colours of wide-gamut photos may shift slightly. `pdf_meta` and image copies are built in memory, at most two at a time; further downloads wait for a free slot.
+加標記的圖片會重新編碼並轉正（套用 JPEG 的 EXIF 方向），但不保留 EXIF 與 ICC 色彩設定檔，廣色域照片的顏色可能略有偏差。`pdf_meta` 與圖片的標記副本在記憶體中產生，同時最多兩份；其餘下載會等候空檔。
 
-The method is chosen before the download starts: if a file cannot be marked as the table says, it falls back to a weaker method (`pdf_pages` -> `pdf_meta` -> `none`, images -> `none`), for example when a preview failed, the file is damaged, or it is over a limit. Once a marked download has started sending, there is no fallback: if a page fails midway through a `pdf_pages` download, that download is aborted and the recipient retries. While a preview is still rendering, the download answers 409 and is never replaced by the unmarked original; the UI asks the recipient to try again shortly. The share dialog warns you about files that will fall back.
+標記方式在下載開始前就決定：若檔案無法照表中方式標記，會退回較弱的方式（`pdf_pages` → `pdf_meta` → `none`，圖片 → `none`），例如預覽轉檔失敗、檔案損毀或超過上限。有標記的下載一旦開始傳送就不會再退回：`pdf_pages` 下載途中若有頁面失敗，該次下載會中斷，由收件人重新下載。預覽還在轉檔時，下載會回 409，絕不以未標記的原檔取代；介面會請收件人稍後再試。建立分享時，對話框會提醒你哪些檔案會被退回。
 
-| Variable | Default | Meaning |
+| 環境變數 | 預設值 | 說明 |
 |---|---|---|
-| `SX_MARK_MAX_BYTES` | `268435456` (256 MiB) | Largest file the server marks in memory (`pdf_meta`, images) and the largest suspect file the trace page analyses. Must be positive. |
-| `SX_MARK_MAX_PIXELS` | `50000000` | Largest image (width x height) that is marked. Must be positive. |
-| `SX_UNMARKABLE_POLICY` | `warn` | `warn` delivers the weaker result; `block` refuses the download (403 `unmarkable`) and refuses to create a download share with a watermark that includes such files (422). Applies only to shares with the watermark on. |
+| `SX_MARK_MAX_BYTES` | `268435456`（256 MiB） | 伺服器在記憶體中加標記（`pdf_meta`、圖片）的檔案大小上限，也是溯源頁分析可疑檔案的大小上限。必須為正數。 |
+| `SX_MARK_MAX_PIXELS` | `50000000` | 可加標記的圖片像素上限（寬 × 高）。必須為正數。 |
+| `SX_UNMARKABLE_POLICY` | `warn` | `warn`：照退回結果送出；`block`：拒絕下載（403 `unmarkable`），並拒絕建立包含這類檔案、允許下載且開浮水印的分享（422）。只對浮水印開啟的分享生效。 |
 
-**Tracing a leak.** Administrators open **Leak tracing** (`/admin/trace`) and look up a tracking code, a SHA-256, or upload the suspect file (analysed in memory only, never stored). The page reads the metadata, text layer and invisible watermark, and shows who downloaded it, for which file and share, from which IP and when; with no match it says "Undetermined". Screenshots and photos of the screen carry no embedded mark: read the tracking code from the visible watermark and look it up manually.
+**追查外流。** 管理員開啟「溯源查詢」（`/admin/trace`），可輸入追蹤碼、SHA-256，或上傳可疑檔案（只在記憶體中分析，不會儲存）。系統會讀取中繼資料、文字層與不可見浮水印，列出下載者、檔案、分享、IP 與時間；查不到時顯示「無法判定」。截圖或螢幕翻拍不帶任何內嵌標記，請從可見浮水印上讀出追蹤碼，再人工輸入查詢。
 
-## Upload requests
+## 上傳請求
 
-Upload requests let you collect files from people who have no account: you send them a link, they prove their email with a one-time code and upload straight into your file list.
+上傳請求讓你向沒有帳號的人收取檔案：寄出一個連結，對方以一次性驗證碼證明 Email，就能直接把檔案上傳到你的檔案清單。
 
-**Creating a link.** Open **Requests** (`/requests`), fill in the form and press **Create request**:
+**建立連結。** 開啟「上傳請求」（`/requests`），填寫表單後按「建立請求」：
 
-- **Uploaders**: up to 50 email addresses (comma or newline separated). Only these people can sign in to the link.
-- **Expires on**: end of that day; at most `SX_SHARE_MAX_DAYS` from now.
-- **Max files** and **max total size (GB)**: limits for the whole request, shared by all uploaders.
-- **Allowed extensions**: optional, for example `pdf, docx`. Empty means any type.
-- **Message**: optional, shown to uploaders.
+- **上傳者**：最多 50 個 Email（以逗號或換行分隔），只有這些人能登入此連結。
+- **有效期限至**：當天結束為止，最長為從現在起 `SX_SHARE_MAX_DAYS` 天。
+- **檔案數上限**與**總容量上限（GB）**：整個請求的限制，所有上傳者共用。
+- **允許的副檔名**：選填，例如 `pdf, docx`；留空表示不限類型。
+- **附言**：選填，會顯示給上傳者。
 
-The detail page shows the link (copy it and send it to the uploaders yourself), the uploaders, and every uploaded file with its scan status. **Revoke request** ends the link immediately; files already uploaded stay in your file list.
+詳細頁面會顯示連結（請自行複製並寄給上傳者）、上傳者，以及每個已上傳檔案與其掃描狀態。「撤銷請求」會立即讓連結失效；已上傳的檔案仍保留在你的檔案清單。
 
-**What uploaders see.** The link (`/r/<token>`) asks for their email, emails a 6-digit code, then shows the limits (allowed types, files left, space left) and a resumable uploader. Each uploader sees only their own files. Files that break a limit are refused before the upload starts, and again by the server.
+**上傳者看到的畫面。** 連結（`/r/<權杖>`）會先要求輸入 Email，寄出 6 位數驗證碼後，顯示限制（允許的類型、剩餘檔案數、剩餘容量）與可續傳的上傳器。每位上傳者只看得到自己的檔案。違反限制的檔案在開始上傳前就會被拒絕，伺服器端也會再檢查一次。
 
-**Scan states.** Files from upload requests are checked by ClamAV (see below) and show a badge on the detail page and in **My files**:
+**掃描狀態。** 來自上傳請求的檔案會由 ClamAV 檢查（見下節），並在詳細頁面與「我的檔案」顯示標籤：
 
-| Badge | Meaning for you |
+| 標籤 | 對你的意義 |
 |---|---|
-| Scanning (`pending`) | Waiting for the scan. Download, preview and sharing are disabled; the page refreshes by itself. |
-| No virus found | Scanned, nothing found. Works like any other file. |
-| Infected | A signature matched (its name is shown). Quarantined: no download, preview or sharing. |
-| Not scanned (`skipped`) | Larger than `SX_SCAN_MAX_BYTES`, released unscanned. Treat with caution. |
-| Scan failed (`error`) | Could not be scanned after 5 attempts. Blocked like an infected file. |
+| 掃描中（`pending`） | 等待掃描。無法下載、預覽或分享；頁面會自動更新。 |
+| 未發現病毒 | 已掃描，未發現問題，與一般檔案相同。 |
+| 已感染 | 符合病毒特徵碼（會顯示名稱）。已隔離：無法下載、預覽或分享。 |
+| 未掃描（`skipped`） | 超過 `SX_SCAN_MAX_BYTES`，未經掃描直接放行，請審慎處理。 |
+| 掃描失敗（`error`） | 嘗試 5 次仍無法掃描。與感染檔案一樣被封鎖。 |
 
-Your own uploads are not scanned and show no badge.
+你自己上傳的檔案不會掃描，也不顯示標籤。
 
-## Vendor accounts
+## 廠商帳號
 
-Vendor accounts are for outside people you work with often. Unlike a one-time share recipient, a vendor has a password and mandatory two-factor authentication (TOTP), and sees what is shared with them in a "Shared with me" list.
+廠商帳號供你經常往來的外部人員使用。與一次性分享的收件人不同，廠商有密碼並強制使用雙因素驗證（TOTP），並在「與我分享」清單中看到分享給他們的檔案。
 
-**Creating a vendor.** Open **Vendors** (`/vendors`), enter the email, display name, optional organisation and an expiry date, and press **Create and invite**. Who may create vendors is set by `SX_VENDOR_CREATION`:
+**建立廠商。** 開啟 **廠商**（`/vendors`），填入電子郵件、顯示名稱、選填的組織與到期日，按 **建立並邀請**。誰能建立廠商由 `SX_VENDOR_CREATION` 決定：
 
-| Value | Meaning |
+| 值 | 意義 |
 |---|---|
-| `staff` | Any staff member creates active vendor accounts directly. |
-| `approval` (default) | Staff create a request; an administrator approves or rejects it on the same page. |
-| `admin` | Only administrators create vendor accounts. |
+| `staff` | 任何員工可直接建立啟用的廠商帳號。 |
+| `approval`（預設） | 員工提出申請，由管理員在同一頁面核准或駁回。 |
+| `admin` | 只有管理員能建立廠商帳號。 |
 
-**Invitation.** The vendor receives an email with a link (`/invite/<token>`, valid 7 days, single use). On that page they scan the QR code with an authenticator app, choose a password (at least 12 characters) and enter the 6-digit code. A newer invitation (**Reinvite**) replaces the old link. Accounts can be disabled (all their sessions end at once) and expire on the chosen date.
+**邀請。** 廠商會收到含連結的郵件（`/invite/<token>`，7 天內有效，僅能使用一次）。在該頁面以驗證器 App 掃描 QR code、設定密碼（至少 12 個字元）並輸入 6 位數驗證碼。較新的邀請（**重新邀請**）會取代舊連結。帳號可停用（其所有登入階段立即結束），並於所選日期到期。
 
-**Sharing.** In the share dialog, pick vendors in addition to or instead of email recipients. Any staff member may share to any active vendor. Vendors skip the email-code step; view mode, watermark, expiry, view limit and IP rules apply as for one-time shares, and the watermark names the vendor's email.
+**分享。** 在分享對話框中，除了電子郵件收件人，也可選擇廠商。任何員工都能分享給任何啟用中的廠商。廠商不需電子郵件驗證碼；檢視模式、浮水印、期限、檢視次數與 IP 規則與一次性分享相同，浮水印顯示廠商的電子郵件。
 
-**What vendors see.** After login they land on **Shared with me** (`/vendor/shares`): each share with its owner, message, expiry and files, where they can view and download. **Upload** (`/vendor/upload`) lets them send files to staff who shared with them or who created their account; they never see the full staff list. Vendor uploads are scanned by ClamAV like upload request files and appear in the staff member's **My files** with the vendor's name.
+**廠商看到什麼。** 登入後進入 **與我分享**（`/vendor/shares`）：列出每個分享的分享者、附言、期限與檔案，可檢視與下載。**上傳**（`/vendor/upload`）讓他們傳檔給曾分享給他們或建立其帳號的員工；他們看不到完整的員工名單。廠商上傳的檔案與上傳請求一樣會經 ClamAV 掃描，並以廠商名稱顯示在員工的 **我的檔案** 中。
 
-## ClamAV virus scanning
+## ClamAV 病毒掃描
 
-Files uploaded through upload request links by external users are scanned by ClamAV before the requester can download them. The `clamav` service starts with the stack and the worker feeds it each file (decrypted in memory only, never written to disk).
+外部使用者透過上傳請求連結上傳的檔案，以及廠商直接上傳的檔案，在收件的員工能下載之前會先由 ClamAV 掃描。`clamav` 服務隨整組服務啟動，worker 將每個檔案（僅在記憶體中解密，不寫入磁碟）送給它。
 
-- The first start downloads the virus signatures, which takes several minutes. Files uploaded meanwhile stay `pending` and are scanned once clamd is ready.
-- Infected files are quarantined and cannot be downloaded; the requester and all admins are emailed. A file that cannot be scanned after 5 attempts is blocked and the requester is told.
-- Files over `SX_SCAN_MAX_BYTES` (default 1 GiB; ClamAV imposes a hard ceiling of about 4000 MiB) are released **unscanned**, with a warning badge and a warning in the requester's email. This is an accepted deviation from "every external upload is scanned"; an option to block such files instead is planned together with the admin rules.
-- To raise the limit, raise all of these together to at least the new value: `SX_SCAN_MAX_BYTES`, `StreamMaxLength` and `MaxFileSize` in `clamd.conf`, and the `/tmp` tmpfs size of `clamav` in `docker-compose.yml` (clamd spools the stream there, in RAM).
-- ClamAV's scan-time, size and archive limits stop a scan early and still report OK (`AlertExceedsMax` is `no`), so "No virus found" means no virus was found within ClamAV's limits, not that the file is proven clean.
-- clamd needs about 1.5 to 3 GB of RAM (`mem_limit: 4g`). The worker has no internet access; `clamav` sits on its own `updates` network, which has egress for signature updates. (The `app` and `caddy` containers are on the `sx` network, which also has egress.)
+- 首次啟動會下載病毒碼，需要數分鐘。期間上傳的檔案維持 `pending`，clamd 就緒後才會掃描。
+- 感染的檔案會被隔離而無法下載，並寄信通知請求者與所有管理員。連續 5 次無法掃描的檔案會被封鎖，並通知請求者。
+- 超過 `SX_SCAN_MAX_BYTES`（預設 1 GiB；ClamAV 本身的硬上限約 4000 MiB）的檔案會**不經掃描**直接放行，並顯示警告徽章、在寄給請求者的信中附上警告。這是對「每個外部上傳都會掃描」的已接受例外；日後會隨管理員規則提供改為封鎖的選項。
+- 要調高上限，請同時把下列項目調到不小於新值：`SX_SCAN_MAX_BYTES`、`clamd.conf` 的 `StreamMaxLength` 與 `MaxFileSize`，以及 `docker-compose.yml` 中 `clamav` 的 `/tmp` tmpfs 大小（clamd 在那裡暫存串流，位於記憶體）。
+- ClamAV 的掃描時間、大小與壓縮檔限制會提前結束掃描，且仍回報 OK（`AlertExceedsMax` 為 `no`），所以「未發現病毒」的意思是在 ClamAV 的限制內未發現病毒，不代表檔案已被證明安全。
+- clamd 約需 1.5 至 3 GB 記憶體（`mem_limit: 4g`）。worker 沒有對外網路；`clamav` 位於自己的 `updates` 網路，該網路可連外以更新病毒碼。（`app` 與 `caddy` 位於 `sx` 網路，該網路同樣可連外。）
 
-## Backup
+## 備份
 
-Back up all of these, together:
+下列各項必須一起備份：
 
-1. The database: `docker compose exec -T postgres pg_dump -U sx sx > sx.sql`
-2. The `sxdata` volume (encrypted blobs and staging), or your S3 bucket:
+1. 資料庫：`docker compose exec -T postgres pg_dump -U sx sx > sx.sql`
+2. `sxdata` volume（加密後的檔案與暫存），或你的 S3 bucket：
    `docker run --rm --volumes-from "$(docker compose ps -aq app)" -v "$PWD:/backup" debian:bookworm-slim tar -C /data -czf /backup/sxdata.tgz .`
-3. **The `.env` file. It holds the master key(s) in `SX_MASTER_KEYS`. If the key is lost, stored files cannot be decrypted. Keep a copy outside the server.**
+3. **`.env` 檔。其中的 `SX_MASTER_KEYS` 存放主金鑰。主金鑰遺失，已儲存的檔案即無法解密。請在伺服器之外另存一份。**
 
-## Restore
+## 還原
 
-Restoring requires the **same `SX_MASTER_KEYS` and `SX_ACTIVE_KEY_ID`** as when the backup was taken; without them the restored files cannot be decrypted.
+還原時必須使用與備份當時**相同的 `SX_MASTER_KEYS` 與 `SX_ACTIVE_KEY_ID`**，否則還原後的檔案無法解密。
 
-1. Put the backed-up `.env` next to `docker-compose.yml`.
-2. Create the containers and empty volumes, start only PostgreSQL, and load the dump into the empty database:
+1. 把備份的 `.env` 放回 `docker-compose.yml` 旁。
+2. 建立容器與空的 volume，只啟動 PostgreSQL，再把備份匯入空的資料庫：
    ```sh
    docker compose create
    docker compose up -d postgres
    docker compose exec -T postgres psql -U sx -d sx -v ON_ERROR_STOP=1 < sx.sql
    ```
-3. Restore the `sxdata` volume (or your S3 bucket):
+3. 還原 `sxdata` volume（或你的 S3 bucket）：
    `docker run --rm --volumes-from "$(docker compose ps -aq app)" -v "$PWD:/backup" debian:bookworm-slim tar -C /data -xzf /backup/sxdata.tgz`
-4. Optional: restore the `caddydata` volume the same way (with `caddy` in place of `app`) to keep the TLS certificates; otherwise Caddy obtains new ones.
-5. `docker compose up -d`.
+4. 選用：以同樣方式（把 `app` 換成 `caddy`）還原 `caddydata` volume 以保留 TLS 憑證；否則 Caddy 會重新申請。
+5. `docker compose up -d`。
 
-## Master key rotation
+## 主金鑰輪替
 
-1. Generate a new key: `openssl rand -base64 32`.
-2. Add it to `SX_MASTER_KEYS` next to the old one (`1:<old>,2:<new>`) and set `SX_ACTIVE_KEY_ID=2`.
-3. Restart **all** app and worker instances onto the new active key (`docker compose up -d`) **before** the next step, so nothing keeps writing under the old key.
-4. Run `docker compose exec app /secure-exchange rotate-keys`. It loads the full configuration (database, keys, SMTP and the rest), so run it inside the app container, where the `.env` settings are present, not on the host. Re-run it until it reports `rotated 0 values`.
-5. Only then remove the old key from `SX_MASTER_KEYS` and restart. Keep a backup of the old key until you have verified downloads still work.
+1. 產生新金鑰：`openssl rand -base64 32`。
+2. 把新金鑰加到 `SX_MASTER_KEYS`，與舊金鑰並列（`1:<舊>,2:<新>`），並設 `SX_ACTIVE_KEY_ID=2`。
+3. 在進行下一步**之前**，先把**所有** app 與 worker 實例重啟到新的使用中金鑰（`docker compose up -d`），避免仍有實例以舊金鑰寫入。
+4. 執行 `docker compose exec app /secure-exchange rotate-keys`。此命令會載入完整設定（資料庫、金鑰、SMTP 等），因此請在已有 `.env` 設定的 app 容器內執行，而不是在主機上。重複執行，直到回報 `rotated 0 values`。
+5. 這時才從 `SX_MASTER_KEYS` 移除舊金鑰並重啟。確認下載仍正常之前，請保留舊金鑰備份。
 
-## Development
+## 開發環境
 
 ```sh
-docker compose -f docker-compose.dev.yml up -d     # postgres :55432, minio :59000, mailpit :51025 (web UI :58025)
+docker compose -f docker-compose.dev.yml up -d     # postgres :55432、minio :59000、mailpit :51025（介面 :58025）
 export SX_TEST_DATABASE_URL='postgres://sx:sx@localhost:55432/sx?sslmode=disable'
-export SX_TEST_S3_ENDPOINT=localhost:59000          # optional; S3 tests skip without it
-(cd web && npm ci && npm run build)                 # the Go binary embeds internal/webui/dist
+export SX_TEST_S3_ENDPOINT=localhost:59000          # 選用；未設定時 S3 測試會跳過
+(cd web && npm ci && npm run build)                 # Go 執行檔會內嵌 internal/webui/dist
 go vet ./... && go test ./...
 docker run --rm -v "$PWD:/app" -w /app golangci/golangci-lint:v2.15.0 golangci-lint run --build-tags tools ./...
 ```
 
-DB tests are skipped when `SX_TEST_DATABASE_URL` is unset. CI runs everything with `-race` and fails if Go (merged with the tools tests) or web statement coverage drops below 90% (`scripts/covergate.sh`, vitest thresholds).
+未設定 `SX_TEST_DATABASE_URL` 時，資料庫測試會跳過。CI 以 `-race` 執行全部測試；Go（合併 tools 測試）或前端的語句覆蓋率低於 90% 時 CI 會失敗（`scripts/covergate.sh`、vitest thresholds）。
 
-The `//go:build tools` tests (LibreOffice, poppler, FFmpeg) run inside the worker-test image, which joins the dev compose network and reaches PostgreSQL and MinIO by service name (source mounted at `/src`):
+`//go:build tools` 測試（LibreOffice、poppler、FFmpeg）在 worker-test 映像中執行；它加入開發用 compose 網路，以服務名稱連到 PostgreSQL 與 MinIO（原始碼掛載於 `/src`）：
 
 ```sh
 docker compose -f docker-compose.dev.yml --profile tools run --rm worker-test
 ```
 
-CI runs them in a separate `tools` job.
+CI 以獨立的 `tools` job 執行這些測試。
 
-## Security
+## 安全性
 
-Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
+請以私下方式回報弱點，詳見 [SECURITY.md](SECURITY.md)。
 
-## License
+## 授權
 
 [AGPL-3.0](LICENSE)

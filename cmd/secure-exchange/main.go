@@ -21,6 +21,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/preview"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/scan"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
@@ -91,11 +92,16 @@ func serve(ctx context.Context) error {
 	go outbox.Run(ctx)
 	go upload.RunJanitor(ctx, pool, store, cfg.StagingDir, 24*time.Hour)
 	sessions := auth.NewSessions(pool)
+	siteRules := rules.New(pool, cfg.MaxFileSize)
+	if err := siteRules.Seed(ctx, cfg.ShareMaxDays); err != nil {
+		return fmt.Errorf("seed rules: %w", err)
+	}
 	handler := httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: sessions, Audit: auditLog,
-		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
-		Requests:       intake.NewService(pool, outbox, keys, cfg.BaseURL, cfg.ShareMaxDays),
-		Vendors:        vendor.NewService(pool, users, sessions, outbox, cfg.BaseURL, cfg.VendorCreation),
+		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),
+		Requests:       intake.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),
+		Vendors:        vendor.NewService(pool, users, sessions, outbox, cfg.BaseURL, cfg.VendorCreation, siteRules),
+		Rules:          siteRules,
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL, CodeDelay: 300 * time.Millisecond,
 		FontFile: cfg.FontFile, Mark: cfg.Mark,
 		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies, cfg.Preview),

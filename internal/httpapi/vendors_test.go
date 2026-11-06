@@ -215,7 +215,7 @@ func TestVendorRoutes(t *testing.T) {
 
 func TestVendorCreateAdminMode(t *testing.T) {
 	e := newEnv(t, func(d *Deps) {
-		d.Vendors = vendor.NewService(d.Pool, d.Users, d.Sessions, mail.NewOutbox(d.Pool, d.Keys, nil), "https://x.example", "admin")
+		d.Vendors = vendor.NewService(d.Pool, d.Users, d.Sessions, mail.NewOutbox(d.Pool, d.Keys, nil), "https://x.example", "admin", d.Rules)
 	})
 	e.user(t, "s@x.com")
 	e.loginAs(t, "s@x.com", "")

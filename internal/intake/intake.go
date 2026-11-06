@@ -18,6 +18,7 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -82,12 +83,12 @@ type Service struct {
 	outbox  *mail.Outbox
 	keys    *sxcrypto.Keyring
 	baseURL string
-	maxDays int
+	rules   *rules.Service
 	now     func() time.Time
 }
 
-func NewService(pool *pgxpool.Pool, outbox *mail.Outbox, keys *sxcrypto.Keyring, baseURL string, maxDays int) *Service {
-	return &Service{pool: pool, outbox: outbox, keys: keys, baseURL: baseURL, maxDays: maxDays, now: time.Now}
+func NewService(pool *pgxpool.Pool, outbox *mail.Outbox, keys *sxcrypto.Keyring, baseURL string, rules *rules.Service) *Service {
+	return &Service{pool: pool, outbox: outbox, keys: keys, baseURL: baseURL, rules: rules, now: time.Now}
 }
 
 func invalid(field, code string) error { return &ValidationError{field, code} }
@@ -146,8 +147,12 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 	if in.ExpiresAt.IsZero() {
 		return nil, invalid("expires_at", "required")
 	}
+	rl, err := s.rules.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
 	now := s.now()
-	if in.ExpiresAt.Before(now.Add(time.Hour)) || in.ExpiresAt.After(now.AddDate(0, 0, s.maxDays)) {
+	if in.ExpiresAt.Before(now.Add(time.Hour)) || in.ExpiresAt.After(now.AddDate(0, 0, rl.ShareMaxDays)) {
 		return nil, invalid("expires_at", "out_of_range")
 	}
 	if in.MaxFiles < 1 || in.MaxFiles > maxFilesCap {

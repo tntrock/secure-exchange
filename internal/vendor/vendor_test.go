@@ -18,6 +18,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/mail/mailtest"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -29,6 +30,7 @@ type env struct {
 	users                *auth.Users
 	sessions             *auth.Sessions
 	keys                 *sxcrypto.Keyring
+	rs                   *rules.Service
 	staff, staff2, admin *auth.User
 }
 
@@ -40,8 +42,12 @@ func setup(t *testing.T, mode string) *env {
 		t.Fatal(err)
 	}
 	users, sessions := auth.NewUsers(pool, keys), auth.NewSessions(pool)
-	e := &env{t: t, users: users, sessions: sessions, keys: keys,
-		svc: NewService(pool, users, sessions, mail.NewOutbox(pool, keys, nil), "https://sx.example", mode)}
+	rs := rules.New(pool, 1<<30)
+	if err := rs.Seed(context.Background(), 30); err != nil {
+		t.Fatal(err)
+	}
+	e := &env{t: t, users: users, sessions: sessions, keys: keys, rs: rs,
+		svc: NewService(pool, users, sessions, mail.NewOutbox(pool, keys, nil), "https://sx.example", mode, rs)}
 	e.staff = e.account("Staff@x.com", "staff")
 	e.staff2 = e.account("staff2@x.com", "staff")
 	e.admin = e.account("adm@x.com", "admin")
@@ -498,5 +504,35 @@ func TestActivateRejectsSecretSwappedAfterCheck(t *testing.T) {
 	}
 	if u, _ := e.users.ByID(ctx, v.ID); u.TOTPEnabled || u.PasswordHash != "" {
 		t.Fatalf("enabled an unscanned secret: %+v", u)
+	}
+}
+
+func TestCreateDomainRule(t *testing.T) {
+	e := setup(t, "staff")
+	ctx := context.Background()
+	r, err := e.rs.Get(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.DomainAllow = []string{"corp.com"}
+	tx, err := e.svc.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.rs.Update(ctx, tx, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	in := CreateInput{Email: "x@other.com", DisplayName: "X", ExpiresAt: time.Now().AddDate(0, 0, 10)}
+	_, err = e.svc.Create(ctx, e.staff, in)
+	var ve *ValidationError
+	if !errors.As(err, &ve) || ve.Field != "email" || ve.Code != "domain_blocked" {
+		t.Fatalf("got %v", err)
+	}
+	in.Email = "x@sub.corp.com"
+	if _, err := e.svc.Create(ctx, e.staff, in); err != nil {
+		t.Fatalf("allowed domain: %v", err)
 	}
 }

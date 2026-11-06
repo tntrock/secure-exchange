@@ -19,6 +19,7 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/rules"
 )
 
 const (
@@ -67,10 +68,11 @@ type Service struct {
 	outbox   *mail.Outbox
 	baseURL  string
 	mode     string // staff | approval | admin
+	rules    *rules.Service
 }
 
-func NewService(pool *pgxpool.Pool, users *auth.Users, sessions *auth.Sessions, outbox *mail.Outbox, baseURL, mode string) *Service {
-	return &Service{pool: pool, users: users, sessions: sessions, outbox: outbox, baseURL: baseURL, mode: mode}
+func NewService(pool *pgxpool.Pool, users *auth.Users, sessions *auth.Sessions, outbox *mail.Outbox, baseURL, mode string, rules *rules.Service) *Service {
+	return &Service{pool: pool, users: users, sessions: sessions, outbox: outbox, baseURL: baseURL, mode: mode, rules: rules}
 }
 
 const vendorCols = `u.id, u.email, u.display_name, coalesce(o.name,''), u.approval, u.disabled, u.expires_at,
@@ -157,6 +159,13 @@ func (s *Service) Create(ctx context.Context, by *auth.User, in CreateInput) (*V
 	email, ok := mail.ValidAddress(in.Email)
 	if !ok {
 		return nil, invalid("email", "invalid")
+	}
+	rl, err := s.rules.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !rl.DomainAllowed(email) {
+		return nil, invalid("email", "domain_blocked")
 	}
 	display, org := strings.TrimSpace(in.DisplayName), strings.TrimSpace(in.Org)
 	if display == "" {

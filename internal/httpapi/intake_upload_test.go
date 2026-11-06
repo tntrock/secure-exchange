@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -24,6 +25,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/mail/mailtest"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/upload"
 )
@@ -47,7 +49,8 @@ func TestIntakePatchAfterRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := intake.NewService(pool, mail.NewOutbox(pool, keys, &mail.Recorder{}), keys, "https://x.example", 30)
+	rs := seedRules(t, pool)
+	svc := intake.NewService(pool, mail.NewOutbox(pool, keys, &mail.Recorder{}), keys, "https://x.example", rs)
 	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
 		Pool: pool, Keys: keys, Store: store, Requests: svc,
@@ -157,7 +160,8 @@ func TestIntakeRateLimitOnlyCreates(t *testing.T) {
 		t.Fatal(err)
 	}
 	users, log := auth.NewUsers(pool, keys), audit.New(pool)
-	svc := intake.NewService(pool, mail.NewOutbox(pool, keys, &mail.Recorder{}), keys, "https://x.example", 30)
+	rs := seedRules(t, pool)
+	svc := intake.NewService(pool, mail.NewOutbox(pool, keys, &mail.Recorder{}), keys, "https://x.example", rs)
 	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
 		Pool: pool, Keys: keys, Store: store, Requests: svc,
@@ -188,4 +192,13 @@ func TestIntakeRateLimitOnlyCreates(t *testing.T) {
 	if !limited {
 		t.Fatal("POST was never rate limited")
 	}
+}
+
+func seedRules(t *testing.T, pool *pgxpool.Pool) *rules.Service {
+	t.Helper()
+	rs := rules.New(pool, 1<<30)
+	if err := rs.Seed(context.Background(), 30); err != nil {
+		t.Fatal(err)
+	}
+	return rs
 }

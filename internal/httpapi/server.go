@@ -16,6 +16,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/blob"
 	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/intake"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 	"github.com/tntrock/secure-exchange/internal/vendor"
@@ -35,6 +36,7 @@ type Deps struct {
 	Shares         *share.Service
 	Requests       *intake.Service
 	Vendors        *vendor.Service
+	Rules          *rules.Service
 	FontFile       string // TTF for burned-in video watermarks (SX_FONT_FILE)
 	Mark           config.MarkConfig
 	CodeDelay      time.Duration // recipient /code and /verify answer no sooner than this after the request starts (P10)

@@ -22,7 +22,7 @@ func (e *env) blocked(t *testing.T, table string) (*Service, func()) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	svc := NewService(pool, mail.NewOutbox(pool, e.keys, nil), e.keys, e.svc.baseURL, e.svc.maxDays)
+	svc := NewService(pool, mail.NewOutbox(pool, e.keys, nil), e.keys, e.svc.baseURL, e.svc.rules)
 	svc.now = e.svc.now
 	tx, err := e.pool.Begin(context.Background())
 	if err != nil {

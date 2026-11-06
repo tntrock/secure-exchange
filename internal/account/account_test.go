@@ -522,3 +522,32 @@ func TestResetTOTPExternal(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestActivateRacesReinvite(t *testing.T) {
+	e := setup(t)
+	a, old := e.invited("r@x.com", "staff")
+	time.Sleep(5 * time.Millisecond)
+	raceHook = func() { // a reinvite lands between the pre-check and the activation tx
+		raceHook = func() {}
+		if err := e.svc.Reinvite(ctx, e.admin, a.ID); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { raceHook = func() {} })
+	if _, err := e.svc.Activate(ctx, old, goodPW, ""); !errors.Is(err, ErrInviteGone) {
+		t.Fatalf("voided token activated: %v", err)
+	}
+	if got, _ := e.svc.get(ctx, a.ID); got.Status != "invited" {
+		t.Fatalf("status %s", got.Status)
+	}
+}
+
+func TestReinviteRacesActivation(t *testing.T) {
+	e := setup(t)
+	a, _ := e.invited("r2@x.com", "staff")
+	raceHook = func() { e.exec(`UPDATE users SET password_hash = 'x' WHERE id = '` + a.ID.String() + `'`) }
+	t.Cleanup(func() { raceHook = func() {} })
+	if err := e.svc.Reinvite(ctx, e.admin, a.ID); !errors.Is(err, ErrState) {
+		t.Fatalf("reinvite of an activated account: %v", err)
+	}
+}

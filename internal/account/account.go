@@ -192,13 +192,18 @@ func (s *Service) Reinvite(ctx context.Context, by *auth.User, id uuid.UUID) err
 	if a.Role == "vendor" || a.AuthSource != "local" || a.Status != "invited" {
 		return ErrState
 	}
+	raceHook()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE users SET totp_secret_sealed = NULL WHERE id = $1 AND password_hash IS NULL`, id); err != nil {
+	tag, err := tx.Exec(ctx, `UPDATE users SET totp_secret_sealed = NULL WHERE id = $1 AND password_hash IS NULL`, id)
+	if err != nil {
 		return err
+	}
+	if tag.RowsAffected() == 0 { // activated meanwhile
+		return ErrState
 	}
 	if err := s.invite(ctx, tx, id, a.Email, a.Role, name(by)); err != nil {
 		return err
@@ -400,6 +405,7 @@ func (s *Service) Activate(ctx context.Context, token, password, code string) (u
 	if err != nil {
 		return uuid.Nil, err
 	}
+	raceHook()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return uuid.Nil, err
@@ -413,8 +419,15 @@ func (s *Service) Activate(ctx context.Context, token, password, code string) (u
 	if tag.RowsAffected() == 0 {
 		return uuid.Nil, ErrInviteGone
 	}
+	// the UPDATE above holds the row lock that Reinvite also takes, so a newer invitation is now visible here
+	if id, err := auth.InviteUser(ctx, tx, token); err != nil || id != a.ID {
+		return uuid.Nil, ErrInviteGone
+	}
 	if err := auth.ConsumeInvite(ctx, tx, token); err != nil { // consumed concurrently
 		return uuid.Nil, err
 	}
 	return a.ID, tx.Commit(ctx)
 }
+
+// raceHook lets tests run a concurrent change between a pre-check and its transaction.
+var raceHook = func() {}

@@ -27,6 +27,9 @@ func TestDisabledOwnerShareGone(t *testing.T) {
 	vsh := e.vendorShare(t, nil, v)
 
 	e.setDisabled(t, e.owner.ID, true)
+	if l, err := e.svc.VendorShares(ctx, v); err != nil || len(l) != 0 {
+		t.Fatalf("VendorShares while disabled: %v %v", l, err)
+	}
 	if _, err := e.svc.Landing(ctx, tok, ip1); !errors.Is(err, ErrGone) {
 		t.Fatalf("Landing: %v", err)
 	}
@@ -38,6 +41,9 @@ func TestDisabledOwnerShareGone(t *testing.T) {
 	}
 
 	e.setDisabled(t, e.owner.ID, false)
+	if l, err := e.svc.VendorShares(ctx, v); err != nil || len(l) != 1 {
+		t.Fatalf("VendorShares after enable: %v %v", l, err)
+	}
 	if _, err := e.svc.Landing(ctx, tok, ip1); err != nil {
 		t.Fatalf("Landing after enable: %v", err)
 	}

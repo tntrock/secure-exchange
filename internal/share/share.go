@@ -381,7 +381,7 @@ func (s *Service) List(ctx context.Context, ownerID uuid.UUID) ([]Share, error) 
 // VendorShares lists live shares (not revoked/expired) where vendorID is a non-revoked recipient, newest first.
 func (s *Service) VendorShares(ctx context.Context, vendorID uuid.UUID) ([]Share, error) {
 	return s.list(ctx, `JOIN share_recipients r ON r.share_id = s.id
-		WHERE r.vendor_id = $1 AND r.revoked_at IS NULL AND s.revoked_at IS NULL AND s.expires_at > $2
+		WHERE r.vendor_id = $1 AND r.revoked_at IS NULL AND s.revoked_at IS NULL AND s.expires_at > $2 AND NOT u.disabled
 		ORDER BY s.created_at DESC`, vendorID, s.now())
 }
 

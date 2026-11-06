@@ -64,3 +64,17 @@ test("load failure shows the generic error", async () => {
   renderPage();
   expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("app.error"));
 });
+
+test("admin mode: admin endpoints, owner email, no copy, revoke, view", async () => {
+  const f = vi.fn(async (_u: string, init?: RequestInit) => (init?.method === "POST" ? new Response(null, { status: 204 }) : json(200, { ...detail(), owner_email: "boss@x.com" })));
+  vi.stubGlobal("fetch", f);
+  vi.stubGlobal("confirm", () => true);
+  render(<MemoryRouter initialEntries={["/admin/requests/r1"]}><Routes><Route path="/admin/requests/:id" element={<RequestDetail admin />} /></Routes></MemoryRouter>);
+  await screen.findByText(/boss@x.com/);
+  expect(f).toHaveBeenCalledWith("/api/admin/requests/r1", expect.anything());
+  expect(screen.queryByRole("button", { name: i18n.t("requests.copy") })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("requests.revoke") }));
+  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/admin/requests/r1/revoke", expect.objectContaining({ method: "POST" })));
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("viewer.open") }));
+  await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).startsWith("/api/admin/files/f1/preview"))).toBe(true));
+});

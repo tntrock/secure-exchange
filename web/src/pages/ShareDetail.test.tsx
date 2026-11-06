@@ -134,3 +134,25 @@ test.each([
   expect((await screen.findByRole("alert")).textContent).toBe(i18n.t(key));
   expect(i18n.exists(key)).toBe(true);
 });
+
+test("admin mode: admin endpoints, owner email, no add form, revoke, view without download", async () => {
+  const f = vi.fn((_url: string, init?: RequestInit) =>
+    Promise.resolve(init?.method === "POST" ? new Response(null, { status: 204 }) : new Response(JSON.stringify({ ...detail, owner_email: "boss@x.com" }))),
+  );
+  vi.stubGlobal("fetch", f);
+  vi.stubGlobal("confirm", () => true);
+  render(
+    <MemoryRouter initialEntries={["/admin/shares/s1"]}>
+      <Routes><Route path="/admin/shares/:id" element={<ShareDetail admin />} /></Routes>
+    </MemoryRouter>,
+  );
+  await screen.findByText(/boss@x.com/);
+  expect(f).toHaveBeenCalledWith("/api/admin/shares/s1", expect.anything());
+  expect(screen.queryByText(i18n.t("share.addRecipients"))).toBeNull();
+  expect(screen.queryByRole("button", { name: i18n.t("share.revoke") })).toBeNull();
+  expect(screen.queryByRole("link", { name: /download/i })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.revokeShare") }));
+  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/admin/shares/s1/revoke", expect.objectContaining({ method: "POST" })));
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("viewer.open") }));
+  await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).startsWith("/api/admin/files/f1/preview"))).toBe(true));
+});

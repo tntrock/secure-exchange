@@ -14,6 +14,7 @@ import UploadPage from "./pages/intake/Upload";
 import Trace from "./pages/admin/Trace";
 import RulesPage from "./pages/admin/Rules";
 import Users from "./pages/admin/Users";
+import AllShares from "./pages/admin/AllShares";
 import TotpSetup from "./pages/TotpSetup";
 import VendorShares from "./pages/vendor/VendorShares";
 import VendorShare from "./pages/vendor/VendorShare";
@@ -40,6 +41,9 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/admin/trace" element={<Private roles={STAFF}><Trace /></Private>} />
         <Route path="/admin/rules" element={<Private roles={["admin"]}><RulesPage /></Private>} />
         <Route path="/admin/users" element={<Private roles={["admin"]}><Users /></Private>} />
+        <Route path="/admin/shares" element={<Private roles={["admin"]}><AllShares /></Private>} />
+        <Route path="/admin/shares/:id" element={<Private roles={["admin"]}><ShareDetail admin /></Private>} />
+        <Route path="/admin/requests/:id" element={<Private roles={["admin"]}><RequestDetail admin /></Private>} />
         <Route path="/vendor/shares" element={<Private roles={VENDOR}><VendorShares /></Private>} />
         <Route path="/vendor/shares/:id" element={<Private roles={VENDOR}><VendorShare /></Private>} />
         <Route path="/vendor/upload" element={<Private roles={VENDOR}><VendorUpload /></Private>} />

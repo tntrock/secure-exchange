@@ -3,17 +3,19 @@ import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, fmtDate, fmtSize, type UploadRequestDetail } from "../api";
 import ScanBadge from "../components/ScanBadge";
+import Viewer from "../components/Viewer";
 
-export default function RequestDetail() {
+export default function RequestDetail({ admin = false }: { admin?: boolean }) {
   const { id = "" } = useParams();
   const { t, i18n } = useTranslation();
   const [d, setD] = useState<UploadRequestDetail | null>(null);
   const [err, setErr] = useState("");
   const [copied, setCopied] = useState(false);
+  const [viewing, setViewing] = useState("");
 
   const refresh = useCallback(() => {
-    api.request(id).then(setD, () => setErr(t("app.error")));
-  }, [id, t]);
+    (admin ? api.adminRequest(id) : api.request(id)).then(setD, () => setErr(t("app.error")));
+  }, [id, t, admin]);
   useEffect(refresh, [refresh]);
   // scans finish in the background
   const pending = d?.files.some((f) => f.scan_status === "pending");
@@ -26,7 +28,7 @@ export default function RequestDetail() {
   const revoke = async () => {
     if (!confirm(t("requests.confirmRevoke"))) return;
     try {
-      await api.revokeRequest(id);
+      await (admin ? api.adminRevokeRequest(id) : api.revokeRequest(id));
       refresh();
     } catch {
       setErr(t("app.error"));
@@ -40,11 +42,12 @@ export default function RequestDetail() {
 
   return (
     <>
-      <p><Link to="/requests">{t("requests.back")}</Link></p>
+      <p><Link to={admin ? "/admin/shares" : "/requests"}>{t(admin ? "allShares.back" : "requests.back")}</Link></p>
       <h1>{t("requests.detailTitle")}</h1>
       {err && <p className="error" role="alert">{err}</p>}
+      {admin && <p>{t("allShares.owner")}: {d.owner_email}</p>}
       <ul>
-        <li>{t("requests.link")}: <code>{d.url}</code>{" "}<button onClick={copy}>{copied ? t("requests.copied") : t("requests.copy")}</button></li>
+        {!admin && <li>{t("requests.link")}: <code>{d.url}</code>{" "}<button onClick={copy}>{copied ? t("requests.copied") : t("requests.copy")}</button></li>}
         <li>{t("requests.createdAt")}: {date(d.created_at)}</li>
         <li>{t("requests.expiresAt")}: {date(d.expires_at)}</li>
         <li>{t("requests.statusLabel")}: {status}</li>
@@ -71,7 +74,7 @@ export default function RequestDetail() {
         <tbody>
           {d.files.map((f) => (
             <tr key={f.id}>
-              <td>{f.name}{f.deleted && <> {t("requests.deleted")}</>}</td>
+              <td>{f.name}{f.deleted ? <> {t("requests.deleted")}</> : admin && <> <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button></>}</td>
               <td>{fmtSize(f.size, i18n.language)}</td>
               <td>{f.uploader_email}</td>
               <td>{date(f.created_at)}</td>
@@ -80,6 +83,7 @@ export default function RequestDetail() {
           ))}
         </tbody>
       </table>
+      {viewing && <Viewer base={`/api/admin/files/${viewing}/preview`} onClose={() => setViewing("")} />}
     </>
   );
 }

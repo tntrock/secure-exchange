@@ -3,18 +3,20 @@ import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, fmtDate, fmtSize, type ShareDetailInfo } from "../api";
 import VendorPicker from "../components/VendorPicker";
+import Viewer from "../components/Viewer";
 
-export default function ShareDetail() {
+export default function ShareDetail({ admin = false }: { admin?: boolean }) {
   const { id = "" } = useParams();
   const { t, i18n } = useTranslation();
   const [d, setD] = useState<ShareDetailInfo | null>(null);
   const [err, setErr] = useState("");
   const [emails, setEmails] = useState("");
   const [vendorIds, setVendorIds] = useState<string[]>([]);
+  const [viewing, setViewing] = useState("");
 
   const refresh = useCallback(() => {
-    api.share(id).then(setD, () => setErr(t("app.error")));
-  }, [id, t]);
+    (admin ? api.adminShare(id) : api.share(id)).then(setD, () => setErr(t("app.error")));
+  }, [id, t, admin]);
   useEffect(refresh, [refresh]);
 
   const run = async (p: Promise<unknown>) => {
@@ -35,9 +37,10 @@ export default function ShareDetail() {
 
   return (
     <>
-      <p><Link to="/shares">{t("share.back")}</Link></p>
+      <p><Link to={admin ? "/admin/shares" : "/shares"}>{t(admin ? "allShares.back" : "share.back")}</Link></p>
       <h1>{t("share.detailTitle")}</h1>
       {err && <p className="error" role="alert">{err}</p>}
+      {admin && <p>{t("allShares.owner")}: {d.owner_email}</p>}
       <h2>{t("share.settings")}</h2>
       <ul>
         <li>{t("share.createdAt")}: {date(d.created_at)}</li>
@@ -50,12 +53,12 @@ export default function ShareDetail() {
         {d.message && <li>{t("share.message")}: {d.message}</li>}
       </ul>
       {!d.revoked && (
-        <button onClick={() => confirm(t("share.confirmRevoke")) && run(api.revokeShare(id))}>{t("share.revokeShare")}</button>
+        <button onClick={() => confirm(t("share.confirmRevoke")) && run(admin ? api.adminRevokeShare(id) : api.revokeShare(id))}>{t("share.revokeShare")}</button>
       )}
       <h2>{t("share.fileList")}</h2>
       <ul>
         {d.files.map((f) => (
-          <li key={f.id}>{f.name} ({fmtSize(f.size, i18n.language)}){f.deleted && <> {t("share.deleted")}</>}</li>
+          <li key={f.id}>{f.name} ({fmtSize(f.size, i18n.language)}){f.deleted ? <> {t("share.deleted")}</> : admin && <> <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button></>}</li>
         ))}
       </ul>
       <h2>{t("share.recipientList")}</h2>
@@ -71,7 +74,7 @@ export default function ShareDetail() {
               <td>{date(r.last_access_at)}</td>
               <td>{t(r.revoked ? "share.status.revoked" : "share.status.active")}</td>
               <td>
-                {!r.revoked && !d.revoked && (
+                {!admin && !r.revoked && !d.revoked && (
                   <button onClick={() => confirm(t("share.confirmRevokeRecipient", { email: r.email })) && run(api.revokeRecipient(id, r.id))}>
                     {t("share.revoke")}
                   </button>
@@ -81,7 +84,7 @@ export default function ShareDetail() {
           ))}
         </tbody>
       </table>
-      {!d.revoked && (
+      {!admin && !d.revoked && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -96,6 +99,7 @@ export default function ShareDetail() {
           <button type="submit">{t("share.add")}</button>
         </form>
       )}
+      {viewing && <Viewer base={`/api/admin/files/${viewing}/preview`} onClose={() => setViewing("")} />}
     </>
   );
 }

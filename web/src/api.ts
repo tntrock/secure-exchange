@@ -17,6 +17,7 @@ export interface ShareDetailInfo {
   view_count: number; ip_allow: string[]; revoked: boolean; expired: boolean; created_at: string;
   files: { id: string; name: string; size: number; deleted: boolean }[];
   recipients: Recipient[];
+  owner_email?: string;
 }
 
 export type VendorStatus = "pending" | "rejected" | "disabled" | "expired" | "invited" | "active";
@@ -42,6 +43,7 @@ export interface UploadRequest {
   file_count: number; total_bytes: number; max_files: number; max_total_bytes: number; uploader_count: number;
 }
 export interface UploadRequestDetail extends UploadRequest {
+  owner_email?: string;
   url: string; message: string; allowed_exts: string[];
   uploaders: { id: string; email: string; first_opened_at: string | null; last_access_at: string | null }[];
   files: { id: string; name: string; size: number; uploader_email: string; created_at: string; scan_status: ScanStatus; scan_result: string | null; deleted: boolean }[];
@@ -154,6 +156,12 @@ export const api = {
   inviteInfo: (tk: string) => call<{ email: string; otpauth_url: string }>("GET", `/api/invite/${encodeURIComponent(tk)}`),
   inviteActivate: (tk: string, password: string, code: string) => call<void>("POST", `/api/invite/${encodeURIComponent(tk)}`, { password, code }),
   recipientLogout: (tk: string) => call<void>("POST", `/api/s/${encodeURIComponent(tk)}/logout`),
+  adminShares: (q: string, offset: number) => call<(ShareSummary & { owner_email: string })[]>("GET", `/api/admin/shares?q=${encodeURIComponent(q)}&offset=${offset}`),
+  adminShare: (id: string) => call<ShareDetailInfo>("GET", `/api/admin/shares/${id}`),
+  adminRevokeShare: (id: string) => call<void>("POST", `/api/admin/shares/${id}/revoke`),
+  adminRequests: (q: string, offset: number) => call<(UploadRequest & { owner_email: string })[]>("GET", `/api/admin/requests?q=${encodeURIComponent(q)}&offset=${offset}`),
+  adminRequest: (id: string) => call<UploadRequestDetail>("GET", `/api/admin/requests/${id}`),
+  adminRevokeRequest: (id: string) => call<void>("POST", `/api/admin/requests/${id}/revoke`),
   adminUsers: () => call<UserInfo[]>("GET", "/api/admin/users"),
   adminCreateUser: (email: string, display_name: string, role: string) => call<UserInfo>("POST", "/api/admin/users", { email, display_name, role }),
   adminUserAction: (id: string, a: UserAction) => call<void>("POST", `/api/admin/users/${id}/${a}`),

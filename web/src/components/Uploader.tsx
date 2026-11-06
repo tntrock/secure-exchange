@@ -71,6 +71,7 @@ function UploadItem({ file, endpoint, metadata, onDone, onError }: { file: File;
       up.current?.abort();
       setStatus("paused");
     } else if (status === "paused" || status === "failed") {
+      setWhy("");
       up.current?.start();
       setStatus("uploading");
     }

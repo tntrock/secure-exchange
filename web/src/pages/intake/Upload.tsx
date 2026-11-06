@@ -18,7 +18,7 @@ function errKey(e: unknown) {
 }
 
 // tus 403 bodies
-const uploadErr: Record<string, string> = { ext_not_allowed: "extNotAllowed", too_many_files: "tooManyFiles", quota_exceeded: "quotaExceeded" };
+const uploadErr: Record<string, string> = { too_many_files: "tooManyFiles", quota_exceeded: "quotaExceeded" };
 
 const extOf = (name: string) => (name.includes(".") ? name.split(".").pop()!.toLowerCase() : "");
 

@@ -38,7 +38,7 @@ test("saving sends edited days, MiB as bytes and list arrays, then shows affecte
   fireEvent.change(label("rules.domain_allow"), { target: { value: "a.com\n\n b.com " } });
   fireEvent.click(label("rules.forbid_download"));
   fireEvent.click(screen.getByRole("button", { name: i18n.t("rules.save") }));
-  expect(await screen.findByText(/affected_shares: 3/)).toBeTruthy();
+  expect(await screen.findByText(/Affected shares: 3/)).toBeTruthy();
   const b = putBody(f);
   expect(b.share_max_days).toBe(14);
   expect(b.quota_bytes).toBe(5 * MiB);

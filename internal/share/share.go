@@ -289,7 +289,7 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 	}
 	defer tx.Rollback(ctx)
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM files WHERE id = ANY($1) AND owner_id = $2 AND deleted_at IS NULL`, fileIDs, owner.ID).Scan(&n); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM (SELECT id FROM files WHERE id = ANY($1) AND owner_id = $2 AND deleted_at IS NULL FOR SHARE) f`, fileIDs, owner.ID).Scan(&n); err != nil {
 		return nil, err
 	}
 	if n != len(fileIDs) {

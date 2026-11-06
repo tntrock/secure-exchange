@@ -137,3 +137,52 @@ func TestSweepRetention(t *testing.T) {
 		t.Fatalf("second sweep: %d %v", n, err)
 	}
 }
+
+func retSetup(t *testing.T) (retFx, *Service, *audit.Log) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	store, err := blob.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := retFx{t: t, pool: pool, store: store, owner: uuid.New()}
+	f.exec(`INSERT INTO users (id,email,role) VALUES ($1,'o@example.com','staff')`, f.owner)
+	s := New(pool, 1<<30)
+	if err := s.Seed(ctx, 30); err != nil {
+		t.Fatal(err)
+	}
+	f.exec(`UPDATE site_rules SET retention_days = 7`)
+	return f, s, audit.New(pool)
+}
+
+func TestSweepRetentionLaterShared(t *testing.T) {
+	f, s, log := retSetup(t)
+	oldShared, activeShared, activeReq, plain := f.file(nil, true), f.file(nil, true), f.file(nil, false), f.file(nil, true)
+	f.share(false, "-8 days", oldShared)
+	f.share(false, "3 days", activeShared)
+	req := f.request("3 days")
+	f.exec(`UPDATE files SET request_id=$1 WHERE id=$2`, req, activeReq)
+	if n, err := s.SweepRetention(context.Background(), f.store, log); err != nil || n != 1 {
+		t.Fatalf("%d %v", n, err)
+	}
+	for id, want := range map[uuid.UUID]bool{oldShared: true, activeShared: false, activeReq: false, plain: false} {
+		if f.gone(id) != want {
+			t.Errorf("file %s: deleted want %v", id, want)
+		}
+	}
+}
+
+// A share created after candidate selection must save the file.
+func TestSweepRetentionRaceWithNewShare(t *testing.T) {
+	f, s, log := retSetup(t)
+	id := f.file(nil, false)
+	f.share(false, "-8 days", id)
+	afterCandidates = func() { f.share(false, "5 days", id) }
+	t.Cleanup(func() { afterCandidates = func() {} })
+	if n, err := s.SweepRetention(context.Background(), f.store, log); err != nil || n != 0 {
+		t.Fatalf("%d %v", n, err)
+	}
+	if f.gone(id) {
+		t.Fatal("file with a new active share was deleted")
+	}
+}

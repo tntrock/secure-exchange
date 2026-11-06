@@ -187,9 +187,6 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 	if !ok {
 		return "", nil, ErrBadCode
 	}
-	if err := s.enforce(ctx, sh, email); err != nil {
-		return "", nil, err
-	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", nil, err
@@ -221,6 +218,10 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 			return "", nil, err
 		}
 		return "", nil, ErrBadCode
+	}
+	// only after a valid code, so the domain policy is not disclosed to someone without one
+	if err := s.enforce(ctx, sh, email); err != nil {
+		return "", nil, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE share_otps SET used_at = now() WHERE id = $1`, otpID); err != nil {
 		return "", nil, err

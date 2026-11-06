@@ -72,6 +72,8 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !rl.IPAllowed(s.addr(r)) {
+			s.record(r, audit.Event{Action: audit.ActLoginFail, ActorID: u.ID.String(), Result: "fail",
+				Detail: map[string]any{"email": Truncate(email, maxEmailLen), "stage": "ip_denied", "reason": "ip_denied"}})
 			writeJSON(w, http.StatusForbidden, errBody("ip_denied"))
 			return
 		}

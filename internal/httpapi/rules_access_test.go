@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/rules"
 )
 
@@ -107,10 +108,14 @@ func TestDomainBlockedAfterShare(t *testing.T) {
 	e.do(t, "POST", "/api/s/"+tok+"/code", map[string]string{"email": "r@evil.com"})
 	code := otpRE.FindStringSubmatch(e.lastMail(t, "r@evil.com").Body)[1]
 	e.setRules(t, func(r *rules.Rules) { r.DomainBlock = []string{"evil.com"} })
+	if resp, b := e.do(t, "POST", "/api/s/"+tok+"/verify", map[string]string{"email": "r@evil.com", "code": "000000"}); resp.StatusCode != 401 || string(b) != `{"error":"invalid_code"}`+"\n" {
+		t.Fatal(resp.StatusCode, string(b))
+	}
 	resp, b := e.do(t, "POST", "/api/s/"+tok+"/verify", map[string]string{"email": "r@evil.com", "code": code})
 	if resp.StatusCode != 403 || string(b) != `{"error":"domain_blocked"}`+"\n" {
 		t.Fatal(resp.StatusCode, string(b))
 	}
+	wantReasons(t, e, audit.ActShareOTPVerify, "reason", "domain_blocked", "invalid_code")
 	e.loginAs(t, "v@evil.com", sec)
 	resp, b = e.get(t, "/api/vendor/shares/"+sh.ID)
 	if resp.StatusCode != 403 || string(b) != `{"error":"domain_blocked"}`+"\n" {
@@ -122,7 +127,7 @@ func TestExternalIPAllow(t *testing.T) {
 	e := newEnv(t, func(d *Deps) { d.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")} })
 	a := e.user(t, "a@x.com")
 	f := e.putFile(t, a.ID, "doc", []byte("x"))
-	sec := e.mkVendor(t, "v@vendor.com")
+	e.mkVendor(t, "v@vendor.com")
 	e.login(t, "a@x.com", pw)
 	_, tok := e.recipShare(t, true, []uuid.UUID{f}, "r@y.com")
 	e.setRules(t, func(r *rules.Rules) { r.ExternalIPAllow = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")} })
@@ -146,7 +151,18 @@ func TestExternalIPAllow(t *testing.T) {
 	if c := req("192.168.1.1"); c != 403 {
 		t.Fatal(c)
 	}
-	_ = sec
+	wantReasons(t, e, audit.ActLoginFail, "stage", "ip_denied")
+	if c := req("10.1.1.1"); c == 403 {
+		t.Fatal("allowed vendor IP denied")
+	}
+	body, _ := json.Marshal(map[string]string{"email": "a@x.com", "password": pw})
+	if rq, _ := newReq(e.ts.URL+"/api/auth/login", body, "192.168.1.1"); true {
+		resp, err := e.c.Do(rq)
+		if err != nil || resp.StatusCode != 200 {
+			t.Fatal(err, resp)
+		}
+		resp.Body.Close()
+	}
 	if resp, _ := e.get(t, "/api/files", out...); resp.StatusCode != 200 {
 		t.Fatal(resp.StatusCode)
 	}
@@ -157,6 +173,30 @@ func TestExternalIPAllow(t *testing.T) {
 
 func newReq(url string, body []byte, xff string) (*http.Request, error) {
 	rq, err := http.NewRequest("POST", url, bytes.NewReader(body))
-	rq.Header.Set("X-Forwarded-For", xff)
+	if err == nil {
+		rq.Header.Set("X-Forwarded-For", xff)
+	}
 	return rq, err
+}
+
+// wantReasons asserts the failure events of action carry exactly these values for key (any order).
+func wantReasons(t *testing.T, e *env, action, key string, want ...string) {
+	t.Helper()
+	ents, err := e.audit.List(context.Background(), audit.Filter{Action: action, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	for _, en := range ents {
+		if en.Event.Result == "fail" {
+			if v, _ := en.Event.Detail[key].(string); v != "" {
+				got[v]++
+			}
+		}
+	}
+	for _, w := range want {
+		if got[w] != 1 {
+			t.Fatalf("%s: want one %q, got %v", action, w, got)
+		}
+	}
 }

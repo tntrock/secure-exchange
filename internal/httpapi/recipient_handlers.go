@@ -164,8 +164,11 @@ func (s *server) verifyCode(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		s.record(r, ev)
-	case errors.Is(err, share.ErrBadCode), errors.Is(err, share.ErrViewLimit):
+	case errors.Is(err, share.ErrBadCode), errors.Is(err, share.ErrViewLimit), errors.Is(err, share.ErrDomainBlocked):
 		reason := "invalid_code"
+		if errors.Is(err, share.ErrDomainBlocked) {
+			reason = "domain_blocked"
+		}
 		if errors.Is(err, share.ErrViewLimit) {
 			reason = "view_limit"
 		}

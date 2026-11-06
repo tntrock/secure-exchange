@@ -24,7 +24,8 @@ type Sessions struct{ pool *pgxpool.Pool }
 
 func NewSessions(pool *pgxpool.Pool) *Sessions { return &Sessions{pool} }
 
-func tokenHash(token string) []byte {
+// TokenHash is how a session token is stored: its SHA-256.
+func TokenHash(token string) []byte {
 	h := sha256.Sum256([]byte(token))
 	return h[:]
 }
@@ -36,7 +37,7 @@ func (s *Sessions) Create(ctx context.Context, userID uuid.UUID, mfaPassed bool,
 	rand.Read(b) // never fails (Go ≥ 1.24)
 	token := base64.RawURLEncoding.EncodeToString(b)
 	_, err := s.pool.Exec(ctx, `INSERT INTO sessions (token_hash, user_id, mfa_passed, ip, user_agent, expires_at)
-		VALUES ($1,$2,$3,$4,$5,$6)`, tokenHash(token), userID, mfaPassed, ip, ua, time.Now().Add(ttl))
+		VALUES ($1,$2,$3,$4,$5,$6)`, TokenHash(token), userID, mfaPassed, ip, ua, time.Now().Add(ttl))
 	if err != nil {
 		return "", err
 	}
@@ -47,7 +48,7 @@ func (s *Sessions) Create(ctx context.Context, userID uuid.UUID, mfaPassed bool,
 func (s *Sessions) Lookup(ctx context.Context, token string) (*Session, error) {
 	se := &Session{}
 	err := s.pool.QueryRow(ctx, `SELECT user_id, mfa_passed, expires_at FROM sessions WHERE token_hash=$1 AND expires_at > now()`,
-		tokenHash(token)).Scan(&se.UserID, &se.MFAPassed, &se.ExpiresAt)
+		TokenHash(token)).Scan(&se.UserID, &se.MFAPassed, &se.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -55,12 +56,12 @@ func (s *Sessions) Lookup(ctx context.Context, token string) (*Session, error) {
 }
 
 func (s *Sessions) MarkMFA(ctx context.Context, token string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE sessions SET mfa_passed=true WHERE token_hash=$1`, tokenHash(token))
+	_, err := s.pool.Exec(ctx, `UPDATE sessions SET mfa_passed=true WHERE token_hash=$1`, TokenHash(token))
 	return err
 }
 
 func (s *Sessions) Revoke(ctx context.Context, token string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, tokenHash(token))
+	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, TokenHash(token))
 	return err
 }
 

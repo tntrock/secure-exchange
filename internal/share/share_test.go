@@ -135,7 +135,7 @@ func TestCreateShareValidation(t *testing.T) {
 		mod         func(*CreateInput)
 		field, code string
 	}{
-		{"no recipients", func(in *CreateInput) { in.Emails = nil }, "emails", "required"},
+		{"no recipients", func(in *CreateInput) { in.Emails = nil }, "recipients", "required"},
 		{"51 recipients", func(in *CreateInput) { in.Emails = many }, "emails", "too_many"},
 		{"bad email", func(in *CreateInput) { in.Emails = []string{"nope"} }, "emails", "invalid"},
 		{"no files", func(in *CreateInput) { in.FileIDs = nil }, "file_ids", "required"},
@@ -242,7 +242,7 @@ func TestRevokeRecipientDropsSessions(t *testing.T) {
 func TestAddRecipientsSkipsExisting(t *testing.T) {
 	e := setup(t)
 	sh, _ := e.svc.Create(context.Background(), e.owner, e.input(t))
-	added, err := e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"BOB@x.com", "dave@z.com"})
+	added, err := e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"BOB@x.com", "dave@z.com"}, nil)
 	if err != nil || len(added) != 1 || added[0].Email != "dave@z.com" {
 		t.Fatalf("%v %v", added, err)
 	}
@@ -259,7 +259,7 @@ func TestAddRecipientsToRevokedShare(t *testing.T) {
 	e := setup(t)
 	sh, _ := e.svc.Create(context.Background(), e.owner, e.input(t))
 	_ = e.svc.Revoke(context.Background(), e.owner.ID, sh.ID)
-	if _, err := e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"d@z.com"}); !errors.Is(err, ErrRevoked) {
+	if _, err := e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"d@z.com"}, nil); !errors.Is(err, ErrRevoked) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -268,7 +268,7 @@ func TestAddRecipientsToExpiredShare(t *testing.T) {
 	e := setup(t)
 	sh, _ := e.svc.Create(context.Background(), e.owner, e.input(t))
 	e.now = sh.ExpiresAt
-	if _, err := e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"d@z.com"}); !errors.Is(err, ErrExpired) {
+	if _, err := e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"d@z.com"}, nil); !errors.Is(err, ErrExpired) {
 		t.Fatalf("got %v", err)
 	}
 	if n := count(t, e, `SELECT count(*) FROM share_recipients WHERE email = 'd@z.com'`); n != 0 {
@@ -287,7 +287,7 @@ func TestAddRecipientsLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"extra@x.com"})
+	_, err = e.svc.AddRecipients(context.Background(), e.owner, sh.ID, []string{"extra@x.com"}, nil)
 	var ve *ValidationError
 	if !errors.As(err, &ve) || ve.Code != "too_many" {
 		t.Fatalf("got %v", err)

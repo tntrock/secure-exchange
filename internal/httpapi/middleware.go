@@ -139,8 +139,6 @@ func (s *server) requireUser(next http.HandlerFunc) http.Handler {
 }
 
 // requireVendor is requireAccount restricted to vendors; staff and admins get 403.
-//
-//nolint:unused // wired to /api/vendor/ routes in the next tasks
 func (s *server) requireVendor(next http.HandlerFunc) http.Handler {
 	return s.requireRole(next, "vendor")
 }

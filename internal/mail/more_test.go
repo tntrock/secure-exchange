@@ -281,3 +281,19 @@ func TestIntakeTemplates(t *testing.T) {
 		})
 	}
 }
+
+func TestVendorSharedTemplate(t *testing.T) {
+	exp := time.Date(2026, 1, 2, 3, 4, 0, 0, time.FixedZone("x", 8*3600))
+	s, b := VendorShared("https://sx/vendor/shares", "Alice", "hello", exp)
+	for _, want := range []string{"Alice 與您分享了檔案", "附言：\nhello", "Message:\nhello", "https://sx/vendor/shares", "2026-01-01 19:04 UTC", "Sign in to your vendor account"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("body lacks %q:\n%s", want, b)
+		}
+	}
+	if !strings.Contains(s, "securely shared") {
+		t.Error(s)
+	}
+	if _, b := VendorShared("https://sx/vendor/shares", "Alice", "", exp); strings.Contains(b, "Message:") {
+		t.Error(b)
+	}
+}

@@ -22,6 +22,20 @@ func Invitation(shareURL, senderName, message string, expires time.Time) (string
 			fmt.Sprintf("%s has shared files with you.%s\nOpen the link and enter the verification code sent to this address:\n%s\n\nThis share expires at %s.", senderName, enNote, shareURL, ex)
 }
 
+// VendorShared tells a vendor account that files await it in its signed-in list; it carries no share token.
+func VendorShared(listURL, senderName, message string, expires time.Time) (string, string) {
+	zhNote, enNote := "", ""
+	if message != "" {
+		zhNote = "\n附言：\n" + message + "\n"
+		enNote = "\nMessage:\n" + message + "\n"
+	}
+	ex := expires.UTC().Format("2006-01-02 15:04 UTC")
+	return subject("您收到一份安全分享的檔案", "A file has been securely shared with you"),
+		fmt.Sprintf("%s 與您分享了檔案。%s\n請登入您的廠商帳號查看：\n%s\n\n此分享將於 %s 到期。", senderName, zhNote, listURL, ex) +
+			sep +
+			fmt.Sprintf("%s has shared files with you.%s\nSign in to your vendor account to view them:\n%s\n\nThis share expires at %s.", senderName, enNote, listURL, ex)
+}
+
 func OTPCode(code string) (string, string) {
 	return subject("您的驗證碼", "Your verification code"),
 		fmt.Sprintf("您的驗證碼是：%s\n驗證碼 10 分鐘內有效，且只能使用一次。若這不是您的操作，請忽略此信。", code) +

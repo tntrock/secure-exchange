@@ -90,6 +90,17 @@ func TestRoleGates(t *testing.T) {
 		{"POST", "/api/vendors/" + zero + "/enable", []string{"vendor"}},
 		{"POST", "/api/vendors/" + zero + "/reinvite", []string{"vendor"}},
 		{"PATCH", "/api/vendors/" + zero, []string{"vendor"}},
+		{"GET", "/api/files/" + zero + "/preview", []string{"vendor"}},
+		{"GET", "/api/files/" + zero + "/preview/pages/0", []string{"vendor"}},
+		{"GET", "/api/files/" + zero + "/preview/video.m3u8", []string{"vendor"}},
+		{"GET", "/api/files/" + zero + "/preview/segments/0.ts", []string{"vendor"}},
+		{"GET", "/api/vendor/shares", []string{"staff", "admin"}},
+		{"GET", "/api/vendor/shares/" + zero, []string{"staff", "admin"}},
+		{"GET", "/api/vendor/shares/" + zero + "/files/" + zero + "/content", []string{"staff", "admin"}},
+		{"GET", "/api/vendor/shares/" + zero + "/files/" + zero + "/preview", []string{"staff", "admin"}},
+		{"GET", "/api/vendor/shares/" + zero + "/files/" + zero + "/preview/pages/0", []string{"staff", "admin"}},
+		{"GET", "/api/vendor/shares/" + zero + "/files/" + zero + "/preview/video.m3u8", []string{"staff", "admin"}},
+		{"GET", "/api/vendor/shares/" + zero + "/files/" + zero + "/preview/segments/0.ts", []string{"staff", "admin"}},
 	}
 	logins := []struct{ role, email, secret string }{
 		{"staff", "staff@x.com", ""}, {"admin", "adm@x.com", ""}, {"vendor", "v@x.com", vsecret},

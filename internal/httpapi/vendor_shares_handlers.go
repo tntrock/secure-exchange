@@ -1,0 +1,41 @@
+package httpapi
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/tntrock/secure-exchange/internal/auth"
+)
+
+// listVendorShares is the signed-in vendor's "shared with me" list.
+func (s *server) listVendorShares(w http.ResponseWriter, r *http.Request) {
+	shs, err := s.Shares.VendorShares(r.Context(), auth.UserFrom(r.Context()).ID)
+	if err != nil {
+		recipientErr(w, err)
+		return
+	}
+	out := make([]map[string]any, len(shs))
+	for i, sh := range shs {
+		out[i] = map[string]any{"id": sh.ID, "owner_name": sh.OwnerName, "message": sh.Message, "expires_at": ts(&sh.ExpiresAt),
+			"file_count": sh.FileCount, "allow_download": sh.AllowDownload, "watermark": sh.Watermark}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// requireVendorShare needs a signed-in vendor who is a live recipient of share {id}; it stores the
+// access under accessKey{} so the recipient handlers serve vendors unchanged.
+func (s *server) requireVendorShare(next http.HandlerFunc) http.Handler {
+	return s.requireVendor(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := pathUUID(w, r, "id")
+		if !ok {
+			return
+		}
+		c, _ := r.Cookie(cookieName) // requireVendor admitted it
+		a, err := s.Shares.VendorAccess(r.Context(), auth.UserFrom(r.Context()).ID, id, auth.TokenHash(c.Value), s.addr(r))
+		if err != nil {
+			recipientErr(w, err)
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), accessKey{}, a)))
+	})
+}

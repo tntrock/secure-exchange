@@ -36,7 +36,7 @@ func TestLogout(t *testing.T) {
 func TestValidationErrorMessage(t *testing.T) {
 	var ve *ValidationError
 	e := setup(t)
-	_, err := e.svc.AddRecipients(context.Background(), e.owner, uuid.New(), []string{"not an address"})
+	_, err := e.svc.AddRecipients(context.Background(), e.owner, uuid.New(), []string{"not an address"}, nil)
 	if !errors.As(err, &ve) || err.Error() != "share: "+ve.Field+": "+ve.Code || ve.Field != "emails" {
 		t.Fatalf("got %v", err)
 	}
@@ -100,7 +100,7 @@ func TestAddRecipientsUnreadableToken(t *testing.T) {
 	if _, err := e.pool.Exec(ctx, `UPDATE shares SET token_sealed = 'x' WHERE id = $1`, sh.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.svc.AddRecipients(ctx, e.owner, sh.ID, []string{"carol@x.com"}); err == nil {
+	if _, err := e.svc.AddRecipients(ctx, e.owner, sh.ID, []string{"carol@x.com"}, nil); err == nil {
 		t.Fatal("added recipients without a readable link token")
 	}
 	if n := count(t, e, `SELECT count(*) FROM share_recipients WHERE share_id = $1`, sh.ID); n != 1 {
@@ -113,6 +113,8 @@ func TestCanceledContext(t *testing.T) {
 	e := setup(t)
 	sh, tok := e.newShare(t, nil, "bob@x.com")
 	st, a, err := e.svc.VerifyCode(context.Background(), tok, "bob@x.com", e.code(t, tok, "bob@x.com"), ip1, "")
+	vid := e.vendor(t, "v@vendor.com")
+	vsh := e.vendorShare(t, nil, vid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +132,12 @@ func TestCanceledContext(t *testing.T) {
 		"Get":             func() error { _, err := e.svc.Get(ctx, e.owner.ID, sh.ID); return err },
 		"Revoke":          func() error { return e.svc.Revoke(ctx, e.owner.ID, sh.ID) },
 		"RevokeRecipient": func() error { return e.svc.RevokeRecipient(ctx, e.owner.ID, sh.ID, a.Recipient.ID) },
-		"AddRecipients":   func() error { _, err := e.svc.AddRecipients(ctx, e.owner, sh.ID, []string{"carol@x.com"}); return err },
+		"VendorAccess":    func() error { _, err := e.svc.VendorAccess(ctx, vid, vsh.ID, []byte("s"), ip1); return err },
+		"VendorShares":    func() error { _, err := e.svc.VendorShares(ctx, vid); return err },
+		"AddRecipients": func() error {
+			_, err := e.svc.AddRecipients(ctx, e.owner, sh.ID, []string{"carol@x.com"}, nil)
+			return err
+		},
 	}
 	for name, call := range calls {
 		err := call()

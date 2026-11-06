@@ -1,0 +1,127 @@
+package httpapi
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/tntrock/secure-exchange/internal/audit"
+	"github.com/tntrock/secure-exchange/internal/preview"
+)
+
+func (e *env) vendorID(t *testing.T, email string) uuid.UUID {
+	t.Helper()
+	u, err := e.users.ByEmail(context.Background(), email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u.ID
+}
+
+func TestVendorShareFlow(t *testing.T) {
+	e := newEnv(t)
+	a := e.user(t, "a@x.com")
+	plain := []byte("vendor contents")
+	f := e.putFile(t, a.ID, "doc.txt", plain)
+	g := e.putFile(t, a.ID, "doc.pdf", []byte("x"))
+	e.seedPreview(t, g, preview.KindPages, preview.StatusReady, 1)
+	s1, s2 := e.mkVendor(t, "v1@vendor.com"), e.mkVendor(t, "v2@vendor.com")
+	v1, v2 := e.vendorID(t, "v1@vendor.com"), e.vendorID(t, "v2@vendor.com")
+	// as switches to email's session, logging in once (a TOTP code cannot be replayed)
+	jars := map[string]http.CookieJar{}
+	as := func(t *testing.T, email, secret string) {
+		if jars[email] == nil {
+			e.loginAs(t, email, secret)
+			jars[email] = e.c.Jar
+		}
+		e.c.Jar = jars[email]
+	}
+
+	as(t, "a@x.com", "")
+	resp, b := e.do(t, "POST", "/api/shares", map[string]any{"file_ids": []uuid.UUID{f, g}, "vendor_ids": []uuid.UUID{v1}, "allow_download": true,
+		"expires_at": time.Now().Add(48 * time.Hour).Format(time.RFC3339), "message": "hi"})
+	var created struct {
+		ID         string
+		Recipients []struct {
+			Email  string
+			Vendor bool
+		}
+	}
+	json.Unmarshal(b, &created)
+	if resp.StatusCode != 201 || len(created.Recipients) != 1 || !created.Recipients[0].Vendor || created.Recipients[0].Email != "v1@vendor.com" {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	id := created.ID
+	if resp, _ := e.get(t, "/api/vendor/shares"); resp.StatusCode != 403 {
+		t.Fatal("staff on vendor list", resp.StatusCode)
+	}
+
+	as(t, "v1@vendor.com", s1)
+	resp, b = e.get(t, "/api/vendor/shares")
+	var list []map[string]any
+	json.Unmarshal(b, &list)
+	if resp.StatusCode != 200 || len(list) != 1 || len(list[0]) != 7 || list[0]["id"] != id || list[0]["owner_name"] != "D" ||
+		list[0]["message"] != "hi" || list[0]["file_count"] != 2.0 || list[0]["allow_download"] != true || list[0]["watermark"] != false || list[0]["expires_at"] == nil {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	base := "/api/vendor/shares/" + id
+	resp, b = e.get(t, base)
+	var files struct{ Files []map[string]any }
+	json.Unmarshal(b, &files)
+	if resp.StatusCode != 200 || len(files.Files) != 2 {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	resp, b = e.get(t, base+"/files/"+f.String()+"/content")
+	if resp.StatusCode != 200 || !bytes.Equal(b, plain) {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	resp, _ = e.get(t, base+"/files/"+g.String()+"/preview/pages/0")
+	viewHeadersOK(t, resp, "image/jpeg")
+	if ev := e.auditOne(t, audit.ActFileView); ev.ActorType != "recipient" || ev.TargetID != g.String() || ev.Detail["share_id"] != id {
+		t.Fatalf("%+v", ev)
+	}
+	req, _ := http.NewRequest("HEAD", e.ts.URL+base+"/files/"+g.String()+"/preview", nil)
+	if resp, err := e.c.Do(req); err != nil || resp.StatusCode != 405 {
+		t.Fatal("HEAD preview", resp, err)
+	}
+	if resp, _ := e.get(t, base+"/files/"+uuid.NewString()+"/content"); resp.StatusCode != 404 {
+		t.Fatal("file not in share", resp.StatusCode)
+	}
+
+	// another vendor: not a recipient
+	as(t, "v2@vendor.com", s2)
+	for _, p := range []string{"", "/files/" + f.String() + "/content", "/files/" + g.String() + "/preview"} {
+		if resp, b := e.get(t, base+p); resp.StatusCode != 404 {
+			t.Fatal(p, resp.StatusCode, string(b))
+		}
+	}
+	if _, b := e.get(t, "/api/vendor/shares"); string(b) != "[]\n" {
+		t.Fatal(string(b))
+	}
+
+	// staff adds v2 by vendor id; then revokes the share
+	as(t, "a@x.com", "")
+	resp, b = e.do(t, "POST", "/api/shares/"+id+"/recipients", map[string]any{"vendor_ids": []uuid.UUID{v2}})
+	if resp.StatusCode != 200 || string(b) == "[]\n" || !bytes.Contains(b, []byte(`"vendor":true`)) {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	as(t, "v2@vendor.com", s2)
+	if resp, _ := e.get(t, base+"/files/"+f.String()+"/content"); resp.StatusCode != 200 {
+		t.Fatal("added vendor", resp.StatusCode)
+	}
+	as(t, "a@x.com", "")
+	if resp, _ := e.do(t, "POST", "/api/shares/"+id+"/revoke", nil); resp.StatusCode != 204 {
+		t.Fatal(resp.StatusCode)
+	}
+	as(t, "v1@vendor.com", s1)
+	for _, p := range []string{"", "/files/" + f.String() + "/content"} {
+		if resp, _ := e.get(t, base+p); resp.StatusCode != 410 {
+			t.Fatal("revoked", p, resp.StatusCode)
+		}
+	}
+}

@@ -103,3 +103,9 @@ test("422 on create shows generic error; list failure shows app error", async ()
   render(<Users />);
   expect((await screen.findByRole("alert")).textContent).toBe("Something went wrong, please try again");
 });
+
+test("no Reinvite on an invited vendor row", async () => {
+  setup([u({ id: "u7", email: "iv@x.com", role: "vendor", status: "invited" })]);
+  await screen.findByText("iv@x.com");
+  expect(within(rowOf("iv@x.com")).queryByRole("button", { name: "Reinvite" })).toBeNull();
+});

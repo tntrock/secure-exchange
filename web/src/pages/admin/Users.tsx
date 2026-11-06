@@ -87,7 +87,7 @@ export default function Users() {
               <td>
                 {u.status === "disabled" ? btn(u, "enable", "users.enable") : btn(u, "disable", "users.disable")}{" "}
                 {u.totp_enabled && btn(u, "reset-totp", "users.resetTotp", true)}{" "}
-                {u.status === "invited" && btn(u, "reinvite", "users.reinvite")}
+                {u.status === "invited" && u.role !== "vendor" && btn(u, "reinvite", "users.reinvite")}
               </td>
             </tr>
           ))}

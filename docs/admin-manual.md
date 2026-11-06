@@ -182,27 +182,49 @@ networks:
 
 | 角色 | 能做什麼 |
 |---|---|
-| 管理員（admin） | 員工的所有功能，加上：溯源查詢、核准／拒絕廠商申請、管理所有廠商帳號、收到病毒感染通知 |
+| 管理員（admin） | 員工的所有功能，加上：使用者管理、全站分享瀏覽、溯源查詢、核准／拒絕廠商申請、管理所有廠商帳號、收到病毒感染通知 |
 | 員工（staff） | 上傳檔案、建立分享、建立上傳請求、建立廠商（依政策）、管理自己建立的廠商 |
 | 廠商（vendor） | 只能看「與我分享」並上傳給允許的員工；看不到任何員工端頁面 |
 | 外部收件人／上傳者 | 沒有帳號，以 email 驗證碼取得單次、限時的存取 |
 
 系統在**每一個請求**都會重新檢查帳號狀態：帳號被停用或過期後，下一個請求就會被拒絕，不必等登入逾時。
 
-### 員工帳號（目前版本的限制）
+### 使用者管理
 
-目前版本**只有第一位管理員**（由 `SX_INIT_ADMIN_*` 建立），尚未提供新增員工帳號的介面。員工帳號管理、LDAP 與 OIDC 單一登入會在第七階段（管理後台）加入。
+登入後點選上方的「使用者」（只有管理員看得到）。頁面列出所有帳號（含廠商）：email、顯示名稱、角色、來源、狀態、TOTP、上次登入時間。
+
+**新增員工或管理員**：按「新增員工帳號」，輸入電子郵件、顯示名稱並選擇角色（員工或管理員），按「建立並邀請」，系統會寄出邀請信。對方開啟 `/activate/<token>` 連結（7 天內有效、只能用一次，重新邀請後舊連結失效），設定密碼（至少 12 字元）即可啟用；若已開啟[全站強制雙因素驗證](#全站強制雙因素驗證)，啟用時還要綁定驗證器 App。員工啟用連結**不受**「允許外部使用者連線的網路」限制；廠商邀請連結仍受限制。
+
+**各列的操作**：
+
+| 操作 | 說明 |
+|---|---|
+| 停用／啟用 | 停用會立即結束該帳號所有登入中的連線，該帳號建立的分享與上傳請求也立即失效（見[全站分享瀏覽](#全站分享瀏覽)）。啟用可恢復。 |
+| 變更角色 | 員工與管理員互轉，僅限本機帳號。 |
+| 重設 TOTP | 見下方「員工遺失雙因素驗證裝置」與[廠商遺失驗證器裝置](#廠商遺失驗證器裝置)。 |
+| 重新邀請 | 僅適用於狀態為「已邀請」的員工，寄出新連結並讓舊連結失效。 |
+
+初始管理員仍由 `SX_INIT_ADMIN_*` 環境變數在第一次啟動時建立。LDAP 與 OIDC 單一登入尚未提供設定介面；外部登入來源的帳號不能在這裡修改。
 
 ### 員工遺失雙因素驗證裝置
 
-目前沒有介面可重設，請在資料庫中關閉該帳號的雙因素驗證，讓使用者以密碼登入後重新設定：
+先確認對方身分（例如當面或電話確認），再到「使用者」頁按該員工的「重設 TOTP」。系統會清除雙因素驗證、保留密碼，並結束其所有連線。對方以密碼登入後重新設定；若已開啟全站強制雙因素驗證，登入後會被要求立即設定。操作會寫入稽核紀錄 `user.totp_reset`。
 
-```sh
-docker compose exec postgres psql -U sx -d sx -c \
-  "UPDATE users SET totp_enabled = false, totp_secret_sealed = NULL WHERE lower(email) = lower('user@example.com') AND role <> 'vendor';"
-```
+### 全站強制雙因素驗證
 
-執行前請先確認對方身分（例如當面或電話確認），並自行記錄這次操作。
+「規則」頁的「全站強制雙因素驗證（TOTP）」開啟後，沒有設定雙因素驗證的**本機員工與管理員**在密碼登入後，必須先完成驗證器綁定才能使用其他功能。廠商本來就一律要求雙因素驗證，不受此開關影響；LDAP／OIDC 帳號也不適用。
+
+### 最後一位管理員
+
+為避免鎖死系統，停用或降級**最後一位可用的本機管理員**會被拒絕並顯示錯誤。外部（LDAP／OIDC）管理員與從未啟用的管理員不計入。
+
+### 全站分享瀏覽
+
+點選上方的「所有分享」（只有管理員看得到），可瀏覽全站每一個分享與上傳請求，以擁有者 email 或訊息搜尋，並可撤銷。
+
+- 管理員只能**線上檢視**檔案，一律加上浮水印（顯示管理員自己的身分，追蹤碼為 `ADMIN`），不提供下載。
+- 每次開啟檔案都會寫入稽核紀錄 `file.view`。
+- 擁有者帳號被停用後，其所有分享與上傳請求立即失效：收件人與上傳者看到的是已過期或不存在，包括已經開啟中的連線。
 
 ## 6. 廠商帳號管理
 
@@ -238,19 +260,7 @@ docker compose exec postgres psql -U sx -d sx -c \
 
 ### 廠商遺失驗證器裝置
 
-目前沒有介面可重設。請在資料庫中清除該廠商的密碼與雙因素驗證，並結束其連線，讓狀態回到「已邀請」，再到「廠商」頁按「重新邀請」：
-
-```sh
-docker compose exec postgres psql -U sx -d sx <<'SQL'
-BEGIN;
-UPDATE users SET password_hash = NULL, totp_enabled = false, totp_secret_sealed = NULL
-  WHERE lower(email) = lower('vendor@example.com') AND role = 'vendor';
-DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE lower(email) = lower('vendor@example.com') AND role = 'vendor');
-COMMIT;
-SQL
-```
-
-執行前請先確認對方身分。
+先確認對方身分，再到「使用者」頁按該廠商的「重設 TOTP」。系統會清除該廠商的密碼與雙因素驗證、結束其所有連線，並**自動寄出新的邀請信**；廠商開啟連結後重新設定密碼與驗證器 App。
 
 ### 廠商能看到與做到什麼
 
@@ -259,9 +269,15 @@ SQL
 
 ## 7. 強制規則
 
-管理員可以在網頁介面訂定全站規則，強制套用在所有員工與外部使用者身上。登入後點選上方的「規則」（只有管理員看得到），共有 13 項設定，分成四組：分享、收件人、外部上傳、儲存空間。按「儲存」後立即生效：系統在每一個請求都會重新讀取規則，不必重啟服務。儲存後頁面會顯示「受影響的分享：N」。
+管理員可以在網頁介面訂定全站規則，強制套用在所有員工與外部使用者身上。登入後點選上方的「規則」（只有管理員看得到），共有 14 項設定，分成五組：安全性、分享、收件人、外部上傳、儲存空間。按「儲存」後立即生效：系統在每一個請求都會重新讀取規則，不必重啟服務。儲存後頁面會顯示「受影響的分享：N」。
 
 ### 設定一覽
+
+**安全性**
+
+| 設定 | 說明 |
+|---|---|
+| 全站強制雙因素驗證（TOTP） | 只套用於本機員工與管理員，見「全站強制雙因素驗證」。 |
 
 **分享**
 
@@ -436,6 +452,7 @@ docker compose exec postgres psql -U sx -d sx -c \
 | 檔案 | `file.upload`、`file.download`、`file.view`、`file.delete`、`file.scan` |
 | 分享 | `share.create`、`share.revoke`、`share.recipient.add`、`share.recipient.revoke`、`share.otp.request`、`share.otp.verify` |
 | 上傳請求 | `request.create`、`request.revoke`、`request.otp.request`、`request.otp.verify` |
+| 使用者 | `user.create`、`user.activate`、`user.disable`、`user.enable`、`user.role`、`user.totp_reset`、`user.reinvite` |
 | 廠商 | `vendor.create`、`vendor.approve`、`vendor.reject`、`vendor.disable`、`vendor.enable`、`vendor.expiry`、`vendor.reinvite`、`vendor.activate` |
 | 溯源 | `trace.lookup` |
 | 強制規則 | `rules.update`（含修改前後的規則）、`file.retention_delete`（自動清除，`actor_type` 為 `system`） |
@@ -563,7 +580,7 @@ curl -fsS https://<SX_DOMAIN>/healthz     # 應回傳 ok
 ## 17. 安全建議清單
 
 - [ ] `.env`（含主金鑰）已另存於伺服器以外的安全位置。
-- [ ] 管理員帳號已啟用雙因素驗證。
+- [ ] 管理員帳號已啟用雙因素驗證（或在規則頁開啟全站強制雙因素驗證）。
 - [ ] 首次啟動後已移除 `SX_INIT_ADMIN_PASSWORD`。
 - [ ] 每日備份資料庫與檔案資料，並演練過還原。
 - [ ] 寄件網域已設定 SPF、DKIM、DMARC。

@@ -19,6 +19,7 @@ import (
 
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -210,24 +211,12 @@ func normEmails(in []string) ([]string, error) {
 }
 
 func parseIPs(in []string) ([]netip.Prefix, error) {
-	if len(in) > maxIPAllow {
+	out, err := rules.ParsePrefixes(in, maxIPAllow)
+	switch {
+	case errors.Is(err, rules.ErrTooMany):
 		return nil, invalid("ip_allow", "too_many")
-	}
-	out := make([]netip.Prefix, 0, len(in))
-	for _, s := range in {
-		p, err := netip.ParsePrefix(s)
-		if err != nil {
-			a, aerr := netip.ParseAddr(s)
-			if aerr != nil {
-				return nil, invalid("ip_allow", "invalid")
-			}
-			a = a.Unmap()
-			p = netip.PrefixFrom(a, a.BitLen())
-		}
-		if p.Addr().Is4In6() && p.Bits() >= 96 { // ::ffff:a.b.c.d/n is the v4 prefix /n-96
-			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
-		}
-		out = append(out, p.Masked()) // cidr columns reject host bits
+	case err != nil:
+		return nil, invalid("ip_allow", "invalid")
 	}
 	return out, nil
 }

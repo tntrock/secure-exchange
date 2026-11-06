@@ -70,6 +70,7 @@ func TestUpdateValidates(t *testing.T) {
 		{"many block", func(r *Rules) { r.DomainBlock = many }, "domain_block", "too_many"},
 		{"many allow", func(r *Rules) { r.DomainAllow = many }, "domain_allow", "too_many"},
 		{"bad ext", func(r *Rules) { r.UploadExts = []string{"ex e"} }, "upload_exts", "invalid"},
+		{"bad prefix", func(r *Rules) { r.ExternalIPAllow = []netip.Prefix{{}} }, "external_ip_allow", "invalid"},
 		{"many ip", func(r *Rules) {
 			r.ExternalIPAllow = make([]netip.Prefix, 101)
 			for i := range r.ExternalIPAllow {
@@ -95,8 +96,9 @@ func TestUpdateValidates(t *testing.T) {
 	}
 
 	r := Rules{ShareMaxDays: 10, ShareDefaultDays: 3,
-		DomainBlock: []string{" Example.COM ", "example.com"},
-		UploadExts:  []string{".PDF", "pdf", "Docx"}}
+		DomainBlock:     []string{" Example.COM ", "example.com"},
+		UploadExts:      []string{".PDF", "pdf", "Docx"},
+		ExternalIPAllow: []netip.Prefix{netip.MustParsePrefix("10.1.2.3/8"), netip.MustParsePrefix("::ffff:10.0.0.0/104")}}
 	tx, _ := pool.Begin(ctx)
 	defer tx.Rollback(ctx)
 	before, err := s.Update(ctx, tx, r)
@@ -107,7 +109,8 @@ func TestUpdateValidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := s.Get(ctx)
-	if !reflect.DeepEqual(got.DomainBlock, []string{"example.com"}) || !reflect.DeepEqual(got.UploadExts, []string{"pdf", "docx"}) || got.ShareMaxDays != 10 {
+	if !reflect.DeepEqual(got.DomainBlock, []string{"example.com"}) || !reflect.DeepEqual(got.UploadExts, []string{"pdf", "docx"}) || got.ShareMaxDays != 10 ||
+		!reflect.DeepEqual(got.ExternalIPAllow, []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}) {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -154,5 +157,14 @@ func TestExtAllowed(t *testing.T) {
 	}
 	if !(Rules{}).ExtAllowed("a.exe") {
 		t.Fatal("empty should allow")
+	}
+}
+
+func TestSeedRejectsOutOfRange(t *testing.T) {
+	s := New(testdb.New(t), 1000)
+	for _, d := range []int{0, 366} {
+		if err := s.Seed(context.Background(), d); err == nil {
+			t.Fatalf("seed %d accepted", d)
+		}
 	}
 }

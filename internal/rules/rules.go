@@ -17,6 +17,7 @@ import (
 
 const (
 	maxDomains = 200
+	maxExts    = 200
 	maxIPs     = 100
 )
 
@@ -75,6 +76,9 @@ func scan(ctx context.Context, q queryRower, suffix string) (Rules, error) {
 
 // Seed inserts the initial row (default share_max_days from config) unless one exists.
 func (s *Service) Seed(ctx context.Context, shareMaxDays int) error {
+	if shareMaxDays < 1 || shareMaxDays > 365 {
+		return fmt.Errorf("rules: seed share_max_days %d out of range 1..365", shareMaxDays)
+	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO site_rules (id, share_max_days, share_default_days) VALUES (1, $1, $2)
 		ON CONFLICT (id) DO NOTHING`, shareMaxDays, min(7, shareMaxDays)); err != nil {
 		return err
@@ -142,7 +146,7 @@ func (s *Service) normalise(r *Rules) error {
 	for i, e := range r.UploadExts {
 		exts[i] = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(e)), ".")
 	}
-	if r.UploadExts, err = normList("upload_exts", exts, maxDomains, validExt); err != nil {
+	if r.UploadExts, err = normList("upload_exts", exts, maxExts, validExt); err != nil {
 		return err
 	}
 	if len(r.ExternalIPAllow) > maxIPs {
@@ -153,15 +157,17 @@ func (s *Service) normalise(r *Rules) error {
 		if !p.IsValid() {
 			return bad("external_ip_allow", "invalid")
 		}
-		ips = append(ips, p.Masked())
+		if c := canonPrefix(p); !slices.Contains(ips, c) {
+			ips = append(ips, c)
+		}
 	}
 	r.ExternalIPAllow = ips
 	return nil
 }
 
 // normList trims, lowercases, validates and dedups; the result is never nil (NOT NULL columns).
-func normList(field string, in []string, max int, valid func(string) bool) ([]string, error) {
-	if len(in) > max {
+func normList(field string, in []string, limit int, valid func(string) bool) ([]string, error) {
+	if len(in) > limit {
 		return nil, &ValidationError{field, "too_many"}
 	}
 	out := make([]string, 0, len(in))
@@ -237,9 +243,9 @@ func (r Rules) ExtAllowed(name string) bool {
 }
 
 // ParsePrefixes parses bare IPs or CIDRs into masked prefixes; errors are ErrTooMany / ErrInvalid.
-func ParsePrefixes(ss []string, max int) ([]netip.Prefix, error) {
-	if len(ss) > max {
-		return nil, fmt.Errorf("%w (max %d)", ErrTooMany, max)
+func ParsePrefixes(ss []string, limit int) ([]netip.Prefix, error) {
+	if len(ss) > limit {
+		return nil, fmt.Errorf("%w (max %d)", ErrTooMany, limit)
 	}
 	out := make([]netip.Prefix, 0, len(ss))
 	for _, s := range ss {
@@ -252,10 +258,15 @@ func ParsePrefixes(ss []string, max int) ([]netip.Prefix, error) {
 			a = a.Unmap()
 			p = netip.PrefixFrom(a, a.BitLen())
 		}
-		if p.Addr().Is4In6() && p.Bits() >= 96 { // ::ffff:a.b.c.d/n is the v4 prefix /n-96
-			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
-		}
-		out = append(out, p.Masked()) // cidr columns reject host bits
+		out = append(out, canonPrefix(p))
 	}
 	return out, nil
+}
+
+// canonPrefix maps ::ffff:a.b.c.d/n to the v4 prefix /n-96 and masks host bits (cidr columns reject them).
+func canonPrefix(p netip.Prefix) netip.Prefix {
+	if p.Addr().Is4In6() && p.Bits() >= 96 {
+		p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+	}
+	return p.Masked()
 }

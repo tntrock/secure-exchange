@@ -21,7 +21,18 @@
   },
   "recipient": {"title":"取得分享的檔案","from":"{{name}} 與您分享了檔案","expires":"有效期限：{{at}}","email":"您的 Email","sendCode":"寄送驗證碼","code":"6 位數驗證碼","verify":"驗證","resend":"重新寄送驗證碼","changeEmail":"使用其他 Email","codeSent":"若您在名單中，將收到驗證碼","filesTitle":"分享的檔案","fileUnavailable":"無法使用","leave":"離開","error":{"notFound":"找不到此分享","gone":"此分享已過期或已被撤銷","ipDenied":"您目前的網路位置不允許存取此分享","rateLimited":"嘗試次數過多，請稍後再試","invalidCode":"驗證碼錯誤或已失效","viewLimit":"此分享的檢視次數已達上限","sessionEnded":"登入已結束，請重新驗證","generic":"發生錯誤，請稍後再試"}},
   "viewer": { "reLogin": "登入已失效，請重新登入", "view_limit": "此分享已達檢視次數上限", "ip_denied": "不允許從您目前的網路位置存取", "open": "檢視", "close": "關閉", "prev": "上一頁", "next": "下一頁", "zoomIn": "放大", "zoomOut": "縮小", "page": "第 {{n}} 頁", "pending": "預覽處理中，請稍後再試", "notReady": "此檔案無法預覽", "gone": "分享已失效", "ended": "連線已結束，請重新驗證", "error": "無法載入預覽", "title": "檔案檢視器" },
-  "nav": { "files": "我的檔案", "shares": "我的分享", "trace": "溯源查詢", "requests": "上傳請求", "vendors": "廠商" },
+  "nav": { "files": "我的檔案", "shares": "我的分享", "trace": "溯源查詢", "requests": "上傳請求", "vendors": "廠商", "sharedWithMe": "與我分享", "vendorUpload": "上傳" },
+  "vendorPortal": {
+    "title": "與我分享", "empty": "目前沒有人與您分享檔案", "owner": "分享者", "message": "附言", "expires": "有效期限", "files": "檔案數",
+    "open": "開啟", "back": "返回與我分享", "uploadTitle": "上傳檔案", "recipient": "收件人", "choose": "選擇收件人…",
+    "chooseFirst": "請先選擇收件人", "noRecipients": "您只能上傳給曾與您分享的人或建立您帳號的人。請先請對方與您分享。",
+    "notAllowed": "您無法上傳給此收件人", "yourUploads": "您的上傳", "noUploads": "尚無上傳"
+  },
+  "invite": {
+    "title": "啟用您的帳號", "account": "帳號：{{email}}", "confirm": "確認密碼", "submit": "啟用帳號",
+    "gone": "此邀請已失效", "success": "您的帳號已啟用，現在可以登入。",
+    "tooShort": "密碼至少需要 12 個字元", "mismatch": "兩次輸入的密碼不一致", "invalidCode": "驗證碼錯誤或已過期"
+  },
   "requests": {
     "title": "上傳請求", "new": "新增請求", "emails": "上傳者（一行一個，或以逗號分隔）",
     "expiresOn": "有效期限至", "maxFiles": "檔案數上限", "maxGb": "總容量上限（GB）",

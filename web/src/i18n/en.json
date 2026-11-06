@@ -21,7 +21,18 @@
   },
   "recipient": {"title":"Access shared files","from":"{{name}} shared files with you","expires":"Expires: {{at}}","email":"Your email","sendCode":"Send code","code":"6-digit code","verify":"Verify","resend":"Resend code","changeEmail":"Use a different email","codeSent":"If you are on the recipient list, a code has been sent","filesTitle":"Shared files","fileUnavailable":"Unavailable","leave":"Leave","error":{"notFound":"Share not found","gone":"This share has expired or been revoked","ipDenied":"Access from your network location is not allowed","rateLimited":"Too many attempts, please try again later","invalidCode":"Incorrect or expired code","viewLimit":"This share has reached its view limit","sessionEnded":"Your session has ended, please verify again","generic":"Something went wrong, please try again"}},
   "viewer": { "reLogin": "Your login has expired, please sign in again", "view_limit": "This share has reached its view limit", "ip_denied": "Access from your network location is not allowed", "open": "View", "close": "Close", "prev": "Previous page", "next": "Next page", "zoomIn": "Zoom in", "zoomOut": "Zoom out", "page": "Page {{n}}", "pending": "Preview is still processing, please try again later", "notReady": "This file cannot be previewed", "gone": "This share is no longer available", "ended": "Your session has ended, please verify again", "error": "Could not load the preview", "title": "File viewer" },
-  "nav": { "files": "My files", "shares": "My shares", "trace": "Leak tracing", "requests": "Requests", "vendors": "Vendors" },
+  "nav": { "files": "My files", "shares": "My shares", "trace": "Leak tracing", "requests": "Requests", "vendors": "Vendors", "sharedWithMe": "Shared with me", "vendorUpload": "Upload" },
+  "vendorPortal": {
+    "title": "Shared with me", "empty": "Nothing has been shared with you yet", "owner": "From", "message": "Message", "expires": "Expires", "files": "Files",
+    "open": "Open", "back": "Back to shared with me", "uploadTitle": "Upload files", "recipient": "Recipient", "choose": "Choose a recipient…",
+    "chooseFirst": "Choose a recipient first", "noRecipients": "You can only upload to people who have shared with you or who created your account. Someone must share with you first.",
+    "notAllowed": "You cannot upload to this recipient", "yourUploads": "Your uploads", "noUploads": "No uploads yet"
+  },
+  "invite": {
+    "title": "Activate your account", "account": "Account: {{email}}", "confirm": "Confirm password", "submit": "Activate account",
+    "gone": "This invitation is no longer valid", "success": "Your account is active. You can log in now.",
+    "tooShort": "Password must be at least 12 characters", "mismatch": "Passwords do not match", "invalidCode": "Incorrect or expired code"
+  },
   "requests": {
     "title": "Upload requests", "new": "New request", "emails": "Uploaders (one per line or comma-separated)",
     "expiresOn": "Expires on", "maxFiles": "Max files", "maxGb": "Max total size (GB)",

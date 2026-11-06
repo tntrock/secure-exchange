@@ -32,6 +32,10 @@ export interface RecipientFiles {
   files: { id: string; name: string; size: number; available: boolean; mark_pending?: boolean }[];
 }
 
+export interface VendorShareSummary { id: string; owner_name: string; message: string; expires_at: string; file_count: number; allow_download: boolean; watermark: boolean }
+export interface VendorTarget { id: string; name: string; email: string }
+export interface VendorUploadInfo { id: string; name: string; size: number; recipient_name: string; created_at: string }
+
 export interface UploadRequest {
   id: string; created_at: string; expires_at: string; revoked: boolean; expired: boolean;
   file_count: number; total_bytes: number; max_files: number; max_total_bytes: number; uploader_count: number;
@@ -126,6 +130,12 @@ export const api = {
   enableVendor: (id: string) => call<void>("POST", `/api/vendors/${id}/enable`),
   reinviteVendor: (id: string) => call<void>("POST", `/api/vendors/${id}/reinvite`),
   setVendorExpiry: (id: string, expires_at: string) => call<void>("PATCH", `/api/vendors/${id}`, { expires_at }),
+  vendorShares: () => call<VendorShareSummary[]>("GET", "/api/vendor/shares"),
+  vendorShareFiles: (id: string) => call<RecipientFiles>("GET", `/api/vendor/shares/${encodeURIComponent(id)}`),
+  vendorRecipients: () => call<VendorTarget[]>("GET", "/api/vendor/recipients"),
+  vendorUploads: () => call<VendorUploadInfo[]>("GET", "/api/vendor/uploads"),
+  inviteInfo: (tk: string) => call<{ email: string; otpauth_url: string }>("GET", `/api/invite/${encodeURIComponent(tk)}`),
+  inviteActivate: (tk: string, password: string, code: string) => call<void>("POST", `/api/invite/${encodeURIComponent(tk)}`, { password, code }),
   recipientLogout: (tk: string) => call<void>("POST", `/api/s/${encodeURIComponent(tk)}/logout`),
 };
 

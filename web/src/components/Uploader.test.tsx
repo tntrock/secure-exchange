@@ -164,3 +164,10 @@ test("retries a 429 and a 5xx but not a 403", async () => {
   expect(retry(err())).toBe(true);
   expect(retry(err(403))).toBe(false);
 });
+
+test("merges the metadata prop into the tus metadata", async () => {
+  const { container } = render(<Uploader onDone={() => {}} metadata={{ recipient: "r1" }} />);
+  pick(container, "a.txt");
+  await waitFor(() => expect(ctor).toHaveBeenCalled());
+  expect(ctor.mock.calls[0][1].metadata).toEqual({ filename: "a.txt", filetype: "text/plain", recipient: "r1" });
+});

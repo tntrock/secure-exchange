@@ -37,6 +37,15 @@ const (
 	ActRequestOTPRequest = "request.otp.request"
 	ActRequestOTPVerify  = "request.otp.verify"
 	ActFileScan          = "file.scan"
+
+	ActVendorCreate   = "vendor.create"
+	ActVendorApprove  = "vendor.approve"
+	ActVendorReject   = "vendor.reject"
+	ActVendorDisable  = "vendor.disable"
+	ActVendorEnable   = "vendor.enable"
+	ActVendorExpiry   = "vendor.expiry"
+	ActVendorReinvite = "vendor.reinvite"
+	ActVendorActivate = "vendor.activate"
 )
 
 const lockKey = 7461

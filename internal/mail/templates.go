@@ -87,3 +87,18 @@ func NotifyScanError(uploader, fileName, requestURL string) (string, string) {
 			sep +
 			fmt.Sprintf("The file \"%s\" uploaded by %s could not be virus-scanned after several attempts. It is blocked and cannot be downloaded.\n%s", fileName, uploader, requestURL)
 }
+
+func VendorInvitation(url, inviterName string, expires time.Time) (string, string) {
+	ex := expires.UTC().Format("2006-01-02 15:04 UTC")
+	return subject("您受邀使用 secure-exchange 帳號", "You are invited to a secure-exchange account"),
+		fmt.Sprintf("%s 為您建立了 secure-exchange 帳號。請開啟連結設定密碼與兩步驟驗證（TOTP）：\n%s\n\n此連結將於 %s 到期，且只能使用一次。", inviterName, url, ex) +
+			sep +
+			fmt.Sprintf("%s has created a secure-exchange account for you. Open the link to set your password and two-step verification (TOTP):\n%s\n\nThis link expires at %s and can be used once.", inviterName, url, ex)
+}
+
+func VendorApprovalNeeded(vendorEmail, creatorName, url string) (string, string) {
+	return subject("廠商帳號待核准", "A vendor account needs approval"),
+		fmt.Sprintf("%s 申請建立廠商帳號 %s，請核准或拒絕：\n%s", creatorName, vendorEmail, url) +
+			sep +
+			fmt.Sprintf("%s asked to create the vendor account %s. Approve or reject it:\n%s", creatorName, vendorEmail, url)
+}

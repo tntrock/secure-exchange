@@ -18,6 +18,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
+	"github.com/tntrock/secure-exchange/internal/vendor"
 	"github.com/tntrock/secure-exchange/internal/webui"
 )
 
@@ -33,6 +34,7 @@ type Deps struct {
 	Store          blob.Store
 	Shares         *share.Service
 	Requests       *intake.Service
+	Vendors        *vendor.Service
 	FontFile       string // TTF for burned-in video watermarks (SX_FONT_FILE)
 	Mark           config.MarkConfig
 	CodeDelay      time.Duration // recipient /code and /verify answer no sooner than this after the request starts (P10)
@@ -95,6 +97,17 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("GET /api/r/{token}/files", s.requireUploader(s.listUploaderFiles))
 	mux.HandleFunc("POST /api/r/{token}/logout", s.uploaderLogout)
 	s.previewRoutes(mux)
+	// vendor accounts: staff manage them; the invitation pages need no login
+	mux.Handle("GET /api/vendors", s.requireUser(s.listVendors))
+	mux.Handle("POST /api/vendors", s.requireUser(s.createVendor))
+	mux.Handle("PATCH /api/vendors/{id}", s.requireUser(s.setVendorExpiry))
+	mux.Handle("POST /api/vendors/{id}/approve", s.requireAdmin(s.vendorAction(audit.ActVendorApprove, s.Vendors.Approve)))
+	mux.Handle("POST /api/vendors/{id}/reject", s.requireAdmin(s.vendorAction(audit.ActVendorReject, s.Vendors.Reject)))
+	mux.Handle("POST /api/vendors/{id}/disable", s.requireUser(s.vendorAction(audit.ActVendorDisable, s.setDisabled(true))))
+	mux.Handle("POST /api/vendors/{id}/enable", s.requireUser(s.vendorAction(audit.ActVendorEnable, s.setDisabled(false))))
+	mux.Handle("POST /api/vendors/{id}/reinvite", s.requireUser(s.vendorAction(audit.ActVendorReinvite, s.Vendors.Reinvite)))
+	mux.Handle("GET /api/invite/{token}", recipIP(s.inviteInfo))
+	mux.Handle("POST /api/invite/{token}", recipIP(s.activateVendor))
 	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
 	mux.Handle("POST /api/me/totp/setup", s.requireAccount(s.totpSetup))
 	mux.Handle("POST /api/me/totp/enable", s.requireAccount(s.totpEnable))

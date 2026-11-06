@@ -54,7 +54,7 @@ func TestIntakePatchAfterRevoke(t *testing.T) {
 	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
 		Pool: pool, Keys: keys, Store: store, Requests: svc, Rules: rs,
-		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}),
+		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}, rs),
 	}))
 	defer ts.Close()
 	c := ts.Client()
@@ -165,7 +165,7 @@ func TestIntakeRateLimitOnlyCreates(t *testing.T) {
 	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
 		Pool: pool, Keys: keys, Store: store, Requests: svc, Rules: rs,
-		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}),
+		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}, rs),
 	}))
 	defer ts.Close()
 	send := func(method string) int {

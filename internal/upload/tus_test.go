@@ -26,6 +26,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/config"
 	"github.com/tntrock/secure-exchange/internal/db/testdb"
 	"github.com/tntrock/secure-exchange/internal/intake"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
 )
 
@@ -43,6 +44,7 @@ type env struct {
 	access  map[string]*intake.Access // external uploaders by id, see X-Test-Uploader
 	h       *handler
 	failPut atomic.Bool // makes blob Put fail, so a completed upload's row survives
+	rules   *rules.Service
 }
 
 func newEnv(t *testing.T) *env {
@@ -59,6 +61,10 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e := &env{t: t, pool: pool, keys: keys, keySpec: "1:" + base64.StdEncoding.EncodeToString(k), store: store, staging: t.TempDir(), users: map[string]*auth.User{}, access: map[string]*intake.Access{}}
+	e.rules = rules.New(pool, testMax)
+	if err := e.rules.Seed(context.Background(), 30); err != nil {
+		t.Fatal(err)
+	}
 	us := auth.NewUsers(pool, keys)
 	for _, name := range []string{"a", "b"} {
 		u, err := us.Create(context.Background(), name+"@example.com", name, "staff", "password-12345")
@@ -67,7 +73,7 @@ func newEnv(t *testing.T) *env {
 		}
 		e.users[name] = u
 	}
-	e.h = NewHandler(pool, keys, flakyStore{store, &e.failPut}, audit.New(pool), e.staging, testMax, nil, config.PreviewConfig{MaxBytes: testMax, MaxVideoBytes: testMax}).(*handler)
+	e.h = NewHandler(pool, keys, flakyStore{store, &e.failPut}, audit.New(pool), e.staging, testMax, nil, config.PreviewConfig{MaxBytes: testMax, MaxVideoBytes: testMax}, e.rules).(*handler)
 	h := e.h
 	// stands in for httpapi's requireUser
 	e.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

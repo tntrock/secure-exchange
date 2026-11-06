@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, fmtDate, fmtSize, type ShareDetailInfo } from "../api";
+import VendorPicker from "../components/VendorPicker";
 
 export default function ShareDetail() {
   const { id = "" } = useParams();
@@ -9,6 +10,7 @@ export default function ShareDetail() {
   const [d, setD] = useState<ShareDetailInfo | null>(null);
   const [err, setErr] = useState("");
   const [emails, setEmails] = useState("");
+  const [vendorIds, setVendorIds] = useState<string[]>([]);
 
   const refresh = useCallback(() => {
     api.share(id).then(setD, () => setErr(t("app.error")));
@@ -63,7 +65,7 @@ export default function ShareDetail() {
         <tbody>
           {d.recipients.map((r) => (
             <tr key={r.id}>
-              <td>{r.email}</td>
+              <td>{r.email}{r.vendor && <> <span className="badge">{t("share.vendorBadge")}</span></>}</td>
               <td>{date(r.first_opened_at)}</td>
               <td>{date(r.last_access_at)}</td>
               <td>{t(r.revoked ? "share.status.revoked" : "share.status.active")}</td>
@@ -83,12 +85,13 @@ export default function ShareDetail() {
           onSubmit={(e) => {
             e.preventDefault();
             const list = emails.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
-            if (list.length) run(api.addRecipients(id, list).then(() => setEmails("")));
+            if (list.length || vendorIds.length) run(api.addRecipients(id, list, vendorIds).then(() => { setEmails(""); setVendorIds([]); }));
           }}
         >
           <label>{t("share.addRecipients")}
             <textarea rows={2} value={emails} onChange={(e) => setEmails(e.target.value)} />
           </label>
+          <VendorPicker selected={vendorIds} onChange={setVendorIds} />
           <button type="submit">{t("share.add")}</button>
         </form>
       )}

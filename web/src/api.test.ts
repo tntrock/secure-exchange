@@ -27,7 +27,7 @@ test("JSON bodies are sent with a content type", async () => {
   const f = stub(new Response(JSON.stringify([])));
   await api.addRecipients("s1", ["b@x.com"]);
   expect(f).toHaveBeenCalledWith("/api/shares/s1/recipients", {
-    method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emails: ["b@x.com"] }),
+    method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emails: ["b@x.com"], vendor_ids: [] }),
   });
 });
 

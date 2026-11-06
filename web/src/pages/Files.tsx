@@ -69,12 +69,16 @@ export default function Files() {
             {files.map((f) => (
               <tr key={f.id}>
                 <td><input type="checkbox" aria-label={f.name} checked={sel.has(f.id)} disabled={!usable(f)} onChange={() => toggle(f.id)} /></td>
-                <td>{f.name}</td>
+                <td>
+                  {f.name}
+                  {f.vendor_email && <div><small>{t("files.fromVendor")} {f.vendor_email}</small></div>}
+                  {f.request_id && !f.vendor_email && <div><small><Link to={`/requests/${f.request_id}`}>{t("files.fromRequest")}</Link></small></div>}
+                </td>
                 <td>{fmtSize(f.size, i18n.language)}</td>
                 <td>{fmtDate(f.created_at, i18n.language)}</td>
                 <td><code>{f.sha256.slice(0, 12)}</code></td>
                 <td>{t(`files.preview.${f.preview_status}`)}</td>
-                <td>{f.request_id && <ScanBadge status={f.scan_status} result={f.scan_result} />}</td>
+                <td>{(f.request_id || f.vendor_email) && <ScanBadge status={f.scan_status} result={f.scan_result} />}</td>
                 <td>
                   {f.preview_status === "ready" && <><button disabled={!usable(f)} onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>{" "}</>}
                   {usable(f) ? <a href={`/api/files/${f.id}/content`} download>{t("files.download")}</a> : <span aria-disabled="true">{t("files.download")}</span>}{" "}

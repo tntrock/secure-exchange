@@ -10,6 +10,7 @@ import Files from "./pages/Files";
 import Shares from "./pages/Shares";
 import ShareDetail from "./pages/ShareDetail";
 import Requests from "./pages/Requests";
+import Vendors from "./pages/Vendors";
 import RequestDetail from "./pages/RequestDetail";
 import UploadPage from "./pages/intake/Upload";
 import Trace from "./pages/admin/Trace";
@@ -42,6 +43,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/shares/:id" element={<Private><ShareDetail /></Private>} />
         <Route path="/requests" element={<Private><Requests /></Private>} />
         <Route path="/requests/:id" element={<Private><RequestDetail /></Private>} />
+        <Route path="/vendors" element={<Private><Vendors /></Private>} />
         <Route path="/settings/totp" element={<Private><TotpSetup /></Private>} />
         <Route path="/admin/trace" element={<Private><Trace /></Private>} />
         <Route path="/s/:token" element={<Access />} />

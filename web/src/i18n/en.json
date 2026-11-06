@@ -12,7 +12,7 @@
   "files": {
     "title": "My files", "empty": "No files yet", "name": "Name", "size": "Size", "created": "Uploaded",
     "sha256": "SHA-256", "download": "Download", "delete": "Delete", "confirmDelete": "Delete \"{{name}}\"?",
-    "settings": "Two-factor settings",
+    "settings": "Two-factor settings", "fromVendor": "Vendor upload:", "fromRequest": "Upload request",
     "preview": { "label": "Preview", "pending": "Processing", "ready": "Ready", "failed": "Preview failed", "unsupported": "Not previewable", "too_large": "Too large to preview" }
   },
   "upload": {
@@ -21,7 +21,7 @@
   },
   "recipient": {"title":"Access shared files","from":"{{name}} shared files with you","expires":"Expires: {{at}}","email":"Your email","sendCode":"Send code","code":"6-digit code","verify":"Verify","resend":"Resend code","changeEmail":"Use a different email","codeSent":"If you are on the recipient list, a code has been sent","filesTitle":"Shared files","fileUnavailable":"Unavailable","leave":"Leave","error":{"notFound":"Share not found","gone":"This share has expired or been revoked","ipDenied":"Access from your network location is not allowed","rateLimited":"Too many attempts, please try again later","invalidCode":"Incorrect or expired code","viewLimit":"This share has reached its view limit","sessionEnded":"Your session has ended, please verify again","generic":"Something went wrong, please try again"}},
   "viewer": { "reLogin": "Your login has expired, please sign in again", "view_limit": "This share has reached its view limit", "ip_denied": "Access from your network location is not allowed", "open": "View", "close": "Close", "prev": "Previous page", "next": "Next page", "zoomIn": "Zoom in", "zoomOut": "Zoom out", "page": "Page {{n}}", "pending": "Preview is still processing, please try again later", "notReady": "This file cannot be previewed", "gone": "This share is no longer available", "ended": "Your session has ended, please verify again", "error": "Could not load the preview", "title": "File viewer" },
-  "nav": { "files": "My files", "shares": "My shares", "trace": "Leak tracing", "requests": "Requests" },
+  "nav": { "files": "My files", "shares": "My shares", "trace": "Leak tracing", "requests": "Requests", "vendors": "Vendors" },
   "requests": {
     "title": "Upload requests", "new": "New request", "emails": "Uploaders (one per line or comma-separated)",
     "expiresOn": "Expires on", "maxFiles": "Max files", "maxGb": "Max total size (GB)",
@@ -73,16 +73,36 @@
     "fileList": "Files", "deleted": "(deleted)", "recipientList": "Recipients", "email": "Email", "firstOpened": "First opened",
     "lastAccess": "Last access", "never": "—", "revoke": "Revoke", "revokeShare": "Revoke entire share",
     "confirmRevoke": "Revoke this share? All recipients will lose access.", "confirmRevokeRecipient": "Revoke {{email}}?",
-    "addRecipients": "Add recipients", "add": "Add", "back": "Back to shares",
+    "addRecipients": "Add recipients", "vendorBadge": "Vendor", "add": "Add", "back": "Back to shares",
     "error": {
       "generic": "Could not create the share, please check the form",
       "expired": "This share has expired; recipients can no longer be added",
       "emails": { "required": "Enter at least one recipient", "too_many": "Too many recipients (max 50)", "invalid": "One or more email addresses are invalid" },
+      "recipients": { "required": "Enter at least one recipient or vendor" },
+      "vendor_ids": { "not_found": "A selected vendor was not found or is not active" },
       "file_ids": { "preview_pending": "Some files are still being processed for preview, please wait", "not_previewable": "Some files cannot be previewed online; allow download instead", "not_found": "A selected file was not found", "too_many": "Too many files (max 100)", "required": "Select at least one file" },
       "expires_at": { "required": "Expiry is required", "out_of_range": "Expiry must be between 1 hour and the maximum allowed from now" },
       "max_views": { "out_of_range": "Max views is out of range" },
       "ip_allow": { "invalid": "Invalid IP or CIDR", "too_many": "Too many IP entries" },
       "message": { "too_many": "Message is too long (max 2000 characters)" }
+    }
+  },
+  "vendors": {
+    "title": "Vendors", "new": "New vendor account", "email": "Email", "name": "Display name", "org": "Organisation (optional)",
+    "expiresOn": "Expires on", "create": "Create and invite", "listTitle": "Vendor accounts", "empty": "No vendor accounts yet", "noOrg": "No organisation",
+    "statusLabel": "Status", "expiresAt": "Expires", "createdBy": "Created by", "pick": "Vendors", "filter": "Filter vendors",
+    "disable": "Disable", "enable": "Enable", "reinvite": "Reinvite", "changeExpiry": "Change expiry", "save": "Save",
+    "pendingTitle": "Pending approval", "approve": "Approve", "reject": "Reject", "confirmReject": "Reject {{email}}?",
+    "status": { "pending": "Pending approval", "rejected": "Rejected", "disabled": "Disabled", "expired": "Expired", "invited": "Invited", "active": "Active" },
+    "error": {
+      "generic": "Something went wrong, please check the form",
+      "email_taken": "This email address is already in use",
+      "wrong_state": "That action is not allowed in the account's current state",
+      "forbidden": "You do not have permission to do that",
+      "email": { "required": "Email is required", "invalid": "Invalid email address" },
+      "display_name": { "required": "Display name is required", "out_of_range": "Display name is too long" },
+      "org": { "out_of_range": "Organisation name is too long" },
+      "expires_at": { "required": "Expiry is required", "out_of_range": "Expiry must be between tomorrow and 3 years from now" }
     }
   },
   "trace": {"title":"Leak tracing","intro":"Find who downloaded a leaked file. Screenshots cannot be analysed: look up the tracking code printed on the visible watermark instead.","code":"Tracking code","sha256":"SHA-256","file":"Suspect file (analysed in memory, never stored)","search":"Search","undetermined":"Undetermined","notAnalyzed":"The file content was not analysed (too large); only its SHA-256 was checked.","forbidden": "You do not have permission to use leak tracing", "error":"Lookup failed, check the input and try again","col":{"source":"Source","method":"Method","code":"Code","file":"File","owner":"Owner","recipient":"Downloader","ip":"IP","at":"Time"},"source":{"download":"Download","view":"Online view","file":"Original upload"},"via":{"code":"tracking code","metadata":"file metadata","text_layer":"hidden text layer","invisible":"invisible watermark","sha256":"file fingerprint"},"method":{"pdf_pages":"Watermarked PDF pages","pdf_meta":"PDF metadata","image_visible":"Visible + invisible watermark","image_invisible":"Invisible watermark","ooxml_meta":"Office metadata","odf_meta":"OpenDocument metadata","none":"Unmarked"}}

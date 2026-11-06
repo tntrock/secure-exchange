@@ -27,3 +27,8 @@ test("requests link for everyone", () => {
   show("user");
   expect(screen.getByRole("link", { name: i18n.t("nav.requests") }).getAttribute("href")).toBe("/requests");
 });
+
+test("vendors link for staff and admin", () => {
+  show("user");
+  expect(screen.getByRole("link", { name: i18n.t("nav.vendors") }).getAttribute("href")).toBe("/vendors");
+});

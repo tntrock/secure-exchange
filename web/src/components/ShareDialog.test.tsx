@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 function setup(fetchImpl: () => Promise<Response>) {
-  const f = vi.fn(fetchImpl);
+  const f = vi.fn((_u: string, _i?: RequestInit) => fetchImpl());
   vi.stubGlobal("fetch", f);
   render(<MemoryRouter><ShareDialog fileIds={["f1"]} onClose={() => {}} /></MemoryRouter>);
   fireEvent.change(screen.getByLabelText(i18n.t("share.recipients")), { target: { value: "a@x.com, b@x.com\n" } });
@@ -20,8 +20,8 @@ function setup(fetchImpl: () => Promise<Response>) {
 
 test("submits parsed recipients, ISO expiry and default flags", async () => {
   const f = setup(() => Promise.resolve(new Response(JSON.stringify({ id: "s1" }), { status: 201 })));
-  await waitFor(() => expect(f).toHaveBeenCalled());
-  const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+  await waitFor(() => expect(f.mock.calls.some((c) => c[0] === "/api/shares")).toBe(true));
+  const [url, init] = f.mock.calls.find((c) => c[0] === "/api/shares") as unknown as [string, RequestInit];
   expect(url).toBe("/api/shares");
   const body = JSON.parse(init.body as string);
   expect(body.emails).toEqual(["a@x.com", "b@x.com"]);
@@ -55,9 +55,9 @@ test("every form field reaches the request body", async () => {
   fireEvent.change(field("share.message"), { target: { value: "see attached" } });
   fireEvent.click(screen.getByRole("button", { name: i18n.t("share.submit") }));
   expect(await screen.findByText("detail page")).toBeTruthy();
-  const body = JSON.parse(f.mock.calls[0][1]!.body as string);
+  const body = JSON.parse(f.mock.calls.find((c) => c[0] === "/api/shares")![1]!.body as string);
   expect(body).toEqual({
-    file_ids: ["f1", "f2"], emails: ["a@x.com"], allow_download: true, watermark: false,
+    file_ids: ["f1", "f2"], emails: ["a@x.com"], vendor_ids: [], allow_download: true, watermark: false,
     expires_at: new Date("2030-01-02T03:04").toISOString(), max_views: 7, ip_allow: ["10.0.0.1", "10.0.0.0/8"], message: "see attached",
   });
 });
@@ -66,7 +66,7 @@ test("a cleared expiry is sent empty so the server reports it", async () => {
   const f = setupWith(() => fireEvent.change(screen.getByLabelText(i18n.t("share.expiresAt")), { target: { value: "" } }),
     () => Promise.resolve(new Response(JSON.stringify({ error: "validation", field: "expires_at", code: "required" }), { status: 422 })));
   expect(await screen.findByText(i18n.t("share.error.expires_at.required"))).toBeTruthy();
-  expect(JSON.parse(f.mock.calls[0][1]!.body as string).expires_at).toBe("");
+  expect(JSON.parse(f.mock.calls.find((c) => c[0] === "/api/shares")![1]!.body as string).expires_at).toBe("");
 });
 
 test("Cancel calls onClose; network failure shows the generic error", async () => {
@@ -154,4 +154,41 @@ test("a name merely ending in 'docx' without a dot is not an Office file", () =>
   renderWith([mk("notdocx", "pdf_pages", "none", false)]);
   allow();
   expect(screen.queryByText(i18n.t("share.officeAsPdf"))).toBeNull();
+});
+
+const vendorRows = [
+  { id: "v1", email: "al@v.com", display_name: "Al", org: "Acme", status: "active", expires_at: "2030-01-01T00:00:00Z", created_by_name: "S", created_at: "2029-01-01T00:00:00Z", can_manage: false },
+  { id: "v2", email: "bo@g.com", display_name: "Bo", org: "Globex", status: "active", expires_at: "2030-01-01T00:00:00Z", created_by_name: "S", created_at: "2029-01-01T00:00:00Z", can_manage: false },
+];
+function vendorSetup() {
+  const f = vi.fn(async (url: string, init?: RequestInit) =>
+    url.startsWith("/api/vendors") ? new Response(JSON.stringify(vendorRows)) : new Response(JSON.stringify({ id: "s1" }), { status: init?.method === "POST" ? 201 : 200 }));
+  vi.stubGlobal("fetch", f);
+  render(<MemoryRouter><ShareDialog fileIds={["f1"]} onClose={() => {}} /></MemoryRouter>);
+  return f;
+}
+
+test("can share to vendors only", async () => {
+  const f = vendorSetup();
+  fireEvent.click(await screen.findByRole("checkbox", { name: /Al <al@v.com> · Acme/ }));
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.submit") }));
+  await waitFor(() => expect(f.mock.calls.some((c) => c[0] === "/api/shares")).toBe(true));
+  const call = f.mock.calls.find((c) => c[0] === "/api/shares") as unknown as [string, RequestInit];
+  const body = JSON.parse(call[1].body as string);
+  expect(body.vendor_ids).toEqual(["v1"]);
+  expect(body.emails).toEqual([]);
+  expect(f.mock.calls.some((c) => c[0] === "/api/vendors?active=1")).toBe(true);
+});
+
+test("filters vendor list", async () => {
+  vendorSetup();
+  await screen.findByRole("checkbox", { name: /Bo/ });
+  fireEvent.change(screen.getByLabelText(i18n.t("vendors.filter")), { target: { value: "globex" } });
+  expect(screen.queryByRole("checkbox", { name: /al@v.com/ })).toBeNull();
+  expect(screen.getByRole("checkbox", { name: /Bo/ })).toBeTruthy();
+});
+
+test("recipients/required and vendor_ids/not_found have messages", () => {
+  expect(i18n.exists("share.error.recipients.required")).toBe(true);
+  expect(i18n.exists("share.error.vendor_ids.not_found")).toBe(true);
 });

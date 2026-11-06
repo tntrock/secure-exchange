@@ -45,6 +45,10 @@ func wantBanned(t *testing.T, b []byte) {
 	if m["allow_download"] != false || m["watermark"] != true || m["download_forbidden"] != true {
 		t.Fatal(string(b))
 	}
+	// test files have no preview row, so they are unsupported: the UI shows "blocked by admin"
+	if fs, _ := m["files"].([]any); len(fs) == 0 || fs[0].(map[string]any)["previewable"] != false {
+		t.Fatal("previewable:", string(b))
+	}
 }
 
 func TestBanAppliesToExistingShare(t *testing.T) {

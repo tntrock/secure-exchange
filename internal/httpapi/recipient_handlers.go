@@ -254,7 +254,8 @@ func (s *server) recipientFiles(ctx context.Context, a *share.Access) (map[strin
 			p = &preview.Preview{Kind: preview.KindNone, Status: preview.StatusUnsupported}
 		}
 		files[i] = map[string]any{"id": f.ID, "name": f.Name, "size": f.Size, "available": !f.Deleted,
-			"mark_pending": s.listPlan(f.Name, f.Size, p, sh.Watermark).Pending}
+			"mark_pending": s.listPlan(f.Name, f.Size, p, sh.Watermark).Pending,
+			"previewable":  p.Status != preview.StatusFailed && p.Status != preview.StatusUnsupported && p.Status != preview.StatusTooLarge}
 	}
 	return map[string]any{"message": sh.Message, "expires_at": ts(&sh.ExpiresAt), "allow_download": sh.AllowDownload,
 		"watermark": sh.Watermark, "download_forbidden": forbid, "files": files}, nil

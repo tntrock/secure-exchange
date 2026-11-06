@@ -125,3 +125,41 @@ func TestVendorShareFlow(t *testing.T) {
 		}
 	}
 }
+
+// A file viewed through two shares in one vendor login gets a trace (and file.view) per share.
+func TestVendorSameFileTwoSharesTracedApart(t *testing.T) {
+	e := newEnv(t)
+	a := e.user(t, "a@x.com")
+	g := e.putFile(t, a.ID, "doc.pdf", []byte("x"))
+	e.seedPreview(t, g, preview.KindPages, preview.StatusReady, 1)
+	secret := e.mkVendor(t, "v@vendor.com")
+	v := e.vendorID(t, "v@vendor.com")
+	e.loginAs(t, "a@x.com", "")
+	ids := make([]string, 2)
+	for i := range ids {
+		resp, b := e.do(t, "POST", "/api/shares", map[string]any{"file_ids": []uuid.UUID{g}, "vendor_ids": []uuid.UUID{v}, "allow_download": true,
+			"watermark": true, "expires_at": time.Now().Add(48 * time.Hour).Format(time.RFC3339)})
+		var m map[string]any
+		json.Unmarshal(b, &m)
+		if resp.StatusCode != 201 {
+			t.Fatal(resp.StatusCode, string(b))
+		}
+		ids[i] = m["id"].(string)
+	}
+	e.loginAs(t, "v@vendor.com", secret)
+	for _, id := range ids {
+		if resp, b := e.get(t, "/api/vendor/shares/"+id+"/files/"+g.String()+"/preview/pages/0"); resp.StatusCode != 200 {
+			t.Fatal(resp.StatusCode, string(b))
+		}
+	}
+	var n, codes, shares int
+	e.pool.QueryRow(context.Background(), `SELECT count(*), count(DISTINCT code), count(DISTINCT share_id) FROM view_traces WHERE file_id = $1`, g).
+		Scan(&n, &codes, &shares)
+	if n != 2 || codes != 2 || shares != 2 {
+		t.Fatalf("traces %d, codes %d, shares %d", n, codes, shares)
+	}
+	ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActFileView, Limit: 5})
+	if err != nil || len(ents) != 2 || ents[0].Event.Detail["share_id"] == ents[1].Event.Detail["share_id"] {
+		t.Fatal(err, ents)
+	}
+}

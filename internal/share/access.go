@@ -38,7 +38,7 @@ var (
 type Access struct {
 	Share       *Share
 	Recipient   Recipient
-	SessionHash []byte // sha256 of the session token, as stored in share_sessions
+	SessionHash []byte // sha256 of the share session token; for a vendor, vendorViewKey of the login session
 }
 
 func ipAllowed(list []netip.Prefix, ip netip.Addr) bool {
@@ -256,10 +256,18 @@ func (s *Service) opened(ctx context.Context, tx pgx.Tx, sh *Share, r *Recipient
 		Scan(&r.FirstOpenedAt, &r.LastAccessAt)
 }
 
+// vendorViewKey derives a per-share key from a vendor's login session: one login spans many shares, but
+// view_traces dedupe on (session_hash, file_id), so a file seen through two shares needs two keys.
+func vendorViewKey(sessionHash []byte, shareID uuid.UUID) []byte {
+	h := sha256.Sum256(append(append([]byte{}, sessionHash...), shareID[:]...))
+	return h[:]
+}
+
 // VendorAccess is Authorize for a signed-in vendor, on every request: the vendor must be a non-revoked
 // recipient of the share (else ErrNotFound, so other shares' existence is not revealed), then the share
 // checks apply. The first call per (sessionHash, share) counts a view under max_views and stamps the open.
 func (s *Service) VendorAccess(ctx context.Context, vendorID, shareID uuid.UUID, sessionHash []byte, ip netip.Addr) (*Access, error) {
+	sessionHash = vendorViewKey(sessionHash, shareID)
 	r := Recipient{VendorID: &vendorID}
 	err := s.pool.QueryRow(ctx, `SELECT id, email, first_opened_at, last_access_at FROM share_recipients
 		WHERE share_id = $1 AND vendor_id = $2 AND revoked_at IS NULL`, shareID, vendorID).Scan(&r.ID, &r.Email, &r.FirstOpenedAt, &r.LastAccessAt)

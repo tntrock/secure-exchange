@@ -1,6 +1,7 @@
 package share
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/netip"
@@ -166,7 +167,7 @@ func TestVendorAccessCountsViewOncePerSession(t *testing.T) {
 	s1, s2, s3 := []byte("session-1"), []byte("session-2"), []byte("session-3")
 	for range 2 {
 		a, err := e.svc.VendorAccess(ctx, v, sh.ID, s1, ip1)
-		if err != nil || a.Share.ViewCount != 1 || a.Recipient.Email != "v@vendor.com" || len(a.Share.Files) != 1 || string(a.SessionHash) != "session-1" {
+		if err != nil || a.Share.ViewCount != 1 || a.Recipient.Email != "v@vendor.com" || len(a.Share.Files) != 1 || !bytes.Equal(a.SessionHash, vendorViewKey(s1, sh.ID)) {
 			t.Fatal(a, err)
 		}
 	}
@@ -306,5 +307,22 @@ func TestAddVendorConvertsEmailRow(t *testing.T) {
 	}
 	if _, err := e.svc.VendorAccess(ctx, w, sh2.ID, []byte("s"), ip1); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
+	}
+}
+
+// One login's views of different shares must not share a trace key.
+func TestVendorAccessSessionHashPerShare(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	v := e.vendor(t, "v@vendor.com")
+	f := e.file(t, e.owner, false)
+	one := func(in *CreateInput) { in.FileIDs = []uuid.UUID{f} }
+	a1, err := e.svc.VendorAccess(ctx, v, e.vendorShare(t, one, v).ID, []byte("s"), ip1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2, err := e.svc.VendorAccess(ctx, v, e.vendorShare(t, one, v).ID, []byte("s"), ip1)
+	if err != nil || bytes.Equal(a1.SessionHash, a2.SessionHash) || len(a1.SessionHash) != 32 {
+		t.Fatal(a1.SessionHash, a2.SessionHash, err)
 	}
 }

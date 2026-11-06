@@ -15,6 +15,7 @@ const shouldRetry = (err: DetailedError) => {
 
 function UploadItem({ file, endpoint, metadata, onDone, onError }: { file: File; endpoint: string; metadata?: Record<string, string>; onDone: () => void; onError?: OnError }) {
   const { t } = useTranslation();
+  const [why, setWhy] = useState("");
   const up = useRef<Upload | null>(null);
   const [pct, setPct] = useState(0);
   const [status, setStatus] = useState<Status>("uploading");
@@ -43,7 +44,10 @@ function UploadItem({ file, endpoint, metadata, onDone, onError }: { file: File;
       onError: (err) => {
         setStatus("failed");
         const r = (err as DetailedError | undefined)?.originalResponse;
-        onError?.(r?.getStatus() ?? 0, r?.getBody() ?? "");
+        const body = r?.getBody() ?? "";
+        const key = `upload.error.${body.trim()}`;
+        setWhy(r?.getStatus() === 403 ? t(key, { defaultValue: "" }) : "");
+        onError?.(r?.getStatus() ?? 0, body);
       },
     });
     up.current = u;
@@ -76,6 +80,7 @@ function UploadItem({ file, endpoint, metadata, onDone, onError }: { file: File;
       <span>{file.name}</span>
       <progress max={100} value={pct} />
       <span>{status === "done" ? t("upload.done") : status === "failed" ? t("upload.failed") : `${pct}%`}</span>
+      {why && <span className="error" role="alert">{why}</span>}
       {status !== "done" && <button onClick={toggle}>{status === "uploading" ? t("upload.pause") : t("upload.resume")}</button>}
       {status !== "done" && (
         <button

@@ -11,7 +11,7 @@ function errKey(e: unknown) {
   if (e instanceof ApiError) {
     if (e.status === 404) return "notFound";
     if (e.status === 410) return "gone";
-    if (e.status === 403) return e.message === "view_limit" ? "viewLimit" : "ipDenied";
+    if (e.status === 403) return e.message === "view_limit" ? "viewLimit" : e.message === "domain_blocked" ? "domain_blocked" : "ipDenied";
     if (e.status === 429) return "rateLimited";
     if (e.status === 401) return e.message === "invalid_code" ? "invalidCode" : "sessionEnded";
   }
@@ -181,7 +181,7 @@ export default function Access() {
                     <td>{f.name}</td>
                     <td>{fmtSize(f.size, lng)}</td>
                     <td>
-                      {!f.available ? t("recipient.fileUnavailable") : (
+                      {!f.available ? t("recipient.fileUnavailable") : data.download_forbidden && f.previewable === false ? t("recipient.blockedByAdmin") : (
                         <>
                           <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>{" "}
                           {data.allow_download && <a href={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(f.id)}/content`} download data-file={f.id} onClick={download}>

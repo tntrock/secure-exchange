@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, type FileInfo } from "../api";
@@ -7,8 +7,8 @@ import VendorPicker from "./VendorPicker";
 const lines = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
 
 // datetime-local wants local "YYYY-MM-DDTHH:mm".
-const localDefault = () => {
-  const d = new Date(Date.now() + 7 * 864e5);
+const localDefault = (days = 7) => {
+  const d = new Date(Date.now() + days * 864e5);
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 16);
 };
@@ -26,7 +26,18 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
   const [vendorIds, setVendorIds] = useState<string[]>([]);
   const [allowDownload, setAllowDownload] = useState(false);
   const [watermark, setWatermark] = useState(true);
-  const [expires, setExpires] = useState(localDefault);
+  const [expires, setExpires] = useState(() => localDefault());
+  const [lock, setLock] = useState({ download: false, watermark: false });
+  const edited = useRef(false);
+  useEffect(() => {
+    // admin rules are best effort here: the server enforces them anyway
+    api.rules().then((r) => {
+      setLock({ download: r.forbid_download === true, watermark: r.force_watermark === true });
+      if (r.forbid_download === true) setAllowDownload(false);
+      if (r.force_watermark === true) setWatermark(true);
+      if (!edited.current && typeof r.share_default_days === "number") setExpires(localDefault(r.share_default_days));
+    }, () => {});
+  }, []);
   const [maxViews, setMaxViews] = useState("");
   const [ips, setIps] = useState("");
   const [message, setMessage] = useState("");
@@ -89,15 +100,19 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
         </label>
         <VendorPicker selected={vendorIds} onChange={setVendorIds} />
         {fieldErr("vendor_ids")}
-        <label className="check"><input type="checkbox" checked={allowDownload} onChange={(e) => setAllowDownload(e.target.checked)} />{t("share.allowDownload")}</label>
+        <label className="check"><input type="checkbox" checked={allowDownload} disabled={lock.download} onChange={(e) => setAllowDownload(e.target.checked)} />{t("share.allowDownload")}</label>
+        {lock.download && <p>{t("share.lockedByAdmin")}</p>}
+        {fieldErr("allow_download")}
         {!allowDownload && <p>{t("share.viewOnlyNote")}</p>}
         {!allowDownload && notReady && <p role="status">{t("share.previewHint")}</p>}
         {degraded.length > 0 && <div role="status"><p>{t("share.markDegraded")}</p><NameList items={degraded} /></div>}
         {unmarked.length > 0 && <div role="status"><p>{t("share.markNone")}</p><NameList items={unmarked} /></div>}
         {asPdf.length > 0 && <div role="status"><p>{t("share.officeAsPdf")}</p><NameList items={asPdf} /></div>}
-        <label className="check"><input type="checkbox" checked={watermark} onChange={(e) => setWatermark(e.target.checked)} />{t("share.watermark")}</label>
+        <label className="check"><input type="checkbox" checked={watermark} disabled={lock.watermark} onChange={(e) => setWatermark(e.target.checked)} />{t("share.watermark")}</label>
+        {lock.watermark && <p>{t("share.lockedByAdmin")}</p>}
+        {fieldErr("watermark")}
         <label>{t("share.expiresAt")}
-          <input type="datetime-local" value={expires} onChange={(e) => setExpires(e.target.value)} />
+          <input type="datetime-local" value={expires} onChange={(e) => { edited.current = true; setExpires(e.target.value); }} />
           {fieldErr("expires_at")}
         </label>
         <label>{t("share.maxViews")}

@@ -192,3 +192,41 @@ test("recipients/required and vendor_ids/not_found have messages", () => {
   expect(i18n.exists("share.error.recipients.required")).toBe(true);
   expect(i18n.exists("share.error.vendor_ids.not_found")).toBe(true);
 });
+
+const rulesBody = { force_watermark: false, forbid_download: false, share_default_days: 7 };
+function setupRules(rules: object, shareRes?: () => Response) {
+  const f = vi.fn(async (u: string, _i?: RequestInit) => (u === "/api/rules" ? new Response(JSON.stringify({ ...rulesBody, ...rules })) : shareRes?.() ?? new Response("[]")));
+  vi.stubGlobal("fetch", f);
+  render(<MemoryRouter><ShareDialog fileIds={["f1"]} onClose={() => {}} /></MemoryRouter>);
+  return f;
+}
+
+test("forbid_download locks the download checkbox off", async () => {
+  setupRules({ forbid_download: true });
+  const cb = screen.getByLabelText(i18n.t("share.allowDownload")) as HTMLInputElement;
+  await waitFor(() => expect(cb.disabled).toBe(true));
+  expect(cb.checked).toBe(false);
+  expect(screen.getAllByText(i18n.t("share.lockedByAdmin"))).toHaveLength(1);
+});
+
+test("force_watermark locks the watermark checkbox on", async () => {
+  setupRules({ force_watermark: true });
+  const cb = screen.getByLabelText(i18n.t("share.watermark")) as HTMLInputElement;
+  await waitFor(() => expect(cb.disabled).toBe(true));
+  expect(cb.checked).toBe(true);
+  expect(screen.getAllByText(i18n.t("share.lockedByAdmin"))).toHaveLength(1);
+});
+
+test("default expiry follows share_default_days", async () => {
+  setupRules({ share_default_days: 3 });
+  const el = screen.getByLabelText(i18n.t("share.expiresAt")) as HTMLInputElement;
+  const want = (d: number) => { const x = new Date(Date.now() + d * 864e5); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 13); };
+  await waitFor(() => expect(el.value.slice(0, 13)).toBe(want(3)));
+});
+
+test("emails/domain_blocked renders its message", async () => {
+  setupRules({}, () => new Response(JSON.stringify({ error: "validation", field: "emails", code: "domain_blocked" }), { status: 422 }));
+  fireEvent.change(screen.getByLabelText(i18n.t("share.recipients")), { target: { value: "a@bad.com" } });
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("share.submit") }));
+  expect(await screen.findByText(i18n.t("share.error.emails.domain_blocked"))).toBeTruthy();
+});

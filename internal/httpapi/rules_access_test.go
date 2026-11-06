@@ -103,15 +103,11 @@ func TestDomainBlockedAfterShare(t *testing.T) {
 	json.Unmarshal(b, &sh)
 	e.setRules(t, func(r *rules.Rules) { r.DomainBlock = []string{"evil.com"} })
 
-	// the code request stays silent
+	// the code is still mailed (same answer); verify then refuses with the reason
 	if resp, b := e.do(t, "POST", "/api/s/"+tok+"/code", map[string]string{"email": "r@evil.com"}); resp.StatusCode != 200 || string(b) != `{"sent":true}`+"\n" {
 		t.Fatal(resp.StatusCode, string(b))
 	}
-	// unblock just long enough to obtain a code, then block again: verify must refuse
-	e.setRules(t, func(r *rules.Rules) { r.DomainBlock = nil })
-	e.do(t, "POST", "/api/s/"+tok+"/code", map[string]string{"email": "r@evil.com"})
 	code := otpRE.FindStringSubmatch(e.lastMail(t, "r@evil.com").Body)[1]
-	e.setRules(t, func(r *rules.Rules) { r.DomainBlock = []string{"evil.com"} })
 	if resp, b := e.do(t, "POST", "/api/s/"+tok+"/verify", map[string]string{"email": "r@evil.com", "code": "000000"}); resp.StatusCode != 401 || string(b) != `{"error":"invalid_code"}`+"\n" {
 		t.Fatal(resp.StatusCode, string(b))
 	}

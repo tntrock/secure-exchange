@@ -124,11 +124,7 @@ func (s *Service) RequestCode(ctx context.Context, token, email string, ip netip
 	if !ok {
 		return false, nil
 	}
-	if err := s.enforce(ctx, sh, email); errors.Is(err, ErrDomainBlocked) {
-		return false, nil // silent, like an unknown address
-	} else if err != nil {
-		return false, err
-	}
+	// the domain rule is deliberately not applied here: the recipient gets a code and learns the reason at VerifyCode
 	var rid uuid.UUID
 	err = s.pool.QueryRow(ctx, `SELECT id FROM share_recipients WHERE share_id = $1 AND lower(email) = $2 AND revoked_at IS NULL AND vendor_id IS NULL`,
 		sh.ID, email).Scan(&rid)

@@ -3,6 +3,7 @@ package upload
 import (
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -42,15 +43,6 @@ func (e *env) addFile(owner uuid.UUID, size int64, deleted bool) {
 	}
 }
 
-func (e *env) staffCreate(size int64) (int, string) {
-	e.t.Helper()
-	meta := "filename " + base64.StdEncoding.EncodeToString([]byte("s.txt"))
-	resp := e.req("a", "POST", "/api/uploads/", nil, "Upload-Length", strconv.FormatInt(size, 10), "Upload-Metadata", meta)
-	b := make([]byte, 64)
-	n, _ := resp.Body.Read(b)
-	return resp.StatusCode, string(b[:n])
-}
-
 func TestStaffMaxFileBytes(t *testing.T) {
 	e := newEnv(t)
 	e.setRules(func(r *rules.Rules) { r.MaxFileBytes = 10 })
@@ -85,22 +77,6 @@ func TestQuotaSoftDeletedFreesSpace(t *testing.T) {
 	e.addFile(e.users["a"].ID, 60, true)
 	if c, _ := e.staffCreate(100); c != 201 {
 		t.Fatal(c)
-	}
-}
-
-func TestQuotaConcurrentCreates(t *testing.T) {
-	e := newEnv(t)
-	e.setRules(func(r *rules.Rules) { r.QuotaBytes = 100 })
-	e.addFile(e.users["a"].ID, 50, false)
-	var wg sync.WaitGroup
-	codes := make([]int, 2)
-	for i := range codes {
-		wg.Add(1)
-		go func() { defer wg.Done(); codes[i], _ = e.staffCreate(30) }()
-	}
-	wg.Wait()
-	if !(codes[0] == 201 && codes[1] == 403 || codes[0] == 403 && codes[1] == 201) {
-		t.Fatalf("codes %v", codes)
 	}
 }
 
@@ -143,4 +119,49 @@ func TestIntakeStricterExtWins(t *testing.T) {
 	if resp, body := e.extCreate(a, "tok", "a.exe", 5); resp.StatusCode != 403 || body != "ext_not_allowed" {
 		t.Fatalf("%d %q", resp.StatusCode, body)
 	}
+}
+
+func TestQuotaConcurrentCreates(t *testing.T) {
+	e := newEnv(t)
+	e.setRules(func(r *rules.Rules) { r.QuotaBytes = 50 })
+	const n = 10
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	codes := make([]int, n)
+	bodies := make([]string, n)
+	for i := range codes {
+		wg.Add(1)
+		go func() { defer wg.Done(); <-start; codes[i], bodies[i] = e.staffCreate(10) }()
+	}
+	close(start)
+	wg.Wait()
+	ok := 0
+	for i, c := range codes {
+		if c == 201 {
+			ok++
+		} else if c != 403 || bodies[i] != "storage_full" {
+			t.Fatalf("%d %q", c, bodies[i])
+		}
+	}
+	if ok != 5 {
+		t.Fatalf("%d succeeded, want 5", ok)
+	}
+}
+
+func (e *env) staffCreate(size int64) (int, string) {
+	e.t.Helper()
+	meta := "filename " + base64.StdEncoding.EncodeToString([]byte("s.txt"))
+	r, _ := http.NewRequest("POST", e.ts.URL+"/api/uploads/", nil)
+	r.Header.Set("X-Test-User", "a")
+	r.Header.Set("Tus-Resumable", "1.0.0")
+	r.Header.Set("Upload-Length", strconv.FormatInt(size, 10))
+	r.Header.Set("Upload-Metadata", meta)
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		e.t.Error(err)
+		return 0, ""
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
 }

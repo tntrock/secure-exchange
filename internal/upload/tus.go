@@ -221,13 +221,13 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		err = cerr
 	}
 	if err == nil {
-		err = h.insertUpload(r, u)
+		err = h.insertUpload(r, u, rl.QuotaBytes)
 	}
 	if err != nil {
 		os.Remove(h.stagingPath(u.id))
 		if errors.Is(err, errStorageFull) {
 			code := "storage_full"
-			if u.uploaderID != nil || u.vendorID != nil {
+			if external {
 				code = "recipient_storage_full"
 			}
 			forbid(w, code)
@@ -285,7 +285,7 @@ func intakeCode(err error) string {
 
 // insertUpload records the upload; an external one first passes the request's
 // limits, in the same tx so concurrent uploads are counted one after another.
-func (h *handler) insertUpload(r *http.Request, u *upload) error {
+func (h *handler) insertUpload(r *http.Request, u *upload, quota int64) error {
 	ctx := r.Context()
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
@@ -297,7 +297,7 @@ func (h *handler) insertUpload(r *http.Request, u *upload) error {
 			return err
 		}
 	}
-	if err := h.checkQuota(ctx, tx, u); err != nil {
+	if err := h.checkQuota(ctx, tx, u, quota); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO uploads (id, owner_id, name, content_type, size, wrapped_dek, key_id, hash_state, request_id, uploader_id, vendor_id)
@@ -311,10 +311,9 @@ var errStorageFull = errors.New("upload: storage full")
 
 // checkQuota enforces the site quota on the owner's stored files plus
 // in-progress uploads; the owner row lock serialises concurrent creates.
-func (h *handler) checkQuota(ctx context.Context, tx pgx.Tx, u *upload) error {
-	rl, err := h.rules.Get(ctx)
-	if err != nil || rl.QuotaBytes == 0 {
-		return err
+func (h *handler) checkQuota(ctx context.Context, tx pgx.Tx, u *upload, quota int64) error {
+	if quota == 0 {
+		return nil
 	}
 	var one int
 	if err := tx.QueryRow(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, u.owner).Scan(&one); err != nil {
@@ -325,7 +324,7 @@ func (h *handler) checkQuota(ctx context.Context, tx pgx.Tx, u *upload) error {
 		+ (SELECT COALESCE(sum(size),0) FROM uploads WHERE owner_id = $1)`, u.owner).Scan(&used); err != nil {
 		return err
 	}
-	if used+u.size > rl.QuotaBytes {
+	if used+u.size > quota {
 		return errStorageFull
 	}
 	return nil

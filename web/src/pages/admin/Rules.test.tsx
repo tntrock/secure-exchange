@@ -55,3 +55,11 @@ test("422 shows the field error message", async () => {
   fireEvent.click(screen.getByRole("button", { name: i18n.t("rules.save") }));
   expect(await screen.findByText(i18n.t("rules.error.share_max_days.out_of_range"))).toBeTruthy();
 });
+
+test("422 on external_ip_allow shows the invalid-IP message", async () => {
+  mock(json(422, { error: "validation", field: "external_ip_allow", code: "invalid" }));
+  render(<Rules />);
+  await waitFor(() => expect((label("rules.share_max_days") as HTMLInputElement).value).toBe("30"));
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("rules.save") }));
+  expect(await screen.findByText(i18n.t("rules.error.external_ip_allow.invalid"))).toBeTruthy();
+});

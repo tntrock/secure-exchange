@@ -65,6 +65,17 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, errBody("invalid_credentials"))
 		return
 	}
+	if u.Role == "vendor" {
+		rl, err := s.Rules.Get(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+			return
+		}
+		if !rl.IPAllowed(s.addr(r)) {
+			writeJSON(w, http.StatusForbidden, errBody("ip_denied"))
+			return
+		}
+	}
 	token, err := s.Sessions.Create(r.Context(), u.ID, !u.TOTPEnabled, s.ip(r), UserAgent(r), s.SessionTTL)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))

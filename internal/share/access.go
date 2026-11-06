@@ -27,11 +27,12 @@ const (
 )
 
 var (
-	ErrGone         = errors.New("share: revoked or expired")
-	ErrIPDenied     = errors.New("share: source address not allowed")
-	ErrBadCode      = errors.New("share: invalid verification code")
-	ErrViewLimit    = errors.New("share: view limit reached")
-	ErrUnauthorized = errors.New("share: no valid recipient session")
+	ErrGone          = errors.New("share: revoked or expired")
+	ErrIPDenied      = errors.New("share: source address not allowed")
+	ErrBadCode       = errors.New("share: invalid verification code")
+	ErrViewLimit     = errors.New("share: view limit reached")
+	ErrUnauthorized  = errors.New("share: no valid recipient session")
+	ErrDomainBlocked = errors.New("share: recipient domain not allowed")
 )
 
 // Access is a verified recipient's view of one share.
@@ -52,6 +53,21 @@ func ipAllowed(list []netip.Prefix, ip netip.Addr) bool {
 		}
 	}
 	return false
+}
+
+// enforce applies the current admin rules to a loaded share: a download ban and forced watermark override
+// the share's own settings, and a non-empty email must be on an allowed domain.
+func (s *Service) enforce(ctx context.Context, sh *Share, email string) error {
+	r, err := s.rules.Get(ctx)
+	if err != nil {
+		return err
+	}
+	sh.AllowDownload = sh.AllowDownload && !r.ForbidDownload
+	sh.Watermark = sh.Watermark || r.ForceWatermark
+	if email != "" && !r.DomainAllowed(email) {
+		return ErrDomainBlocked
+	}
+	return nil
 }
 
 // check reports whether sh may be served now to ip. The allow list itself is never revealed.
@@ -91,6 +107,9 @@ func (s *Service) Landing(ctx context.Context, token string, ip netip.Addr) (*Sh
 	if err := s.check(sh, ip); err != nil {
 		return nil, err
 	}
+	if err := s.enforce(ctx, sh, ""); err != nil {
+		return nil, err
+	}
 	return sh, nil
 }
 
@@ -104,6 +123,11 @@ func (s *Service) RequestCode(ctx context.Context, token, email string, ip netip
 	email, ok := mail.ValidAddress(email)
 	if !ok {
 		return false, nil
+	}
+	if err := s.enforce(ctx, sh, email); errors.Is(err, ErrDomainBlocked) {
+		return false, nil // silent, like an unknown address
+	} else if err != nil {
+		return false, err
 	}
 	var rid uuid.UUID
 	err = s.pool.QueryRow(ctx, `SELECT id FROM share_recipients WHERE share_id = $1 AND lower(email) = $2 AND revoked_at IS NULL AND vendor_id IS NULL`,
@@ -162,6 +186,9 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 	email, ok := mail.ValidAddress(email)
 	if !ok {
 		return "", nil, ErrBadCode
+	}
+	if err := s.enforce(ctx, sh, email); err != nil {
+		return "", nil, err
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -284,6 +311,9 @@ func (s *Service) VendorAccess(ctx context.Context, vendorID, shareID uuid.UUID,
 	if err := s.check(sh, ip); err != nil {
 		return nil, err
 	}
+	if err := s.enforce(ctx, sh, r.Email); err != nil {
+		return nil, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -337,6 +367,9 @@ func (s *Service) Authorize(ctx context.Context, sessionToken string, ip netip.A
 		return nil, err // the session's FK cascade means the share exists
 	}
 	if err := s.check(sh, ip); err != nil {
+		return nil, err
+	}
+	if err := s.enforce(ctx, sh, r.Email); err != nil {
 		return nil, err
 	}
 	if err := s.loadFiles(ctx, sh); err != nil {

@@ -56,7 +56,7 @@ func NewServer(deps Deps) http.Handler {
 	}
 	s := &server{Deps: deps, dummyHash: dummy, accountLimit: newLimiter(rate.Every(12*time.Second), 5),
 		codeLimit: newLimiter(rate.Every(200*time.Second), 3)}
-	return securityHeaders(http.NewCrossOriginProtection().Handler(s.routes()))
+	return securityHeaders(http.NewCrossOriginProtection().Handler(s.external(s.routes())))
 }
 
 func (s *server) routes() *http.ServeMux {

@@ -47,6 +47,8 @@ func recipientErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusGone, errBody("gone"))
 	case errors.Is(err, share.ErrIPDenied):
 		writeJSON(w, http.StatusForbidden, errBody("ip_denied"))
+	case errors.Is(err, share.ErrDomainBlocked):
+		writeJSON(w, http.StatusForbidden, errBody("domain_blocked"))
 	case errors.Is(err, share.ErrBadCode):
 		writeJSON(w, http.StatusUnauthorized, errBody("invalid_code"))
 	case errors.Is(err, share.ErrViewLimit):
@@ -237,6 +239,11 @@ func (s *server) recipientFiles(ctx context.Context, a *share.Access) (map[strin
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	rl, err := s.Rules.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	forbid := rl.ForbidDownload
 	files := make([]map[string]any, len(sh.Files))
 	for i, f := range sh.Files {
 		p := previews[f.ID]
@@ -247,7 +254,7 @@ func (s *server) recipientFiles(ctx context.Context, a *share.Access) (map[strin
 			"mark_pending": s.listPlan(f.Name, f.Size, p, sh.Watermark).Pending}
 	}
 	return map[string]any{"message": sh.Message, "expires_at": ts(&sh.ExpiresAt), "allow_download": sh.AllowDownload,
-		"watermark": sh.Watermark, "files": files}, nil
+		"watermark": sh.Watermark, "download_forbidden": forbid, "files": files}, nil
 }
 
 func (s *server) listRecipientFiles(w http.ResponseWriter, r *http.Request) {

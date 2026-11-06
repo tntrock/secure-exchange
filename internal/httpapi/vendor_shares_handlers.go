@@ -14,10 +14,16 @@ func (s *server) listVendorShares(w http.ResponseWriter, r *http.Request) {
 		recipientErr(w, err)
 		return
 	}
+	rl, err := s.Rules.Get(r.Context())
+	if err != nil {
+		recipientErr(w, err)
+		return
+	}
+	forbid := rl.ForbidDownload
 	out := make([]map[string]any, len(shs))
 	for i, sh := range shs {
 		out[i] = map[string]any{"id": sh.ID, "owner_name": sh.OwnerName, "message": sh.Message, "expires_at": ts(&sh.ExpiresAt),
-			"file_count": sh.FileCount, "allow_download": sh.AllowDownload, "watermark": sh.Watermark}
+			"file_count": sh.FileCount, "allow_download": sh.AllowDownload && !forbid, "watermark": sh.Watermark || rl.ForceWatermark, "download_forbidden": forbid}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

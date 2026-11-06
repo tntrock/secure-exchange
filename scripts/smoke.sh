@@ -4,7 +4,10 @@
 # resumable (tus) upload of a 210 MiB random file with a simulated interruption,
 # download + sha256 compare, and the one-time share flow (invitation and
 # verification code fetched from the mailpit API, recipient download + sha256), then a .txt
-# preview rendered by the worker, viewed through a view-only watermarked share (download 403).
+# preview rendered by the worker, viewed through a view-only watermarked share (download 403), a
+# trace-marked PNG download traced back to its recipient (phase 4), and an upload request: uploader
+# OTP, tus upload of a clean file and EICAR, ClamAV verdicts, gating and notification mails (phase 5).
+# The clamav service downloads signatures on first start, so the scan wait allows 15 minutes.
 # Tears everything down (volumes included) and removes its temporary .env.
 #   scripts/smoke.sh        (refuses to run if a ./.env already exists)
 set -euo pipefail
@@ -82,10 +85,10 @@ echo "owner download ok, sha256 $want"
 # --- one-time share: invitation + verification code come from mailpit ---
 # mail_body <pattern>: poll mailpit (up to 60 s) for the newest mail to $RCPT whose text matches the sed
 # expression and print the captured group.
-mail_body() {
-  local mid text out
+mail_body() { # <sed expr> [recipient]
+  local mid text out to=${2:-$RCPT}
   for _ in $(seq 60); do
-    mid=$(curl -fsS "$MAILPIT/api/v1/search?query=to:$RCPT" | grep -o '"ID":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+    mid=$(curl -fsS "$MAILPIT/api/v1/search?query=to:$to" | grep -o '"ID":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
     if [ -n "$mid" ]; then
       text=$(curl -fsS "$MAILPIT/api/v1/message/$mid")
       out=$(printf '%s' "$text" | sed -n "$1" | head -1)
@@ -93,7 +96,7 @@ mail_body() {
     fi
     sleep 1
   done
-  echo "no matching mail to $RCPT" >&2
+  echo "no matching mail to $to" >&2
   return 1
 }
 
@@ -152,3 +155,81 @@ psize=$(stat -c %s "$tmp/page0.jpg")
 dl=$(curl -sk -b "$tmp/rjar" -H "Origin: $BASE" -o /dev/null -w '%{http_code}' "$BASE/api/s/$vtok/files/$tid/content")
 [ "$dl" = 403 ] || { echo "view-only download: expected 403, got $dl"; exit 1; }
 echo "PASS: watermarked page 0 ($psize bytes image/jpeg), view-only download 403"
+
+# tus_put <cookie-fn> <base-url> <name> <length> < body: single-PATCH upload, prints the file id
+tus_put() {
+  local loc
+  loc=$("$1" -D - -o /dev/null -X POST -H 'Tus-Resumable: 1.0.0' -H "Upload-Length: $4" \
+    -H "Upload-Metadata: filename $(printf '%s' "$3" | base64 -w0)" "$2" | tr -d '\r' | awk 'tolower($1)=="location:"{print $2}')
+  case "$loc" in http*) ;; *) loc=$BASE$loc ;; esac
+  "$1" -D - -o /dev/null -X PATCH -H 'Tus-Resumable: 1.0.0' -H 'Content-Type: application/offset+octet-stream' \
+    -H 'Upload-Offset: 0' --data-binary @- "$loc" | tr -d '\r' | awk 'tolower($1)=="x-sx-file-id:"{print $2}'
+}
+
+# --- phase 4: trace-marked download, traced back to the recipient by the leaked copy ---
+echo 'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAEM0lEQVR4nOzTUQkAMAxDwQwqfNLHPqshFx5xcJPck0idzT+z1gEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAsAI+9OhgAAABAIOZv3SOMG8UIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgABxAS4AAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhCAAAQgAAEIQAACEIAABCAAAQhAAAIQgAAEIAABCEAAAhAgLsAFmEY4A8QADACy7AZ/bGdxWgAAAABJRU5ErkJggg==' | base64 -d >"$tmp/pic.png"
+pid=$(tus_put c "$BASE/api/uploads/" pic.png "$(stat -c %s "$tmp/pic.png")" <"$tmp/pic.png")
+[ -n "$pid" ] || { echo "no file id for pic.png"; exit 1; }
+curl -fsS -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
+printf '{"file_ids":["%s"],"emails":["%s"],"allow_download":true,"watermark":false,"expires_at":"%s","message":"smoke trace"}' "$pid" "$RCPT" "$exp" |
+  c -H 'Content-Type: application/json' --data-binary @- "$BASE/api/shares" >/dev/null
+ptok=$(mail_body 's#.*/s/\([A-Za-z0-9_-]*\).*#\1#p')
+curl -fsS -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
+printf '{"email":"%s"}' "$RCPT" | r -H 'Content-Type: application/json' --data-binary @- "$BASE/api/s/$ptok/code" >/dev/null
+code=$(mail_body 's/.*驗證碼是：\([0-9]\{6\}\).*/\1/p')
+printf '{"email":"%s","code":"%s"}' "$RCPT" "$code" |
+  r -H 'Content-Type: application/json' --data-binary @- "$BASE/api/s/$ptok/verify" >/dev/null
+r -o "$tmp/leak.png" "$BASE/api/s/$ptok/files/$pid/content"
+cmp -s "$tmp/pic.png" "$tmp/leak.png" && { echo "recipient copy is not marked"; exit 1; }
+hits=$(c -F "file=@$tmp/leak.png" "$BASE/api/admin/trace")
+case "$hits" in *"\"recipient_email\":\"$RCPT\""*) ;; *) echo "trace: recipient not found: $hits"; exit 1 ;; esac
+echo "PASS: marked PNG download traced back to $RCPT ($(printf '%s' "$hits" | grep -o '"via":"[a-z_]*"' | sort -u | tr '\n' ' '))"
+
+# --- phase 5: upload request, uploader OTP, ClamAV scan of a clean file and EICAR ---
+UPL=uploader@example.net
+u() { curl -fsSk -b "$tmp/ujar" -c "$tmp/ujar" -H "Origin: $BASE" "$@"; }
+curl -fsS -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
+printf '{"emails":["%s"],"expires_at":"%s","max_files":5,"max_total_bytes":10485760,"allowed_exts":[],"message":"smoke intake"}' "$UPL" "$exp" |
+  c -H 'Content-Type: application/json' --data-binary @- "$BASE/api/requests" >/dev/null
+utok=$(mail_body 's#.*/r/\([A-Za-z0-9_-]*\).*#\1#p' "$UPL")
+curl -fsS -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
+printf '{"email":"%s"}' "$UPL" | u -H 'Content-Type: application/json' --data-binary @- "$BASE/api/r/$utok/code" >/dev/null
+code=$(mail_body 's/.*驗證碼是：\([0-9]\{6\}\).*/\1/p' "$UPL")
+printf '{"email":"%s","code":"%s"}' "$UPL" "$code" |
+  u -H 'Content-Type: application/json' --data-binary @- "$BASE/api/r/$utok/verify" >/dev/null
+echo "uploader verified"
+
+printf 'quarterly numbers, nothing to see here\n' >"$tmp/clean.txt"
+# EICAR is piped, never written: host antivirus (e.g. Windows Defender) quarantines it on disk
+eicar() { printf '%s' 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'; }
+cid=$(tus_put u "$BASE/api/r/$utok/uploads/" clean.txt "$(stat -c %s "$tmp/clean.txt")" <"$tmp/clean.txt")
+eid=$(eicar | tus_put u "$BASE/api/r/$utok/uploads/" eicar.txt "$(eicar | wc -c)")
+[ -n "$cid" ] && [ -n "$eid" ] || { echo "uploader upload failed: '$cid' '$eid'"; exit 1; }
+listed=$(u "$BASE/api/r/$utok/files")
+case "$listed" in *clean.txt*eicar.txt*|*eicar.txt*clean.txt*) ;; *) echo "uploader list: $listed"; exit 1 ;; esac
+held=$(curl -sk -b "$tmp/jar" -H "Origin: $BASE" -o /dev/null -w '%{http_code}' "$BASE/api/files/$cid/content")
+echo "uploaded; owner download before scan -> $held"
+
+scan_of() { c "$BASE/api/files" | grep -o "\"id\":\"$1\"[^}]*" | sed -n 's/.*"scan_status":"\([a-z]*\)".*/\1/p'; }
+for _ in $(seq 180); do
+  cs=$(scan_of "$cid"); es=$(scan_of "$eid")
+  case "$cs$es" in *pending*|"") sleep 5 ;; *) break ;; esac
+done
+[ "$cs" = clean ] && [ "$es" = infected ] || { echo "scan: clean.txt='$cs' eicar.txt='$es'"; dc logs worker clamav | tail -60; exit 1; }
+echo "scan verdicts: clean.txt clean, eicar.txt infected"
+
+c -o "$tmp/clean.out" "$BASE/api/files/$cid/content"
+cmp -s "$tmp/clean.txt" "$tmp/clean.out" || { echo "clean file round-trip mismatch"; exit 1; }
+q=$(curl -sk -b "$tmp/jar" -H "Origin: $BASE" -o /dev/null -w '%{http_code}' "$BASE/api/files/$eid/content")
+[ "$q" = 403 ] || { echo "infected download: expected 403, got $q"; exit 1; }
+mail_has() { # <mailpit search query>: wait up to 60 s for a match
+  for _ in $(seq 60); do
+    curl -fsS -G --data-urlencode "query=$1" "$MAILPIT/api/v1/search" | grep -q '"total":[1-9]' && return 0
+    sleep 1
+  done
+  echo "no mail matching: $1" >&2
+  return 1
+}
+mail_has "to:$ADMIN 偵測到病毒"
+mail_has "to:$ADMIN 已上傳檔案"
+echo "PASS: upload request -> clean file released, EICAR quarantined (403), owner notified"

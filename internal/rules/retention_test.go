@@ -186,3 +186,20 @@ func TestSweepRetentionRaceWithNewShare(t *testing.T) {
 		t.Fatal("file with a new active share was deleted")
 	}
 }
+
+// a share that expired long ago and was revoked later still ended at its expiry
+func TestSweepRetentionRevokedAfterExpiry(t *testing.T) {
+	f, s, log := retSetup(t)
+	id, recent := f.file(nil, false), f.file(nil, false)
+	sid := uuid.New()
+	f.exec(`INSERT INTO shares (id,owner_id,token_hash,token_sealed,allow_download,watermark,expires_at,revoked_at)
+		VALUES ($1,$2,$3,'\x01',true,true,now()-interval '30 days',now()-interval '2 days')`, sid, f.owner, sid[:])
+	f.exec(`INSERT INTO share_files (share_id,file_id) VALUES ($1,$2)`, sid, id)
+	f.share(true, "-2 days", recent) // revoked 2 days ago while still live: stays
+	if n, err := s.SweepRetention(context.Background(), f.store, log); err != nil || n != 1 {
+		t.Fatalf("sweep: %d %v", n, err)
+	}
+	if !f.gone(id) || f.gone(recent) {
+		t.Fatal("wrong files deleted")
+	}
+}

@@ -74,9 +74,9 @@ func (s *Service) SweepRetention(ctx context.Context, store blob.Store, log *aud
 // and every share and the request ended more than $1 days ago.
 const eligible = `(f.request_id IS NOT NULL OR EXISTS (SELECT 1 FROM share_files WHERE file_id = f.id))
 	  AND NOT EXISTS (SELECT 1 FROM share_files sf JOIN shares sh ON sh.id = sf.share_id
-	        WHERE sf.file_id = f.id AND coalesce(sh.revoked_at, sh.expires_at) >= now() - make_interval(days => $1))
+	        WHERE sf.file_id = f.id AND least(coalesce(sh.revoked_at, sh.expires_at), sh.expires_at) >= now() - make_interval(days => $1))
 	  AND (f.request_id IS NULL OR EXISTS (SELECT 1 FROM upload_requests q WHERE q.id = f.request_id
-	        AND coalesce(q.revoked_at, q.expires_at) < now() - make_interval(days => $1)))`
+	        AND least(coalesce(q.revoked_at, q.expires_at), q.expires_at) < now() - make_interval(days => $1)))`
 
 // afterCandidates lets tests act between candidate selection and the claim.
 var afterCandidates = func() {}

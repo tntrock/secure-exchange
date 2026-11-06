@@ -69,9 +69,9 @@ func UploadInvitation(url, senderName, message string, expires time.Time) (strin
 			sep +
 			fmt.Sprintf("%s has asked you to upload files securely.%s\nOpen the link and enter the verification code sent to this address:\n%s\n\nThis link expires at %s.", senderName, enNote, url, ex)
 }
+
 // NotifyIntakeUpload tells the recipient of an upload (request owner or vendor-upload target) a file arrived;
 // skipped means it was too large to virus-scan.
-// NotifyIntakeUpload tells the requester a file arrived; skipped means it was too large to virus-scan.
 func NotifyIntakeUpload(uploader, fileName, requestURL string, skipped bool) (string, string) {
 	zhNote, enNote := "", ""
 	if skipped {

@@ -28,6 +28,12 @@ function UploadItem({ file, endpoint, metadata, onDone, onError }: { file: File;
       onShouldRetry: shouldRetry,
       metadata: { filename: file.name, filetype: file.type, ...metadata },
       storeFingerprintForResuming: true,
+      // The default fingerprint ignores metadata; with extra metadata (the vendor upload recipient) a resume
+      // must only pick up an upload started with the same metadata, or the file lands at the wrong person.
+      ...(metadata && {
+        fingerprint: (f: File, o: { endpoint?: string | null }) =>
+          Promise.resolve(["tus-br", f.name, f.type, f.size, f.lastModified, o.endpoint, JSON.stringify(metadata)].join("-")),
+      }),
       onProgress: (sent, total) => setPct(total ? Math.floor((sent / total) * 100) : 0),
       onSuccess: () => {
         setPct(100);

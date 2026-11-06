@@ -171,3 +171,27 @@ test("merges the metadata prop into the tus metadata", async () => {
   await waitFor(() => expect(ctor).toHaveBeenCalled());
   expect(ctor.mock.calls[0][1].metadata).toEqual({ filename: "a.txt", filetype: "text/plain", recipient: "r1" });
 });
+
+test("the resume fingerprint includes the extra metadata, so another recipient never resumes the upload", async () => {
+  const file = new File(["x"], "big.zip", { type: "application/zip", lastModified: 1 });
+  const fp = async (recipient: string) => {
+    const { container, unmount } = render(<Uploader onDone={() => {}} endpoint="/api/vendor/uploads/" metadata={{ recipient }} />);
+    fireEvent.change(container.querySelector("input[type=file]")!, { target: { files: [file] } });
+    await waitFor(() => expect(ctor).toHaveBeenCalled());
+    const opts = ctor.mock.calls.at(-1)![1];
+    unmount();
+    ctor.mockClear();
+    return opts.fingerprint?.(file, opts);
+  };
+  const alice = await fp("alice"), bob = await fp("bob");
+  expect(alice).toBeTruthy();
+  expect(alice).not.toBe(bob);
+  expect(alice).toBe(await fp("alice"));
+});
+
+test("without metadata the default fingerprint is kept", async () => {
+  const { container } = render(<Uploader onDone={() => {}} />);
+  pick(container, "a.txt");
+  await waitFor(() => expect(ctor).toHaveBeenCalled());
+  expect(ctor.mock.calls[0][1].fingerprint).toBeUndefined();
+});

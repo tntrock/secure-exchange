@@ -18,7 +18,7 @@ import (
 const (
 	maxDomains = 200
 	maxExts    = 200
-	maxIPs     = 100
+	maxIPs     = 100 // also MaxIPs
 )
 
 type Rules struct {
@@ -273,3 +273,6 @@ func canonPrefix(p netip.Prefix) netip.Prefix {
 
 // GetTx reads the stored rules inside tx (e.g. the normalised result of an Update not yet committed).
 func (s *Service) GetTx(ctx context.Context, tx pgx.Tx) (Rules, error) { return scan(ctx, tx, "") }
+
+// MaxIPs is the list limit for the external IP allow list.
+const MaxIPs = maxIPs

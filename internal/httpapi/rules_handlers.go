@@ -20,11 +20,26 @@ func (s *server) getRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) putRules(w http.ResponseWriter, r *http.Request) {
-	var in rules.Rules
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+	// external_ip_allow arrives as strings so a bare IP is accepted; the shallower field shadows the embedded one
+	var req struct {
+		rules.Rules
+		ExternalIPAllow []string `json:"external_ip_allow"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errBody("bad_request"))
 		return
 	}
+	in := req.Rules
+	ips, err := rules.ParsePrefixes(req.ExternalIPAllow, rules.MaxIPs)
+	if err != nil {
+		code := "invalid"
+		if errors.Is(err, rules.ErrTooMany) {
+			code = "too_many"
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "validation", "field": "external_ip_allow", "code": code})
+		return
+	}
+	in.ExternalIPAllow = ips
 	u := auth.UserFrom(r.Context())
 	ctx := r.Context()
 	tx, err := s.Pool.Begin(ctx)

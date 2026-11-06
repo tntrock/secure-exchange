@@ -46,6 +46,23 @@ func TestRulesInvalid(t *testing.T) {
 	}
 }
 
+func TestRulesExternalIPBare(t *testing.T) {
+	e := newEnv(t)
+	e.adminLogin(t)
+	code, out := e.putRules(t, func(m map[string]any) { m["external_ip_allow"] = []string{"203.0.113.5"} })
+	if code != 200 {
+		t.Fatal(code, out)
+	}
+	_, b := e.do(t, "GET", "/api/rules", nil)
+	if !strings.Contains(string(b), `"external_ip_allow":["203.0.113.5/32"]`) {
+		t.Fatal(string(b))
+	}
+	code, out = e.putRules(t, func(m map[string]any) { m["external_ip_allow"] = []string{"nope"} })
+	if code != 422 || out["field"] != "external_ip_allow" || out["code"] != "invalid" {
+		t.Fatal(code, out)
+	}
+}
+
 func TestRulesTighteningDigest(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

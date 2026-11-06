@@ -51,7 +51,7 @@ services:
   # Virus scanner for external uploads. Needs the internet for signature updates (freshclam),
   # so it sits on its own egress network, never on sx (whose subnet is a trusted proxy range).
   clamav:
-    image: clamav/clamav:1.4
+    image: clamav/clamav:1.5
     restart: unless-stopped
     volumes:
       - clamdb:/var/lib/clamav

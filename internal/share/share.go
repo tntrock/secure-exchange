@@ -158,7 +158,23 @@ func (s *Service) addRecipients(ctx context.Context, tx pgx.Tx, shareID uuid.UUI
 		if err != nil {
 			return nil, err
 		}
-		if tag.RowsAffected() == 0 {
+		if tag.RowsAffected() == 0 && r.VendorID != nil {
+			// the vendor's address is already a live email recipient: that row becomes the vendor's,
+			// keeping its id and history; its email sessions end, as codes no longer reach it.
+			// A revoked row stays revoked, as for a re-added email.
+			err := tx.QueryRow(ctx, `UPDATE share_recipients SET vendor_id = $3
+				WHERE share_id = $1 AND lower(email) = lower($2) AND vendor_id IS NULL AND revoked_at IS NULL RETURNING id`,
+				shareID, r.Email, r.VendorID).Scan(&r.ID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM share_sessions WHERE recipient_id = $1`, r.ID); err != nil {
+				return nil, err
+			}
+		} else if tag.RowsAffected() == 0 {
 			continue
 		}
 		added = append(added, r)
@@ -488,15 +504,15 @@ func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID u
 	if err != nil {
 		return nil, err
 	}
-	var total int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM share_recipients WHERE share_id = $1`, shareID).Scan(&total); err != nil {
-		return nil, err
-	}
 	added, err := s.addRecipients(ctx, tx, shareID, emails, vendors, s.baseURL+"/s/"+string(tok), senderName(owner), message, expires)
 	if err != nil {
 		return nil, err
 	}
-	if total+len(added) > maxRecipients {
+	var total int // counted after adding: a converted row is not a new one
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM share_recipients WHERE share_id = $1`, shareID).Scan(&total); err != nil {
+		return nil, err
+	}
+	if total > maxRecipients {
 		return nil, invalid("emails", "too_many")
 	}
 	return added, tx.Commit(ctx)

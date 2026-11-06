@@ -259,3 +259,52 @@ func TestVendorSharesList(t *testing.T) {
 		t.Fatalf("%+v %v", got, err)
 	}
 }
+
+// A vendor added to a share where its address is already an email recipient takes that row over.
+func TestAddVendorConvertsEmailRow(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	v := e.vendor(t, "v@x.com")
+	sh, tok := e.newShare(t, nil, "V@x.com", "bob@x.com")
+	var rid uuid.UUID
+	e.pool.QueryRow(ctx, `SELECT id FROM share_recipients WHERE share_id = $1 AND email = 'v@x.com'`, sh.ID).Scan(&rid)
+	st, _, err := e.svc.VerifyCode(ctx, tok, "v@x.com", e.code(t, tok, "v@x.com"), ip1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	added, err := e.svc.AddRecipients(ctx, e.owner, sh.ID, nil, []uuid.UUID{v})
+	if err != nil || len(added) != 1 || added[0].ID != rid || added[0].VendorID == nil || *added[0].VendorID != v {
+		t.Fatal(added, err)
+	}
+	if n := count(t, e, `SELECT count(*) FROM share_recipients WHERE share_id = $1 AND lower(email) = 'v@x.com' AND vendor_id = $2 AND first_opened_at IS NOT NULL`, sh.ID, v); n != 1 {
+		t.Fatalf("rows: %d", n)
+	}
+	if mailsTo(t, e, "v@x.com", "securely shared") != 2 { // the original invitation, then VendorShared
+		t.Fatal("no vendor mail")
+	}
+	if _, err := e.svc.VendorAccess(ctx, v, sh.ID, []byte("s"), ip1); err != nil {
+		t.Fatal(err)
+	}
+	if sent, err := e.svc.RequestCode(ctx, tok, "v@x.com", ip1); err != nil || sent {
+		t.Fatal(sent, err)
+	}
+	if _, err := e.svc.Authorize(ctx, st, ip1); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("email session survived", err)
+	}
+	if n := count(t, e, `SELECT count(*) FROM share_sessions`); n != 0 {
+		t.Fatalf("sessions: %d", n)
+	}
+
+	// a revoked email row stays revoked, as a re-added revoked email does
+	w := e.vendor(t, "w@x.com")
+	sh2, _ := e.newShare(t, nil, "w@x.com")
+	if err := e.svc.RevokeRecipient(ctx, e.owner.ID, sh2.ID, sh2.Recipients[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if added, err := e.svc.AddRecipients(ctx, e.owner, sh2.ID, nil, []uuid.UUID{w}); err != nil || len(added) != 0 {
+		t.Fatal(added, err)
+	}
+	if _, err := e.svc.VendorAccess(ctx, w, sh2.ID, []byte("s"), ip1); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+}

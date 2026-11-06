@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/rules"
 )
 
 const (
@@ -62,6 +63,20 @@ func (s *Service) enforce(ctx context.Context, sh *Share, email string) error {
 	if err != nil {
 		return err
 	}
+	return applyRules(r, sh, email)
+}
+
+// enforceTx is enforce for callers holding a tx: reading through it avoids taking a second pool connection,
+// which under concurrency can starve the pool while every tx waits for one.
+func (s *Service) enforceTx(ctx context.Context, tx pgx.Tx, sh *Share, email string) error {
+	r, err := s.rules.GetTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	return applyRules(r, sh, email)
+}
+
+func applyRules(r rules.Rules, sh *Share, email string) error {
 	sh.AllowDownload = sh.AllowDownload && !r.ForbidDownload
 	sh.Watermark = sh.Watermark || r.ForceWatermark
 	if email != "" && !r.DomainAllowed(email) {
@@ -216,7 +231,7 @@ func (s *Service) VerifyCode(ctx context.Context, token, email, code string, ip 
 		return "", nil, ErrBadCode
 	}
 	// only after a valid code, so the domain policy is not disclosed to someone without one
-	if err := s.enforce(ctx, sh, email); err != nil {
+	if err := s.enforceTx(ctx, tx, sh, email); err != nil {
 		return "", nil, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE share_otps SET used_at = now() WHERE id = $1`, otpID); err != nil {

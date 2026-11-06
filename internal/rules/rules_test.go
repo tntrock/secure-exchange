@@ -168,3 +168,26 @@ func TestSeedRejectsOutOfRange(t *testing.T) {
 		}
 	}
 }
+
+func TestForceTOTPRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	s := New(pool, 1<<30)
+	if err := s.Seed(ctx, 30); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := s.Get(ctx)
+	r.ForceTOTP = true
+	tx, _ := pool.Begin(ctx)
+	defer tx.Rollback(ctx)
+	before, err := s.Update(ctx, tx, r)
+	if err != nil || before.ForceTOTP {
+		t.Fatalf("%+v %v", before, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Get(ctx); !got.ForceTOTP {
+		t.Fatal("not stored")
+	}
+}

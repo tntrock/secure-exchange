@@ -454,6 +454,30 @@ func TestInviteInfoKeepsPendingSecret(t *testing.T) {
 	}
 }
 
+func TestReinviteDropsPendingSecret(t *testing.T) {
+	e := setup(t, "staff")
+	ctx := context.Background()
+	v := e.create(e.staff, "v@v.com")
+	_, old, err := e.svc.InviteInfo(ctx, e.token("v@v.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.Reinvite(ctx, e.staff, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	tok := e.token("v@v.com")
+	_, fresh, err := e.svc.InviteInfo(ctx, tok)
+	if err != nil || fresh == old {
+		t.Fatalf("secret from the old link survived reinvite (%v)", err)
+	}
+	if _, err := e.svc.Activate(ctx, tok, goodPW, codeAt(t, old, time.Now())); err == nil {
+		t.Fatal("code from the old secret accepted")
+	}
+	if _, err := e.svc.Activate(ctx, tok, goodPW, codeAt(t, fresh, time.Now())); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestActivateRejectsSecretSwappedAfterCheck(t *testing.T) {
 	e := setup(t, "staff")
 	ctx := context.Background()

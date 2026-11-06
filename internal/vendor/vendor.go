@@ -340,7 +340,8 @@ func (s *Service) SetExpiry(ctx context.Context, by *auth.User, id uuid.UUID, at
 	return err
 }
 
-// Reinvite mails a fresh invitation to a vendor still in status invited; older links stop working.
+// Reinvite mails a fresh invitation to a vendor still in status invited; older links stop working, and the
+// pending TOTP secret is dropped so whoever scanned it from an older link cannot use it after activation.
 func (s *Service) Reinvite(ctx context.Context, by *auth.User, id uuid.UUID) error {
 	v, err := s.manageable(ctx, by, id)
 	if err != nil {
@@ -354,6 +355,9 @@ func (s *Service) Reinvite(ctx context.Context, by *auth.User, id uuid.UUID) err
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE users SET totp_secret_sealed = NULL WHERE id = $1 AND NOT totp_enabled`, id); err != nil {
+		return err
+	}
 	if err := s.invite(ctx, tx, id, v.Email, v.CreatedByName); err != nil {
 		return err
 	}

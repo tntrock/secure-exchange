@@ -86,19 +86,23 @@ func scanVendor(row pgx.Row) (*Vendor, error) {
 	if err != nil {
 		return nil, err
 	}
+	v.Status = StatusOf(approval, disabled, v.ExpiresAt, enrolled)
+	return v, nil
+}
+
+// StatusOf derives a vendor status (pending | rejected | disabled | expired | invited | active).
+func StatusOf(approval string, disabled bool, expires time.Time, enrolled bool) string {
 	switch {
 	case approval != "approved":
-		v.Status = approval
+		return approval
 	case disabled:
-		v.Status = "disabled"
-	case !time.Now().Before(v.ExpiresAt):
-		v.Status = "expired"
+		return "disabled"
+	case !time.Now().Before(expires):
+		return "expired"
 	case !enrolled:
-		v.Status = "invited"
-	default:
-		v.Status = "active"
+		return "invited"
 	}
-	return v, nil
+	return "active"
 }
 
 func (s *Service) get(ctx context.Context, id uuid.UUID) (*Vendor, error) {

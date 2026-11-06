@@ -127,3 +127,12 @@ func RulesTightened(lines []string) (string, string) {
 			sep +
 			"An administrator tightened the site rules. These shares are affected:\n" + list
 }
+
+// StaffInvitation invites a new staff member or admin to set a password (activation link, valid until expires).
+func StaffInvitation(url, inviterName string, expires time.Time) (string, string) {
+	ex := expires.UTC().Format("2006-01-02 15:04 UTC")
+	return subject("您受邀使用 secure-exchange 帳號", "You are invited to a secure-exchange account"),
+		fmt.Sprintf("%s 為您建立了 secure-exchange 員工帳號。請開啟連結設定密碼：\n%s\n\n此連結將於 %s 到期，且只能使用一次。", inviterName, url, ex) +
+			sep +
+			fmt.Sprintf("%s has created a secure-exchange staff account for you. Open the link to set your password:\n%s\n\nThis link expires at %s and can be used once.", inviterName, url, ex)
+}

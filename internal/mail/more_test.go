@@ -29,12 +29,15 @@ func TestTemplates(t *testing.T) {
 		{name: "otp", subjHas: []string{"verification code"}, want: []string{"您的驗證碼是：123456", "Your verification code is: 123456"}},
 		{name: "first open", subjHas: []string{"opened your share"}, want: []string{"bob@x.com 已首次開啟", "bob@x.com opened", "https://sx/s/tok"}},
 		{name: "download", subjHas: []string{"downloaded a file"}, want: []string{"「a.pdf」", `"a.pdf"`, "bob@x.com"}},
+		{name: "staff invitation", subjHas: []string{"invited to a secure-exchange account"},
+			want: []string{"Alice", "https://sx/activate/tok", "設定密碼", "set your password", "2026-01-01 19:04 UTC", sep}},
 	}
 	cases[0].subj, cases[0].body = Invitation("https://sx/s/tok", "Alice", "hello", exp)
 	cases[1].subj, cases[1].body = Invitation("https://sx/s/tok", "Alice", "", exp)
 	cases[2].subj, cases[2].body = OTPCode("123456")
 	cases[3].subj, cases[3].body = NotifyFirstOpen("bob@x.com", "https://sx/s/tok")
 	cases[4].subj, cases[4].body = NotifyDownload("bob@x.com", "a.pdf", "https://sx/s/tok")
+	cases[5].subj, cases[5].body = StaffInvitation("https://sx/activate/tok", "Alice", exp)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if strings.ContainsAny(c.subj, "\r\n") || !strings.HasPrefix(c.subj, "[secure-exchange] ") {

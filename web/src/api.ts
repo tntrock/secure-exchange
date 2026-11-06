@@ -56,6 +56,7 @@ export interface Rules {
   force_watermark: boolean; forbid_download: boolean; share_max_days: number; share_default_days: number; retention_days: number;
   max_file_bytes: number; max_share_bytes: number; upload_max_bytes: number; quota_bytes: number;
   domain_block: string[]; domain_allow: string[]; upload_exts: string[]; external_ip_allow: string[];
+  force_totp: boolean;
 }
 
 export interface TraceHit {
@@ -63,6 +64,13 @@ export interface TraceHit {
   owner_email: string; recipient_email: string; ip: string; at: string; method: string;
 }
 export interface TraceResult { hits: TraceHit[]; analyzed: boolean; sha256?: string }
+
+export type UserRole = "staff" | "admin" | "vendor";
+export interface UserInfo {
+  id: string; email: string; display_name: string; role: UserRole; auth_source: string; status: string;
+  totp_enabled: boolean; last_login_at: string | null; created_at: string;
+}
+export type UserAction = "disable" | "enable" | "reset-totp" | "reinvite";
 
 export class ApiError extends Error {
   status: number;
@@ -95,7 +103,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 
 export const api = {
   me: () => call<Me>("GET", "/api/me"),
-  login: (email: string, password: string) => call<{ mfa_required: boolean }>("POST", "/api/auth/login", { email, password }),
+  login: (email: string, password: string) => call<{ mfa_required: boolean; totp_setup_required?: boolean }>("POST", "/api/auth/login", { email, password }),
   totp: (code: string) => call<void>("POST", "/api/auth/totp", { code }),
   logout: () => call<void>("POST", "/api/auth/logout"),
   totpSetup: () => call<{ otpauth_url: string }>("POST", "/api/me/totp/setup"),
@@ -146,6 +154,14 @@ export const api = {
   inviteInfo: (tk: string) => call<{ email: string; otpauth_url: string }>("GET", `/api/invite/${encodeURIComponent(tk)}`),
   inviteActivate: (tk: string, password: string, code: string) => call<void>("POST", `/api/invite/${encodeURIComponent(tk)}`, { password, code }),
   recipientLogout: (tk: string) => call<void>("POST", `/api/s/${encodeURIComponent(tk)}/logout`),
+  adminUsers: () => call<UserInfo[]>("GET", "/api/admin/users"),
+  adminCreateUser: (email: string, display_name: string, role: string) => call<UserInfo>("POST", "/api/admin/users", { email, display_name, role }),
+  adminUserAction: (id: string, a: UserAction) => call<void>("POST", `/api/admin/users/${id}/${a}`),
+  adminSetRole: (id: string, role: string) => call<void>("PATCH", `/api/admin/users/${id}`, { role }),
+  activateInfo: (tk: string) => call<{ email: string; totp_required: boolean; otpauth_url: string }>("GET", `/api/activate/${encodeURIComponent(tk)}`),
+  activate: (tk: string, password: string, code: string) => call<void>("POST", `/api/activate/${encodeURIComponent(tk)}`, { password, code }),
+  totpSetupPending: () => call<{ otpauth_url: string }>("POST", "/api/auth/totp/setup"),
+  totpEnroll: (code: string) => call<{ mfa_required: boolean }>("POST", "/api/auth/totp/enroll", { code }),
 };
 
 export const fmtSize = (n: number, lng: string) => {

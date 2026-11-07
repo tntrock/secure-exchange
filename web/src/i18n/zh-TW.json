@@ -22,7 +22,8 @@
   },
   "recipient": {"blockedByAdmin":"此檔案目前無法存取（管理員已禁止下載）","title":"取得分享的檔案","from":"{{name}} 與您分享了檔案","expires":"有效期限：{{at}}","email":"您的 Email","sendCode":"寄送驗證碼","code":"6 位數驗證碼","verify":"驗證","resend":"重新寄送驗證碼","changeEmail":"使用其他 Email","codeSent":"若您在名單中，將收到驗證碼","filesTitle":"分享的檔案","fileUnavailable":"無法使用","leave":"離開","error":{"domain_blocked":"您的 Email 網域不允許存取此分享","notFound":"找不到此分享","gone":"此分享已過期或已被撤銷","ipDenied":"您目前的網路位置不允許存取此分享","rateLimited":"嘗試次數過多，請稍後再試","invalidCode":"驗證碼錯誤或已失效","viewLimit":"此分享的檢視次數已達上限","sessionEnded":"登入已結束，請重新驗證","generic":"發生錯誤，請稍後再試"}},
   "viewer": { "reLogin": "登入已失效，請重新登入", "view_limit": "此分享已達檢視次數上限", "ip_denied": "不允許從您目前的網路位置存取", "open": "檢視", "close": "關閉", "prev": "上一頁", "next": "下一頁", "zoomIn": "放大", "zoomOut": "縮小", "page": "第 {{n}} 頁", "pending": "預覽處理中，請稍後再試", "notReady": "此檔案無法預覽", "gone": "分享已失效", "ended": "連線已結束，請重新驗證", "error": "無法載入預覽", "title": "檔案檢視器" },
-  "nav": { "rules": "規則", "files": "我的檔案", "shares": "我的分享", "trace": "溯源查詢", "requests": "上傳請求", "vendors": "廠商", "sharedWithMe": "與我分享", "vendorUpload": "上傳" },
+  "nav": { "rules": "規則", "files": "我的檔案", "shares": "我的分享", "trace": "溯源查詢", "requests": "上傳請求", "vendors": "廠商", "users": "使用者", "allShares": "所有分享", "sharedWithMe": "與我分享", "vendorUpload": "上傳" },
+  "allShares": { "title": "所有分享", "tabShares": "分享", "tabRequests": "上傳請求", "search": "以擁有者 Email 搜尋", "searchBtn": "搜尋", "owner": "擁有者", "more": "更多", "empty": "沒有符合的項目", "back": "返回所有分享", "adminNote": "管理員檢視：僅能線上檢視，一律加浮水印，不提供下載" },
   "vendorPortal": {
     "title": "與我分享", "empty": "目前沒有人與您分享檔案", "owner": "分享者", "message": "附言", "expires": "有效期限", "files": "檔案數",
     "open": "開啟", "back": "返回與我分享", "uploadTitle": "上傳檔案", "recipient": "收件人", "choose": "選擇收件人…",
@@ -33,7 +34,8 @@
     "title": "啟用您的帳號", "account": "帳號：{{email}}", "confirm": "確認密碼", "submit": "啟用帳號",
     "gone": "此邀請已失效", "success": "您的帳號已啟用。請等驗證器 App 顯示新的驗證碼後再以新驗證碼登入（剛才使用的驗證碼無法重複使用）。",
     "tooShort": "密碼至少需要 12 個字元", "mismatch": "兩次輸入的密碼不一致", "invalidCode": "驗證碼錯誤或已過期",
-    "badPassword": "此密碼無法使用，請改用較短的密碼"
+    "badPassword": "此密碼無法使用，請改用較短的密碼",
+    "successNoTotp": "您的帳號已啟用，現在可以登入。"
   },
   "requests": {
     "title": "上傳請求", "new": "新增請求", "emails": "上傳者（一行一個，或以逗號分隔）",
@@ -104,6 +106,15 @@
       "message": { "too_many": "附言過長（上限 2000 字）" }
     }
   },
+  "users": {
+    "title": "使用者", "new": "新增員工帳號", "email": "電子郵件", "name": "顯示名稱", "role": "角色", "source": "來源", "statusLabel": "狀態", "totp": "TOTP", "lastLogin": "上次登入",
+    "create": "建立並邀請", "listTitle": "所有帳號", "disable": "停用", "enable": "啟用", "resetTotp": "重設 TOTP", "reinvite": "重新邀請",
+    "confirmReset": "確定重設 {{email}} 的雙因素驗證？", "confirmDisable": "確定停用 {{email}}？其登入工作階段會立即結束。", "confirmDemote": "確定將 {{email}} 由管理員降為員工？", "yes": "是", "no": "否", "never": "從未",
+    "roles": { "staff": "員工", "admin": "管理員", "vendor": "廠商" },
+    "sources": { "local": "本機" },
+    "status": { "invited": "已邀請", "active": "有效", "disabled": "已停用", "pending": "待核准", "rejected": "已拒絕", "expired": "已過期" },
+    "error": { "generic": "發生錯誤，請檢查表單", "lastAdmin": "不能停用或降級最後一位本機管理員", "external": "外部登入來源帳號的角色與雙因素驗證由外部來源決定，不能在這裡修改", "emailTaken": "此電子郵件已被使用", "wrongState": "帳號目前的狀態不允許此操作" }
+  },
   "vendors": {
     "title": "廠商", "new": "新增廠商帳號", "email": "電子郵件", "name": "顯示名稱", "org": "所屬組織（選填）",
     "expiresOn": "到期日", "create": "建立並邀請", "listTitle": "廠商帳號", "empty": "尚無廠商帳號", "noOrg": "未指定組織",
@@ -122,6 +133,6 @@
       "expires_at": { "required": "請選擇到期日", "out_of_range": "到期日須介於明天至三年內" }
     }
   },
-  "rules": {"title":"規則","save":"儲存","saved":"已儲存。","affected":"受影響的分享：{{n}}","ipHint":"設定後，外部使用者只能從這些網路連線","section":{"sharing":"分享","recipients":"收件人","external":"外部上傳","storage":"儲存空間"},"force_watermark":"一律加浮水印","forbid_download":"禁止下載（僅能檢視）","share_max_days":"分享最長期限（天）","share_default_days":"分享預設期限（天）","retention_days":"保存天數（0 = 不清除）","max_file_bytes":"單檔大小上限（MiB，0 = 伺服器上限）","max_share_bytes":"單一分享大小上限（MiB，0 = 不限）","upload_max_bytes":"外部上傳大小上限（MiB，0 = 不限）","quota_bytes":"每位使用者儲存配額（MiB，0 = 不限）","domain_block":"封鎖的 Email 網域（每行一個）","domain_allow":"允許的 Email 網域（每行一個，留空 = 全部）","upload_exts":"允許的上傳副檔名（每行一個，留空 = 全部）","external_ip_allow":"允許外部使用者連線的網路（CIDR，每行一個）","error":{"generic":"無法儲存規則，請檢查表單","share_max_days":{"out_of_range":"須介於 1 至 365 天"},"share_default_days":{"out_of_range":"須介於 1 天至最長期限之間"},"retention_days":{"out_of_range":"超出範圍"},"max_file_bytes":{"out_of_range":"超出範圍"},"max_share_bytes":{"out_of_range":"超出範圍"},"upload_max_bytes":{"out_of_range":"超出範圍"},"quota_bytes":{"out_of_range":"超出範圍"},"domain_block":{"invalid":"網域格式不正確"},"domain_allow":{"invalid":"網域格式不正確"},"upload_exts":{"invalid":"副檔名只能包含英文字母與數字"},"external_ip_allow":{"invalid":"CIDR 格式不正確"}}},
+  "rules": {"title":"規則","save":"儲存","saved":"已儲存。","affected":"受影響的分享：{{n}}","ipHint":"設定後，外部使用者只能從這些網路連線","section":{"security":"安全性","sharing":"分享","recipients":"收件人","external":"外部上傳","storage":"儲存空間"},"force_watermark":"一律加浮水印","forbid_download":"禁止下載（僅能檢視）","force_totp":"全站強制雙因素驗證（TOTP）","force_totp_help":"只套用於本機員工與管理員；廠商本來就必須使用雙因素驗證。開啟後，尚未設定的人下次登入時必須先完成設定。","share_max_days":"分享最長期限（天）","share_default_days":"分享預設期限（天）","retention_days":"保存天數（0 = 不清除）","max_file_bytes":"單檔大小上限（MiB，0 = 伺服器上限）","max_share_bytes":"單一分享大小上限（MiB，0 = 不限）","upload_max_bytes":"外部上傳大小上限（MiB，0 = 不限）","quota_bytes":"每位使用者儲存配額（MiB，0 = 不限）","domain_block":"封鎖的 Email 網域（每行一個）","domain_allow":"允許的 Email 網域（每行一個，留空 = 全部）","upload_exts":"允許的上傳副檔名（每行一個，留空 = 全部）","external_ip_allow":"允許外部使用者連線的網路（CIDR，每行一個）","error":{"generic":"無法儲存規則，請檢查表單","share_max_days":{"out_of_range":"須介於 1 至 365 天"},"share_default_days":{"out_of_range":"須介於 1 天至最長期限之間"},"retention_days":{"out_of_range":"超出範圍"},"max_file_bytes":{"out_of_range":"超出範圍"},"max_share_bytes":{"out_of_range":"超出範圍"},"upload_max_bytes":{"out_of_range":"超出範圍"},"quota_bytes":{"out_of_range":"超出範圍"},"domain_block":{"invalid":"網域格式不正確"},"domain_allow":{"invalid":"網域格式不正確"},"upload_exts":{"invalid":"副檔名只能包含英文字母與數字"},"external_ip_allow":{"invalid":"CIDR 格式不正確"}}},
   "trace": {"title":"溯源查詢","intro":"查出外流檔案是誰下載的。截圖無法分析，請改以可見浮水印上的追蹤碼人工查詢。","code":"追蹤碼","sha256":"SHA-256","file":"可疑檔案（僅在記憶體中分析，不會儲存）","search":"查詢","undetermined":"無法判定","notAnalyzed":"未分析檔案內容（檔案過大），僅比對了 SHA-256。","forbidden": "你沒有使用溯源查詢的權限", "error":"查詢失敗，請檢查輸入後再試","col":{"source":"來源","method":"方式","code":"追蹤碼","file":"檔案","owner":"擁有者","recipient":"下載者","ip":"IP","at":"時間"},"source":{"download":"下載","view":"線上檢視","file":"原始上傳"},"via":{"code":"追蹤碼","metadata":"檔案中繼資料","text_layer":"隱藏文字層","invisible":"不可見浮水印","sha256":"檔案指紋"},"method":{"pdf_pages":"加浮水印的 PDF 頁面","pdf_meta":"PDF 中繼資料","image_visible":"可見與不可見浮水印","image_invisible":"不可見浮水印","ooxml_meta":"Office 中繼資料","odf_meta":"OpenDocument 中繼資料","none":"未標記"}}
 }

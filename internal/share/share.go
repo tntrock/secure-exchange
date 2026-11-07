@@ -47,6 +47,7 @@ type Share struct {
 	ID, OwnerID    uuid.UUID
 	OwnerName      string
 	OwnerEmail     string
+	OwnerDisabled  bool
 	FileCount      int
 	RecipientCount int
 	Message        string
@@ -363,12 +364,12 @@ func dedupIDs(in []uuid.UUID) []uuid.UUID {
 
 const shareCols = `s.id, s.owner_id, CASE WHEN u.display_name = '' THEN u.email ELSE u.display_name END, u.email,
 	(SELECT count(*) FROM share_files f WHERE f.share_id = s.id), (SELECT count(*) FROM share_recipients r WHERE r.share_id = s.id),
-	s.message, s.allow_download, s.watermark, s.expires_at, s.max_views, s.view_count, s.ip_allow, s.revoked_at, s.created_at`
+	s.message, s.allow_download, s.watermark, s.expires_at, s.max_views, s.view_count, s.ip_allow, s.revoked_at, s.created_at, u.disabled`
 
 func scanShare(row pgx.Row) (*Share, error) {
 	sh := &Share{}
 	err := row.Scan(&sh.ID, &sh.OwnerID, &sh.OwnerName, &sh.OwnerEmail, &sh.FileCount, &sh.RecipientCount, &sh.Message,
-		&sh.AllowDownload, &sh.Watermark, &sh.ExpiresAt, &sh.MaxViews, &sh.ViewCount, &sh.IPAllow, &sh.RevokedAt, &sh.CreatedAt)
+		&sh.AllowDownload, &sh.Watermark, &sh.ExpiresAt, &sh.MaxViews, &sh.ViewCount, &sh.IPAllow, &sh.RevokedAt, &sh.CreatedAt, &sh.OwnerDisabled)
 	return sh, err
 }
 
@@ -380,7 +381,7 @@ func (s *Service) List(ctx context.Context, ownerID uuid.UUID) ([]Share, error) 
 // VendorShares lists live shares (not revoked/expired) where vendorID is a non-revoked recipient, newest first.
 func (s *Service) VendorShares(ctx context.Context, vendorID uuid.UUID) ([]Share, error) {
 	return s.list(ctx, `JOIN share_recipients r ON r.share_id = s.id
-		WHERE r.vendor_id = $1 AND r.revoked_at IS NULL AND s.revoked_at IS NULL AND s.expires_at > $2
+		WHERE r.vendor_id = $1 AND r.revoked_at IS NULL AND s.revoked_at IS NULL AND s.expires_at > $2 AND NOT u.disabled
 		ORDER BY s.created_at DESC`, vendorID, s.now())
 }
 
@@ -402,8 +403,18 @@ func (s *Service) list(ctx context.Context, where string, args ...any) ([]Share,
 }
 
 func (s *Service) Get(ctx context.Context, ownerID, id uuid.UUID) (*Share, error) {
+	return s.get(ctx, id, &ownerID)
+}
+
+// AdminGet is Get for any owner.
+func (s *Service) AdminGet(ctx context.Context, id uuid.UUID) (*Share, error) {
+	return s.get(ctx, id, nil)
+}
+
+// get loads share id with its files and recipients; a non-nil owner restricts it to that owner.
+func (s *Service) get(ctx context.Context, id uuid.UUID, owner *uuid.UUID) (*Share, error) {
 	sh, err := scanShare(s.pool.QueryRow(ctx, `SELECT `+shareCols+` FROM shares s JOIN users u ON u.id = s.owner_id
-		WHERE s.id = $1 AND s.owner_id = $2`, id, ownerID))
+		WHERE s.id = $1 AND ($2::uuid IS NULL OR s.owner_id = $2)`, id, owner))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -449,12 +460,19 @@ func (s *Service) loadFiles(ctx context.Context, sh *Share) error {
 
 // Revoke is idempotent; it also drops every recipient session of the share.
 func (s *Service) Revoke(ctx context.Context, ownerID, id uuid.UUID) error {
+	return s.revoke(ctx, id, &ownerID)
+}
+
+// AdminRevoke is Revoke for any owner.
+func (s *Service) AdminRevoke(ctx context.Context, id uuid.UUID) error { return s.revoke(ctx, id, nil) }
+
+func (s *Service) revoke(ctx context.Context, id uuid.UUID, owner *uuid.UUID) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE shares SET revoked_at = coalesce(revoked_at, now()) WHERE id = $1 AND owner_id = $2`, id, ownerID)
+	tag, err := tx.Exec(ctx, `UPDATE shares SET revoked_at = coalesce(revoked_at, now()) WHERE id = $1 AND ($2::uuid IS NULL OR owner_id = $2)`, id, owner)
 	if err != nil {
 		return err
 	}
@@ -534,4 +552,11 @@ func (s *Service) AddRecipients(ctx context.Context, owner *auth.User, shareID u
 		return nil, invalid("recipients", "too_many")
 	}
 	return added, tx.Commit(ctx)
+}
+
+// AdminList lists every owner's shares, newest first, 100 a page. q is a case-insensitive substring
+// of the owner's email or the share message.
+func (s *Service) AdminList(ctx context.Context, q string, offset int) ([]Share, error) {
+	return s.list(ctx, `WHERE $1 = '' OR strpos(lower(u.email), lower($1)) > 0 OR strpos(lower(s.message), lower($1)) > 0
+		ORDER BY s.created_at DESC, s.id LIMIT 100 OFFSET $2`, q, max(offset, 0))
 }

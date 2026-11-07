@@ -48,7 +48,7 @@ func TestEndToEnd(t *testing.T) {
 	rs := seedRules(t, pool)
 	ts := httptest.NewTLSServer(httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: auth.NewSessions(pool), Audit: log, SessionTTL: time.Hour,
-		Pool: pool, Keys: keys, Store: store,
+		Pool: pool, Keys: keys, Store: store, Rules: rs,
 		Uploads: upload.NewHandler(pool, keys, store, log, t.TempDir(), 1<<30, nil, config.PreviewConfig{MaxBytes: 1 << 30, MaxVideoBytes: 1 << 30}, rs),
 	}))
 	defer ts.Close()

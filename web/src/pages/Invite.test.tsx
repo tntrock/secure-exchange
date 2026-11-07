@@ -92,3 +92,39 @@ test("403 ip_denied on load shows the network-location message", async () => {
   show();
   expect(await screen.findByText(i18n.t("recipient.error.ipDenied"))).toBeTruthy();
 });
+
+const showStaff = () => render(<MemoryRouter initialEntries={["/activate/tk"]}><Routes><Route path="/activate/:token" element={<Invite kind="staff" />} /></Routes></MemoryRouter>);
+const sinfo = (totp_required: boolean) => ({ email: "s@x.com", totp_required, otpauth_url: totp_required ? "otpauth://x" : "" });
+
+test("staff without totp: no QR, no code field, submits empty code to /api/activate", async () => {
+  const f = vi.fn(async (_u: string, init?: RequestInit) => (init?.method === "POST" ? new Response(null, { status: 204 }) : json(200, sinfo(false))));
+  vi.stubGlobal("fetch", f);
+  showStaff();
+  expect(await screen.findByText(/s@x.com/)).toBeTruthy();
+  expect(screen.queryByRole("img")).toBeNull();
+  expect(screen.queryByLabelText("Code (6 digits)")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: PW } });
+  fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: PW } });
+  submit();
+  expect(await screen.findByRole("link", { name: "Log in" })).toBeTruthy();
+  expect(f).toHaveBeenLastCalledWith("/api/activate/tk", expect.objectContaining({ body: JSON.stringify({ password: PW, code: "" }) }));
+});
+
+test("staff with totp shows the QR", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(200, sinfo(true))));
+  showStaff();
+  await waitFor(() => expect(screen.getByRole("img")).toBeTruthy());
+  expect(screen.getByLabelText("Code (6 digits)")).toBeTruthy();
+});
+
+test("staff 400 totp_required reloads the info and shows the QR", async () => {
+  let n = 0;
+  const f = vi.fn(async (_u: string, init?: RequestInit) => (init?.method === "POST" ? json(400, { error: "totp_required" }) : json(200, sinfo(++n > 1))));
+  vi.stubGlobal("fetch", f);
+  showStaff();
+  await screen.findByText(/s@x.com/);
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: PW } });
+  fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: PW } });
+  submit();
+  await waitFor(() => expect(screen.getByRole("img")).toBeTruthy());
+});

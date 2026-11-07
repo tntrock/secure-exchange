@@ -1,4 +1,5 @@
 import { useState } from "react";
+import QRCode from "qrcode";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../api";
@@ -11,6 +12,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [mfa, setMfa] = useState(false);
+  const [qr, setQr] = useState(""); // forced TOTP enrolment
   const [err, setErr] = useState("");
 
   const fail = (e: unknown, invalidKey: string) =>
@@ -23,25 +25,29 @@ export default function Login() {
     ev.preventDefault();
     setErr("");
     try {
-      if (!mfa) {
+      if (!mfa && !qr) {
         const r = await api.login(email, password);
-        if (r.mfa_required) setMfa(true);
+        if (r.totp_setup_required) setQr(await QRCode.toDataURL((await api.totpSetupPending()).otpauth_url, { margin: 1, width: 220 }));
+        else if (r.mfa_required) setMfa(true);
         else await home();
+      } else if (qr) {
+        await api.totpEnroll(code);
+        await home();
       } else {
         await api.totp(code);
         await home();
       }
     } catch (e) {
-      fail(e, mfa ? "login.invalidCode" : "login.invalid");
+      fail(e, mfa || qr ? "login.invalidCode" : "login.invalid");
     }
   };
 
   return (
     <main>
       <div style={{ textAlign: "right" }}><LangSwitch /></div>
-      <h1>{mfa ? t("login.totpTitle") : t("login.title")}</h1>
+      <h1>{mfa || qr ? t("login.totpTitle") : t("login.title")}</h1>
       <form onSubmit={submit}>
-        {!mfa ? (
+        {!mfa && !qr ? (
           <>
             <label>
               {t("login.email")}
@@ -53,13 +59,16 @@ export default function Login() {
             </label>
           </>
         ) : (
+          <>
+            {qr && <><p>{t("totp.scan")}</p><img src={qr} alt={t("totp.qrAlt")} width={220} height={220} /></>}
           <label>
             {t("login.totpCode")}
             <input inputMode="numeric" autoComplete="one-time-code" required autoFocus value={code} onChange={(e) => setCode(e.target.value)} />
           </label>
+          </>
         )}
         {err && <p className="error" role="alert">{err}</p>}
-        <button type="submit">{mfa ? t("login.totpSubmit") : t("login.submit")}</button>
+        <button type="submit">{mfa || qr ? t("login.totpSubmit") : t("login.submit")}</button>
       </form>
     </main>
   );

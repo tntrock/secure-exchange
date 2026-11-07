@@ -21,6 +21,7 @@ type User struct {
 	TOTPEnabled, Disabled                bool
 	ExpiresAt                            *time.Time
 	Approval                             string // pending, approved or rejected
+	LastLoginAt                          *time.Time
 	OrgID, CreatedBy                     *uuid.UUID
 }
 
@@ -31,11 +32,11 @@ type Users struct {
 
 func NewUsers(pool *pgxpool.Pool, keys *sxcrypto.Keyring) *Users { return &Users{pool, keys} }
 
-const userCols = `id, email, display_name, role, auth_source, coalesce(password_hash,''), totp_enabled, disabled, expires_at, approval, vendor_org_id, created_by`
+const userCols = `id, email, display_name, role, auth_source, coalesce(password_hash,''), totp_enabled, disabled, expires_at, approval, vendor_org_id, created_by, last_login_at`
 
 func scanUser(row pgx.Row) (*User, error) {
 	u := &User{}
-	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.AuthSource, &u.PasswordHash, &u.TOTPEnabled, &u.Disabled, &u.ExpiresAt, &u.Approval, &u.OrgID, &u.CreatedBy)
+	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.AuthSource, &u.PasswordHash, &u.TOTPEnabled, &u.Disabled, &u.ExpiresAt, &u.Approval, &u.OrgID, &u.CreatedBy, &u.LastLoginAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -92,4 +93,10 @@ func (u *User) Active(now time.Time) bool {
 		return false
 	}
 	return u.Role != "vendor" || (u.PasswordHash != "" && u.TOTPEnabled)
+}
+
+// TouchLogin records a successful login.
+func (s *Users) TouchLogin(ctx context.Context, id uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET last_login_at = now() WHERE id = $1`, id)
+	return err
 }

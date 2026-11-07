@@ -35,6 +35,7 @@ type Rules struct {
 	UploadMaxBytes   int64          `json:"upload_max_bytes"` // 0 = unlimited
 	QuotaBytes       int64          `json:"quota_bytes"`      // 0 = unlimited
 	RetentionDays    int            `json:"retention_days"`   // 0 = never
+	ForceTOTP        bool           `json:"force_totp"`       // local staff and admins must enrol TOTP
 }
 
 // ValidationError names the offending JSON field and a machine-readable code (invalid, too_many, out_of_range).
@@ -60,7 +61,7 @@ func New(pool *pgxpool.Pool, hardMaxFile int64) *Service {
 func (s *Service) HardMaxFile() int64 { return s.hardMaxFile }
 
 const cols = `force_watermark, forbid_download, share_max_days, share_default_days, max_file_bytes, max_share_bytes,
-	domain_block, domain_allow, external_ip_allow, upload_exts, upload_max_bytes, quota_bytes, retention_days`
+	domain_block, domain_allow, external_ip_allow, upload_exts, upload_max_bytes, quota_bytes, retention_days, force_totp`
 
 type queryRower interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
@@ -70,7 +71,7 @@ func scan(ctx context.Context, q queryRower, suffix string) (Rules, error) {
 	var r Rules
 	err := q.QueryRow(ctx, `SELECT `+cols+` FROM site_rules WHERE id=1`+suffix).Scan(
 		&r.ForceWatermark, &r.ForbidDownload, &r.ShareMaxDays, &r.ShareDefaultDays, &r.MaxFileBytes, &r.MaxShareBytes,
-		&r.DomainBlock, &r.DomainAllow, &r.ExternalIPAllow, &r.UploadExts, &r.UploadMaxBytes, &r.QuotaBytes, &r.RetentionDays)
+		&r.DomainBlock, &r.DomainAllow, &r.ExternalIPAllow, &r.UploadExts, &r.UploadMaxBytes, &r.QuotaBytes, &r.RetentionDays, &r.ForceTOTP)
 	return r, err
 }
 
@@ -106,9 +107,9 @@ func (s *Service) Update(ctx context.Context, tx pgx.Tx, r Rules) (Rules, error)
 	}
 	_, err = tx.Exec(ctx, `UPDATE site_rules SET force_watermark=$1, forbid_download=$2, share_max_days=$3, share_default_days=$4,
 		max_file_bytes=$5, max_share_bytes=$6, domain_block=$7, domain_allow=$8, external_ip_allow=$9, upload_exts=$10,
-		upload_max_bytes=$11, quota_bytes=$12, retention_days=$13, updated_at=now() WHERE id=1`,
+		upload_max_bytes=$11, quota_bytes=$12, retention_days=$13, force_totp=$14, updated_at=now() WHERE id=1`,
 		r.ForceWatermark, r.ForbidDownload, r.ShareMaxDays, r.ShareDefaultDays, r.MaxFileBytes, r.MaxShareBytes,
-		r.DomainBlock, r.DomainAllow, r.ExternalIPAllow, r.UploadExts, r.UploadMaxBytes, r.QuotaBytes, r.RetentionDays)
+		r.DomainBlock, r.DomainAllow, r.ExternalIPAllow, r.UploadExts, r.UploadMaxBytes, r.QuotaBytes, r.RetentionDays, r.ForceTOTP)
 	return before, err
 }
 

@@ -4,9 +4,6 @@ package vendor
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"strings"
 	"time"
@@ -23,17 +20,15 @@ import (
 )
 
 const (
-	maxName     = 100
-	minPassword = 12
-	maxPassword = 256 // bytes
-	maxDays     = 1095
+	maxName = 100
+	maxDays = 1095
 )
 
 var (
 	ErrNotFound   = errors.New("vendor: not found")
 	ErrForbidden  = errors.New("vendor: forbidden")
 	ErrEmailTaken = errors.New("vendor: email taken")
-	ErrInviteGone = errors.New("vendor: invitation used, expired or replaced")
+	ErrInviteGone = auth.ErrInviteGone
 	ErrBadCode    = errors.New("vendor: invalid TOTP code")
 	ErrState      = errors.New("vendor: not allowed in the account's current status")
 )
@@ -91,19 +86,23 @@ func scanVendor(row pgx.Row) (*Vendor, error) {
 	if err != nil {
 		return nil, err
 	}
+	v.Status = StatusOf(approval, disabled, v.ExpiresAt, enrolled)
+	return v, nil
+}
+
+// StatusOf derives a vendor status (pending | rejected | disabled | expired | invited | active).
+func StatusOf(approval string, disabled bool, expires time.Time, enrolled bool) string {
 	switch {
 	case approval != "approved":
-		v.Status = approval
+		return approval
 	case disabled:
-		v.Status = "disabled"
-	case !time.Now().Before(v.ExpiresAt):
-		v.Status = "expired"
+		return "disabled"
+	case !time.Now().Before(expires):
+		return "expired"
 	case !enrolled:
-		v.Status = "invited"
-	default:
-		v.Status = "active"
+		return "invited"
 	}
-	return v, nil
+	return "active"
 }
 
 func (s *Service) get(ctx context.Context, id uuid.UUID) (*Vendor, error) {
@@ -244,19 +243,10 @@ func (s *Service) askAdmins(ctx context.Context, tx pgx.Tx, vendorEmail, creator
 	return nil
 }
 
-func hashToken(token string) []byte {
-	h := sha256.Sum256([]byte(token))
-	return h[:]
-}
-
 // invite stores a 7-day invitation and mails its link. A newer invitation voids older ones (see validInvite).
 func (s *Service) invite(ctx context.Context, tx pgx.Tx, id uuid.UUID, email, inviter string) error {
-	b := make([]byte, 32)
-	rand.Read(b) // never fails (Go ≥ 1.24)
-	token := base64.RawURLEncoding.EncodeToString(b)
-	var expires time.Time
-	if err := tx.QueryRow(ctx, `INSERT INTO vendor_invites (token_hash, user_id, expires_at) VALUES ($1,$2, now() + interval '7 days')
-		RETURNING expires_at`, hashToken(token), id).Scan(&expires); err != nil {
+	token, expires, err := auth.CreateInvite(ctx, tx, id)
+	if err != nil {
 		return err
 	}
 	subject, body := mail.VendorInvitation(s.baseURL+"/invite/"+token, inviter, expires)
@@ -375,16 +365,14 @@ func (s *Service) Reinvite(ctx context.Context, by *auth.User, id uuid.UUID) err
 
 // validInvite returns the vendor behind an unused, unexpired invitation that is the newest for a vendor in status invited.
 func (s *Service) validInvite(ctx context.Context, token string) (*Vendor, error) {
-	var id uuid.UUID
-	err := s.pool.QueryRow(ctx, `SELECT i.user_id FROM vendor_invites i WHERE i.token_hash = $1 AND i.used_at IS NULL AND i.expires_at > now()
-		AND NOT EXISTS (SELECT 1 FROM vendor_invites n WHERE n.user_id = i.user_id AND n.created_at > i.created_at)`, hashToken(token)).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrInviteGone
-	}
+	id, err := auth.InviteUser(ctx, s.pool, token)
 	if err != nil {
 		return nil, err
 	}
 	v, err := s.get(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return nil, ErrInviteGone
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -418,11 +406,8 @@ func (s *Service) Activate(ctx context.Context, token, password, code string) (u
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if utf8.RuneCountInString(password) < minPassword {
-		return uuid.Nil, invalid("password", "too_short")
-	}
-	if len(password) > maxPassword {
-		return uuid.Nil, invalid("password", "invalid")
+	if code := auth.ValidPassword(password); code != "" {
+		return uuid.Nil, invalid("password", code)
 	}
 	var sealed []byte // the secret the code is checked against; only that one may be enabled
 	if err := s.pool.QueryRow(ctx, `SELECT totp_secret_sealed FROM users WHERE id = $1`, v.ID).Scan(&sealed); err != nil {
@@ -448,12 +433,8 @@ func (s *Service) Activate(ctx context.Context, token, password, code string) (u
 	if tag.RowsAffected() == 0 {
 		return uuid.Nil, ErrInviteGone
 	}
-	tag, err = tx.Exec(ctx, `UPDATE vendor_invites SET used_at = now() WHERE token_hash = $1 AND used_at IS NULL`, hashToken(token))
-	if err != nil {
+	if err := auth.ConsumeInvite(ctx, tx, token); err != nil { // consumed concurrently
 		return uuid.Nil, err
-	}
-	if tag.RowsAffected() == 0 { // consumed concurrently
-		return uuid.Nil, ErrInviteGone
 	}
 	return v.ID, tx.Commit(ctx)
 }

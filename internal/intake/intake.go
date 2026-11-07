@@ -49,6 +49,7 @@ func (e *ValidationError) Error() string { return "intake: " + e.Field + ": " + 
 type Request struct {
 	ID, OwnerID           uuid.UUID
 	OwnerName, OwnerEmail string // OwnerName is the display name, or the email when empty
+	OwnerDisabled         bool
 	Message               string
 	ExpiresAt             time.Time
 	MaxFiles              int
@@ -211,11 +212,11 @@ func (s *Service) Create(ctx context.Context, owner *auth.User, in CreateInput) 
 const requestCols = `r.id, r.owner_id, CASE WHEN u.display_name = '' THEN u.email ELSE u.display_name END, u.email,
 	r.message, r.expires_at, r.max_files, r.max_total_bytes, r.allowed_exts, r.revoked_at, r.created_at,
 	(SELECT count(*) FROM files f WHERE f.request_id = r.id), (SELECT COALESCE(sum(f.size),0) FROM files f WHERE f.request_id = r.id),
-	(SELECT count(*) FROM request_uploaders q WHERE q.request_id = r.id)`
+	(SELECT count(*) FROM request_uploaders q WHERE q.request_id = r.id), u.disabled`
 
 func (r *Request) dests() []any {
 	return []any{&r.ID, &r.OwnerID, &r.OwnerName, &r.OwnerEmail, &r.Message, &r.ExpiresAt, &r.MaxFiles, &r.MaxTotalBytes,
-		&r.AllowedExts, &r.RevokedAt, &r.CreatedAt, &r.FileCount, &r.TotalBytes, &r.UploaderCount}
+		&r.AllowedExts, &r.RevokedAt, &r.CreatedAt, &r.FileCount, &r.TotalBytes, &r.UploaderCount, &r.OwnerDisabled}
 }
 
 func scanRequest(row pgx.Row) (*Request, error) {
@@ -225,8 +226,18 @@ func scanRequest(row pgx.Row) (*Request, error) {
 
 // List returns the owner's requests, newest first, without Uploaders/URL.
 func (s *Service) List(ctx context.Context, ownerID uuid.UUID) ([]Request, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+requestCols+` FROM upload_requests r JOIN users u ON u.id = r.owner_id
-		WHERE r.owner_id = $1 ORDER BY r.created_at DESC`, ownerID)
+	return s.list(ctx, `WHERE r.owner_id = $1 ORDER BY r.created_at DESC`, ownerID)
+}
+
+// AdminList lists every owner's requests, newest first, 100 a page. q is a case-insensitive substring
+// of the owner's email or the request message.
+func (s *Service) AdminList(ctx context.Context, q string, offset int) ([]Request, error) {
+	return s.list(ctx, `WHERE $1 = '' OR strpos(lower(u.email), lower($1)) > 0 OR strpos(lower(r.message), lower($1)) > 0
+		ORDER BY r.created_at DESC, r.id LIMIT 100 OFFSET $2`, q, max(offset, 0))
+}
+
+func (s *Service) list(ctx context.Context, where string, args ...any) ([]Request, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+requestCols+` FROM upload_requests r JOIN users u ON u.id = r.owner_id `+where, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -244,10 +255,19 @@ func (s *Service) List(ctx context.Context, ownerID uuid.UUID) ([]Request, error
 
 // Get returns one of the owner's requests with its uploaders and link.
 func (s *Service) Get(ctx context.Context, ownerID, id uuid.UUID) (*Request, error) {
+	return s.get(ctx, id, &ownerID)
+}
+
+// AdminGet is Get for any owner.
+func (s *Service) AdminGet(ctx context.Context, id uuid.UUID) (*Request, error) {
+	return s.get(ctx, id, nil)
+}
+
+func (s *Service) get(ctx context.Context, id uuid.UUID, owner *uuid.UUID) (*Request, error) {
 	var sealed []byte
 	r := &Request{}
 	err := s.pool.QueryRow(ctx, `SELECT `+requestCols+`, r.token_sealed FROM upload_requests r JOIN users u ON u.id = r.owner_id
-		WHERE r.id = $1 AND r.owner_id = $2`, id, ownerID).Scan(append(r.dests(), &sealed)...)
+		WHERE r.id = $1 AND ($2::uuid IS NULL OR r.owner_id = $2)`, id, owner).Scan(append(r.dests(), &sealed)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -277,7 +297,14 @@ func (s *Service) Get(ctx context.Context, ownerID, id uuid.UUID) (*Request, err
 
 // Revoke is idempotent. Sessions are left alone: Authorize rechecks the request on every call.
 func (s *Service) Revoke(ctx context.Context, ownerID, id uuid.UUID) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE upload_requests SET revoked_at = coalesce(revoked_at, now()) WHERE id = $1 AND owner_id = $2`, id, ownerID)
+	return s.revoke(ctx, id, &ownerID)
+}
+
+// AdminRevoke is Revoke for any owner.
+func (s *Service) AdminRevoke(ctx context.Context, id uuid.UUID) error { return s.revoke(ctx, id, nil) }
+
+func (s *Service) revoke(ctx context.Context, id uuid.UUID, owner *uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE upload_requests SET revoked_at = coalesce(revoked_at, now()) WHERE id = $1 AND ($2::uuid IS NULL OR owner_id = $2)`, id, owner)
 	if err != nil {
 		return err
 	}

@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/time/rate"
 
+	"github.com/tntrock/secure-exchange/internal/account"
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
@@ -36,6 +38,7 @@ type Deps struct {
 	Shares         *share.Service
 	Requests       *intake.Service
 	Vendors        *vendor.Service
+	Accounts       *account.Service
 	Rules          *rules.Service
 	FontFile       string // TTF for burned-in video watermarks (SX_FONT_FILE)
 	Mark           config.MarkConfig
@@ -47,6 +50,10 @@ type server struct {
 	dummyHash    string   // verified against when the email is unknown, to equalise timing
 	accountLimit *limiter // per email (login) / per user (totp)
 	codeLimit    *limiter // recipient code requests per (share token, email)
+	adminViews   struct {
+		sync.Mutex
+		at map[string]time.Time // (session hash, file) -> end of its audit window
+	}
 }
 
 func NewServer(deps Deps) http.Handler {
@@ -56,6 +63,7 @@ func NewServer(deps Deps) http.Handler {
 	}
 	s := &server{Deps: deps, dummyHash: dummy, accountLimit: newLimiter(rate.Every(12*time.Second), 5),
 		codeLimit: newLimiter(rate.Every(200*time.Second), 3)}
+	s.adminViews.at = map[string]time.Time{}
 	return securityHeaders(http.NewCrossOriginProtection().Handler(s.external(s.routes())))
 }
 
@@ -67,6 +75,18 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/auth/login", perIP(http.HandlerFunc(s.login)))
 	mux.Handle("POST /api/auth/totp", perIP(http.HandlerFunc(s.totp)))
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
+	mux.Handle("POST /api/auth/totp/setup", http.HandlerFunc(s.totpSetupPending))
+	mux.Handle("POST /api/auth/totp/enroll", http.HandlerFunc(s.totpEnroll))
+	// local staff and admin accounts: admins manage them; the activation pages need no login (and no external-IP gate)
+	mux.Handle("GET /api/admin/users", s.requireAdmin(s.listUsers))
+	mux.Handle("POST /api/admin/users", s.requireAdmin(s.createUser))
+	mux.Handle("PATCH /api/admin/users/{id}", s.requireAdmin(s.setUserRole))
+	mux.Handle("POST /api/admin/users/{id}/disable", s.requireAdmin(s.userAction(audit.ActUserDisable, s.setUserDisabled(true))))
+	mux.Handle("POST /api/admin/users/{id}/enable", s.requireAdmin(s.userAction(audit.ActUserEnable, s.setUserDisabled(false))))
+	mux.Handle("POST /api/admin/users/{id}/reset-totp", s.requireAdmin(s.userAction(audit.ActUserTOTPReset, s.resetUserTOTP)))
+	mux.Handle("POST /api/admin/users/{id}/reinvite", s.requireAdmin(s.userAction(audit.ActUserReinvite, s.reinviteUser)))
+	mux.Handle("GET /api/activate/{token}", perIP(http.HandlerFunc(s.activateInfo)))
+	mux.Handle("POST /api/activate/{token}", perIP(http.HandlerFunc(s.activateStaff)))
 
 	mux.Handle("GET /api/me", s.requireAccount(s.me))
 	mux.Handle("GET /api/files", s.requireUser(s.listFiles))
@@ -98,6 +118,12 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/r/{token}/verify", recipIP(s.uploaderVerify))
 	mux.Handle("GET /api/r/{token}/files", s.requireUploader(s.listUploaderFiles))
 	mux.HandleFunc("POST /api/r/{token}/logout", s.uploaderLogout)
+	mux.Handle("GET /api/admin/shares", s.requireAdmin(s.adminListShares))
+	mux.Handle("GET /api/admin/shares/{id}", s.requireAdmin(s.adminGetShare))
+	mux.Handle("POST /api/admin/shares/{id}/revoke", s.requireAdmin(s.adminRevokeShare))
+	mux.Handle("GET /api/admin/requests", s.requireAdmin(s.adminListRequests))
+	mux.Handle("GET /api/admin/requests/{id}", s.requireAdmin(s.adminGetRequest))
+	mux.Handle("POST /api/admin/requests/{id}/revoke", s.requireAdmin(s.adminRevokeRequest))
 	s.previewRoutes(mux)
 	// vendor accounts: staff manage them; the invitation pages need no login
 	mux.Handle("GET /api/vendors", s.requireUser(s.listVendors))

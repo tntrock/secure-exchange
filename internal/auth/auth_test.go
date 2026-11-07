@@ -151,8 +151,9 @@ func TestBeginTOTPRejectedWhenEnabled(t *testing.T) {
 		t.Fatal("2FA was disabled")
 	}
 	next, _ := totp.GenerateCode(secret, time.Now().Add(30*time.Second))
-	if !s.CheckTOTP(ctx, u.ID, next) {
-		t.Fatal("original secret no longer valid")
+	// the original secret still checks out (not ErrBadCode), but a second enable reports the account as enrolled
+	if err := s.EnableTOTP(ctx, u.ID, next); !errors.Is(err, ErrTOTPAlreadyEnabled) {
+		t.Fatalf("second enable: %v", err)
 	}
 	if _, err := s.BeginTOTP(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)

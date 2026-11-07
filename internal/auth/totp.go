@@ -42,12 +42,15 @@ func (s *Users) BeginTOTP(ctx context.Context, id uuid.UUID) (string, error) {
 	return key.URL(), nil
 }
 
-// EnableTOTP turns TOTP on if code is valid for the pending secret.
+// EnableTOTP turns TOTP on if code is valid for the pending secret; ErrTOTPAlreadyEnabled when it already is.
 func (s *Users) EnableTOTP(ctx context.Context, id uuid.UUID, code string) error {
 	if !s.CheckTOTP(ctx, id, code) {
 		return ErrBadCode
 	}
-	_, err := s.pool.Exec(ctx, `UPDATE users SET totp_enabled=true WHERE id=$1`, id)
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET totp_enabled=true WHERE id=$1 AND NOT totp_enabled`, id)
+	if err == nil && tag.RowsAffected() == 0 { // a concurrent enrolment won
+		return ErrTOTPAlreadyEnabled
+	}
 	return err
 }
 

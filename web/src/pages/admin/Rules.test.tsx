@@ -63,3 +63,14 @@ test("422 on external_ip_allow shows the invalid-IP message", async () => {
   fireEvent.click(screen.getByRole("button", { name: i18n.t("rules.save") }));
   expect(await screen.findByText(i18n.t("rules.error.external_ip_allow.invalid"))).toBeTruthy();
 });
+
+test("force_totp checkbox loads and saves", async () => {
+  const f = vi.fn(async (_u: string, i?: RequestInit) => (i?.method === "PUT" ? json(200, { rules, affected_shares: 0 }) : json(200, { ...rules, force_totp: true })));
+  vi.stubGlobal("fetch", f);
+  render(<Rules />);
+  await waitFor(() => expect((label("rules.force_totp") as HTMLInputElement).checked).toBe(true));
+  expect(screen.getByText(/only applies to local staff and administrators/i)).toBeTruthy();
+  fireEvent.click(label("rules.force_totp"));
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("rules.save") }));
+  await waitFor(() => expect(putBody(f).force_totp).toBe(false));
+});

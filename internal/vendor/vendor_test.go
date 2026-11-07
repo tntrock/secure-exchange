@@ -421,7 +421,7 @@ func TestInviteTokenLifecycle(t *testing.T) {
 
 	// expired invitation, disabled account, unknown token
 	x := e.create(e.staff, "x@v.com")
-	if _, err := e.svc.pool.Exec(ctx, `UPDATE vendor_invites SET expires_at = now() - interval '1 second' WHERE user_id = $1`, x.ID); err != nil {
+	if _, err := e.svc.pool.Exec(ctx, `UPDATE account_invites SET expires_at = now() - interval '1 second' WHERE user_id = $1`, x.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := e.svc.InviteInfo(ctx, e.token("x@v.com")); !errors.Is(err, ErrInviteGone) {

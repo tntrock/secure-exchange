@@ -56,7 +56,7 @@ func AccessFrom(ctx context.Context) *Access {
 
 // check reports whether r may be served now.
 func (s *Service) check(r *Request) error {
-	if r.RevokedAt != nil || !s.now().Before(r.ExpiresAt) {
+	if r.RevokedAt != nil || r.OwnerDisabled || !s.now().Before(r.ExpiresAt) {
 		return ErrGone
 	}
 	return nil
@@ -262,7 +262,7 @@ func Usage(ctx context.Context, q Querier, requestID uuid.UUID) (files int, byte
 	return files, bytes, err
 }
 
-// CheckUpload locks the request row (SELECT ... FOR UPDATE inside tx) and refuses a new upload of
+// CheckUpload locks the request row (SELECT ... FOR UPDATE inside tx), refuses it if revoked or its owner was disabled meanwhile, and refuses a new upload of
 // size bytes named name. The caller inserts its uploads row in the same tx, so concurrent
 // uploads of one request are counted one after another.
 func CheckUpload(ctx context.Context, tx pgx.Tx, a *Access, name string, size int64) error {
@@ -270,8 +270,13 @@ func CheckUpload(ctx context.Context, tx pgx.Tx, a *Access, name string, size in
 	if len(r.AllowedExts) > 0 && !slices.Contains(r.AllowedExts, strings.TrimPrefix(strings.ToLower(filepath.Ext(name)), ".")) {
 		return ErrExtNotAllowed
 	}
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM upload_requests WHERE id = $1 FOR UPDATE`, r.ID); err != nil {
+	var gone bool
+	if err := tx.QueryRow(ctx, `SELECT r.revoked_at IS NOT NULL OR u.disabled FROM upload_requests r JOIN users u ON u.id = r.owner_id
+		WHERE r.id = $1 FOR UPDATE OF r`, r.ID).Scan(&gone); err != nil {
 		return err
+	}
+	if gone {
+		return ErrGone
 	}
 	files, bytes, err := Usage(ctx, tx, r.ID)
 	if err != nil {

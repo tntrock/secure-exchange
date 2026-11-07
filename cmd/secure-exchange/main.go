@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tntrock/secure-exchange/internal/account"
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/blob"
@@ -102,6 +103,7 @@ func serve(ctx context.Context) error {
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),
 		Requests:       intake.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),
 		Vendors:        vendor.NewService(pool, users, sessions, outbox, cfg.BaseURL, cfg.VendorCreation, siteRules),
+		Accounts:       account.New(pool, users, sessions, outbox, siteRules, cfg.BaseURL),
 		Rules:          siteRules,
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL, CodeDelay: 300 * time.Millisecond,
 		FontFile: cfg.FontFile, Mark: cfg.Mark,

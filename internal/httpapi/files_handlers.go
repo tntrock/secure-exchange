@@ -81,6 +81,12 @@ type fileRow struct {
 
 // ownFile loads a live file owned by the caller; otherwise it writes 404 and returns false.
 func (s *server) ownFile(w http.ResponseWriter, r *http.Request) (*fileRow, bool) {
+	owner := auth.UserFrom(r.Context()).ID
+	return s.liveFile(w, r, &owner)
+}
+
+// liveFile loads the live file {id}, owned by owner when that is non-nil; otherwise it writes 404 and returns false.
+func (s *server) liveFile(w http.ResponseWriter, r *http.Request, owner *uuid.UUID) (*fileRow, bool) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
@@ -88,7 +94,7 @@ func (s *server) ownFile(w http.ResponseWriter, r *http.Request) (*fileRow, bool
 	}
 	f := fileRow{id: id}
 	err = s.Pool.QueryRow(r.Context(), `SELECT name, size, sha256, wrapped_dek, key_id, storage_key, scan_status FROM files
-		WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL`, id, auth.UserFrom(r.Context()).ID).
+		WHERE id = $1 AND ($2::uuid IS NULL OR owner_id = $2) AND deleted_at IS NULL`, id, owner).
 		Scan(&f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key, &f.scan)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
@@ -213,21 +219,28 @@ func (s *server) listPlan(name string, size int64, p *preview.Preview, watermark
 	return mark.Decide(name, head, size, 0, p, watermark, s.Mark)
 }
 
+// scanRefusal is the status and error code for a file that may not be read yet (0 when it may).
+func scanRefusal(scan string) (int, string) {
+	switch scan {
+	case "pending":
+		return http.StatusConflict, "scan_pending"
+	case "infected":
+		return http.StatusForbidden, "quarantined"
+	case "error":
+		return http.StatusForbidden, "scan_failed"
+	}
+	return 0, ""
+}
+
 // ownCleanFile is ownFile for reads: files not yet scanned, or quarantined, are refused.
 func (s *server) ownCleanFile(w http.ResponseWriter, r *http.Request) (*fileRow, bool) {
 	f, ok := s.ownFile(w, r)
 	if !ok {
 		return nil, false
 	}
-	switch f.scan {
-	case "pending":
-		writeJSON(w, http.StatusConflict, errBody("scan_pending"))
-	case "infected":
-		writeJSON(w, http.StatusForbidden, errBody("quarantined"))
-	case "error":
-		writeJSON(w, http.StatusForbidden, errBody("scan_failed"))
-	default:
-		return f, true
+	if code, msg := scanRefusal(f.scan); code != 0 {
+		writeJSON(w, code, errBody(msg))
+		return nil, false
 	}
-	return nil, false
+	return f, true
 }

@@ -93,3 +93,31 @@ test("403 ip_denied shows the network-location message", async () => {
   setup(json(403, { error: "ip_denied" }));
   expect(await screen.findByText(i18n.t("recipient.error.ipDenied"))).toBeTruthy();
 });
+
+vi.mock("qrcode", () => ({ default: { toDataURL: vi.fn(async () => "data:image/png;base64,xx") } }));
+
+function setupEnroll(enroll: Response) {
+  const f = vi.fn(async (url: string) => (url.endsWith("/login") ? json(200, { mfa_required: false, totp_setup_required: true }) : url.endsWith("/totp/setup") ? json(200, { otpauth_url: "otpauth://x" }) : url.endsWith("/totp/enroll") ? enroll : json(200, { role: "staff" })));
+  vi.stubGlobal("fetch", f);
+  void i18n.changeLanguage("en");
+  render(<MemoryRouter initialEntries={["/login"]}><Routes><Route path="/login" element={<Login />} /><Route path="/files" element={<p>files page</p>} /></Routes></MemoryRouter>);
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@x.com" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  return f;
+}
+
+test("forced enrolment shows the QR, wrong code errors, right code navigates", async () => {
+  const f = setupEnroll(json(401, { error: "invalid_code" }));
+  expect(await screen.findByRole("img")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Code (6 digits)"), { target: { value: "000000" } });
+  fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Invalid code");
+  expect(f).toHaveBeenCalledWith("/api/auth/totp/enroll", expect.objectContaining({ body: JSON.stringify({ code: "000000" }) }));
+  cleanup();
+  setupEnroll(json(200, { mfa_required: false }));
+  await screen.findByRole("img");
+  fireEvent.change(screen.getByLabelText("Code (6 digits)"), { target: { value: "123456" } });
+  fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+  expect(await screen.findByText("files page")).toBeTruthy();
+});

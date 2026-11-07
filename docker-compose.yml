@@ -13,6 +13,7 @@ services:
       #SX_UNMARKABLE_POLICY: warn # warn or block
     volumes:
       - sxdata:/data
+      - ./certs:/etc/secure-exchange/certs:ro
     depends_on:
       postgres:
         condition: service_healthy

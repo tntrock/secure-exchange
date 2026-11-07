@@ -113,9 +113,9 @@ docker compose up -d
 | `SX_DOMAIN` | （必填） | 對外網域 |
 | `POSTGRES_PASSWORD` | （必填） | 內建資料庫密碼 |
 | `SX_HTTP_PORT`／`SX_HTTPS_PORT` | 80／443 | 主機對外埠 |
-| `SX_BASE_URL` | compose 組成 `https://${SX_DOMAIN}` | 對外網址，用於信件連結與 OIDC 回呼。**不含 `SX_HTTPS_PORT`**，見下方說明 |
+| `SX_BASE_URL` | `https://${SX_DOMAIN}`（compose），可在 `.env` 覆寫 | 對外網址，用於信件連結與 OIDC 回呼。**不含 `SX_HTTPS_PORT`**，見下方說明 |
 | `SX_LISTEN` | `:8080` | 容器內監聽位址（compose 不需變更，Caddy 轉送到此） |
-| `SX_DATABASE_URL` | compose 自動組成 | PostgreSQL 連線網址；直接執行執行檔時必填，compose 以 `POSTGRES_PASSWORD` 組成 |
+| `SX_DATABASE_URL` | compose 自動組成 | PostgreSQL 連線網址；直接執行二進位檔時必填，compose 以 `POSTGRES_PASSWORD` 組成 |
 | `SX_MASTER_KEYS` | （必填） | 主金鑰清單，`id:金鑰` 以逗號分隔 |
 | `SX_ACTIVE_KEY_ID` | （必填） | 新資料使用哪一把金鑰 |
 | `SX_INIT_ADMIN_EMAIL`／`SX_INIT_ADMIN_PASSWORD` | — | 第一位管理員 |
@@ -125,7 +125,7 @@ docker compose up -d
 
 **主機 HTTPS 埠不是 443 時**：compose 預設以 `https://${SX_DOMAIN}` 設定 app 與 worker 的 `SX_BASE_URL`，不含 `SX_HTTPS_PORT`，信件連結與 OIDC 回呼網址會缺少埠號。請在 `.env` 加上 `SX_BASE_URL=https://<網域>:<埠>`（例如 `https://files.example.com:8443`），compose 會改用這個值。
 
-（直接執行執行檔而非 compose 時，則在環境中設定 `SX_BASE_URL`。）
+（直接執行二進位檔而非 compose 時，則在環境中設定 `SX_BASE_URL`。）
 
 ### 儲存
 
@@ -796,16 +796,20 @@ docker compose exec postgres psql -U sx -d sx -c \
 ## 15. 升級
 
 1. 閱讀 [GitHub Releases](https://github.com/tntrock/secure-exchange/releases) 的版本說明，留意新增或變更的環境變數與遷移注意事項。
-2. 備份資料庫，取得新版程式碼，並比對 `.env.example` 與你的 `.env`，補上新增的變數。
+2. 備份資料庫並取得新版程式碼；`git pull` 之後立即比對 `.env.example` 的變動，把新增的變數補進 `.env`：
+
+   ```sh
+   cd secure-exchange
+   docker compose exec -T postgres pg_dump -U sx sx > before-upgrade.sql
+   git pull
+   git diff ORIG_HEAD HEAD -- .env.example
+   ```
+
 3. 重新建置並啟動：
 
-```sh
-cd secure-exchange
-docker compose exec -T postgres pg_dump -U sx sx > before-upgrade.sql   # 先備份
-git pull
-git diff ORIG_HEAD HEAD -- .env.example   # 新版新增或變更的設定，補進 .env
-docker compose up -d --build
-```
+   ```sh
+   docker compose up -d --build
+   ```
 
 資料庫結構會在 app 啟動時自動升級（多個實例同時啟動時有鎖保護）。升級後請檢查：
 

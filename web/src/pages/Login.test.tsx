@@ -168,3 +168,38 @@ test.each([
   await submitLdap();
   expect((await screen.findByRole("alert")).textContent).toBe(msg);
 });
+
+function setupOidc(methods: object, url = "/login") {
+  vi.stubGlobal("fetch", vi.fn(async () => json(200, methods)));
+  void i18n.changeLanguage("zh-TW");
+  render(<MemoryRouter initialEntries={[url]}><Routes><Route path="/login" element={<Login />} /></Routes></MemoryRouter>);
+}
+
+test("oidc on: default button is a plain link to the start endpoint", async () => {
+  setupOidc({ ldap: false, oidc: true, oidc_label: "" });
+  const a = await screen.findByRole("link", { name: "以 Microsoft 登入" });
+  expect(a.getAttribute("href")).toBe("/api/auth/oidc/start");
+});
+
+test("oidc on: custom label is shown verbatim", async () => {
+  setupOidc({ ldap: false, oidc: true, oidc_label: "Sign in with Contoso" });
+  expect(await screen.findByRole("link", { name: "Sign in with Contoso" })).toBeTruthy();
+});
+
+test("oidc off: no button", async () => {
+  setupOidc({ ldap: false, oidc: false });
+  await screen.findByLabelText("電子郵件");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(screen.queryByRole("link")).toBeNull();
+});
+
+test.each([
+  ["unavailable", "身分提供者暫時無法連線，請稍後再試或改用本機帳號"],
+  ["denied", "登入已取消"],
+  ["email_conflict", "這個網域帳號的 email 已被另一個網域帳號使用，請聯絡管理員"],
+  ["invalid", "單一登入失敗，請再試一次"],
+  ["bogus", "單一登入失敗，請再試一次"],
+])("oidc_error=%s shows its message", async (code, msg) => {
+  setupOidc({ ldap: false, oidc: false }, `/login?oidc_error=${code}`);
+  expect((await screen.findByRole("alert")).textContent).toBe(msg);
+});

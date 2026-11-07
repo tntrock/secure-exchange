@@ -6,6 +6,7 @@
     "domainTitle": "Domain account", "username": "Username",
     "directoryUnavailable": "The domain server is temporarily unreachable. Try again later or use a local account",
     "emailConflict": "This domain account's email is already used by another domain account. Contact an administrator",
+    "or": "or", "oidcDefault": "Sign in with Microsoft", "oidcDenied": "Sign-in was cancelled", "oidcInvalid": "Single sign-on failed, please try again", "oidcUnavailable": "The identity provider is temporarily unreachable. Try again later or use a local account",
     "invalid": "Invalid email or password", "invalidCode": "Invalid code", "rateLimited": "Too many attempts, try again later"
   },
   "totp": {
@@ -126,7 +127,7 @@
     "create": "Create and invite", "listTitle": "All accounts", "disable": "Disable", "enable": "Enable", "resetTotp": "Reset TOTP", "reinvite": "Reinvite",
     "confirmReset": "Reset two-factor authentication for {{email}}?", "confirmDisable": "Disable {{email}}? Their sessions end immediately.", "confirmDemote": "Demote {{email}} from administrator to staff?", "yes": "Yes", "no": "No", "never": "Never",
     "roles": { "staff": "Staff", "admin": "Administrator", "vendor": "Vendor" },
-    "sources": { "local": "Local" },
+    "sources": { "local": "Local", "ldap": "Domain", "oidc": "SSO" },
     "status": { "invited": "Invited", "active": "Active", "disabled": "Disabled", "pending": "Pending approval", "rejected": "Rejected", "expired": "Expired" },
     "error": { "generic": "Something went wrong, please check the form", "lastAdmin": "Cannot disable or demote the last local administrator", "external": "The role and two-factor authentication of external-login accounts come from the external source and cannot be changed here", "emailTaken": "This email address is already in use", "wrongState": "That action is not allowed in the account's current state" }
   },

@@ -234,6 +234,19 @@ docker compose -f docker-compose.dev.yml --profile tools run --rm worker-test
 
 CI runs them in a separate `tools` job.
 
+### End-to-end tests
+
+`e2e/` holds Playwright browser tests (Chromium only). `scripts/e2e.sh` builds and starts a throwaway compose stack (project `sxe2e`, HTTPS `:59443`, mailpit `:59025`, Dex for the OIDC test `:59556`), waits for it, runs the tests, and on exit (failure and Ctrl-C included) removes the stack, its volumes and its temporary `.env`:
+
+```sh
+(cd e2e && npm ci && npx playwright install chromium)   # once; on Linux use npx playwright install --with-deps chromium
+scripts/e2e.sh                                          # all; arguments go to playwright, e.g. tests/auth.spec.ts
+E2E_KEEP=1 scripts/e2e.sh tests/auth.spec.ts            # leave the stack up afterwards for debugging
+scripts/e2e.sh tests/admin.spec.ts --no-deps               # admin only (without --no-deps the chromium project runs in full first)
+```
+
+Needs Docker, Node.js and `openssl`; refuses to run if a `.env` exists. ClamAV signatures are kept in `.e2e-clamav/`; the first run downloads a few hundred MB, and on Linux the directory ends up owned by uid 100 (the ClamAV container chowns it), so removing it needs sudo. Open the traces of failed tests with `cd e2e && npx playwright show-report` (or `npx playwright show-trace test-results/<test>/trace.zip`); all service logs are in `e2e/test-results/compose.log`. The test stack's Caddy trusts the `X-Forwarded-For` the tests send so that each test gets its own rate-limit budget (e2e only). OIDC sign-in is tested against Dex (`https://dex.localhost:59556/dex`, self-signed cert in the temporary `.e2e-dex/`). There is no LDAP end-to-end test (the Go tests cover it against a stub). CI runs it via `.github/workflows/e2e.yml` on every non-docs PR and push to main (not a required check yet); on failure `playwright-report` and `test-results` (incl. `compose.log`) are uploaded as artifacts for 7 days.
+
 ## Security
 
 Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).

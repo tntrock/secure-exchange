@@ -194,7 +194,7 @@ func TestAdminNoDownloadRoute(t *testing.T) {
 
 func TestAdminDirectFetchAuditedOnce(t *testing.T) {
 	e := newEnv(t)
-	adminViewTTL = 300 * time.Millisecond
+	adminViewTTL = 2 * time.Second // wide enough for two fetches under -race on a busy CI runner
 	t.Cleanup(func() { adminViewTTL = 30 * time.Minute })
 	e.admin(t)
 	b := e.user(t, "b@x.com")
@@ -212,7 +212,7 @@ func TestAdminDirectFetchAuditedOnce(t *testing.T) {
 		t.Fatalf("%d rows after a second fetch", n)
 	}
 	// a fetch after the window has passed is audited again
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(2100 * time.Millisecond)
 	wantStatus(t, e, "GET", page, nil, 200, "")
 	if n := len(e.auditActions(t, audit.ActFileView)); n != 2 {
 		t.Fatalf("%d rows after the window", n)

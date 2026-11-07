@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { errKey } from "../recipient/errKey";
 import { api, fmtDate, type VendorShareSummary } from "../../api";
 
 export default function VendorShares() {
   const { t, i18n } = useTranslation();
   const [rows, setRows] = useState<VendorShareSummary[] | null>(null);
-  const [err, setErr] = useState(false);
-  useEffect(() => { api.vendorShares().then(setRows, () => setErr(true)); }, []);
+  const [err, setErr] = useState("");
+  useEffect(() => { api.vendorShares().then(setRows, (e) => setErr(errKey(e))); }, []);
   return (
     <>
       <h1>{t("vendorPortal.title")}</h1>
-      {err && <p className="error" role="alert">{t("app.error")}</p>}
+      {err && <p className="error" role="alert">{t(`recipient.error.${err}`)}</p>}
       {rows && !rows.length && <p>{t("vendorPortal.empty")}</p>}
       {rows && rows.length > 0 && (
         <table>

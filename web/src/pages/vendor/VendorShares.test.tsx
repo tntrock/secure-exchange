@@ -23,3 +23,9 @@ test("empty list says so", async () => {
   render(<MemoryRouter><VendorShares /></MemoryRouter>);
   expect(await screen.findByText("Nothing has been shared with you yet")).toBeTruthy();
 });
+
+test.each([["domain_blocked", "recipient.error.domain_blocked"], ["ip_denied", "recipient.error.ipDenied"]])("403 %s shows its own message", async (error, key) => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error }), { status: 403 })));
+  render(<MemoryRouter><VendorShares /></MemoryRouter>);
+  expect(await screen.findByText(i18n.t(key))).toBeTruthy();
+});

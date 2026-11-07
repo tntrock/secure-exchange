@@ -48,3 +48,38 @@ test("401 sends the vendor to the login page", async () => {
   render(<MemoryRouter initialEntries={["/vendor/shares/s1"]}><Routes><Route path="/vendor/shares/:id" element={<VendorShare />} /><Route path="/login" element={<p>login page</p>} /></Routes></MemoryRouter>);
   expect(await screen.findByText("login page")).toBeTruthy();
 });
+
+const content = (head: Response, get?: Response, extra = {}) => vi.fn(async (url: string, init?: RequestInit) =>
+  url.endsWith("/content") ? (init?.method === "HEAD" ? head : (get ?? head)) : json(200, body(extra)));
+
+test("download preflight: HEAD 403 + GET reason shows the message and does not navigate", async () => {
+  vi.stubGlobal("fetch", content(new Response(null, { status: 403 }), json(403, { error: "unmarkable" })));
+  const go = vi.spyOn(nav, "go").mockImplementation(() => {});
+  show();
+  fireEvent.click(await screen.findByRole("link", { name: "Download" }));
+  expect(await screen.findByText(i18n.t("recipient.error.unmarkable"))).toBeTruthy();
+  expect(go).not.toHaveBeenCalled();
+});
+
+test("download preflight: HEAD 200 navigates once", async () => {
+  vi.stubGlobal("fetch", content(new Response(null, { status: 200 })));
+  const go = vi.spyOn(nav, "go").mockImplementation(() => {});
+  show();
+  fireEvent.click(await screen.findByRole("link", { name: "Download" }));
+  await waitFor(() => expect(go).toHaveBeenCalledTimes(1));
+});
+
+test.each([{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }])("modified click %o is left to the browser", async (mod) => {
+  vi.stubGlobal("fetch", content(new Response(null, { status: 200 })));
+  const go = vi.spyOn(nav, "go").mockImplementation(() => {});
+  show();
+  expect(fireEvent.click(await screen.findByRole("link", { name: "Download" }), mod)).toBe(true);
+  expect(go).not.toHaveBeenCalled();
+});
+
+test("unpreviewable file: no View button, Download stays", async () => {
+  vi.stubGlobal("fetch", content(new Response(null, { status: 200 }), undefined, { previewable: false }));
+  show();
+  expect(await screen.findByRole("link", { name: "Download" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "View" })).toBeNull();
+});

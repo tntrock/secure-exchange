@@ -212,3 +212,16 @@ export const fmtDate = (s: string, lng: string) =>
 
 // full-page navigation, behind an object so tests can stub it (jsdom's location.assign is not spyable)
 export const nav = { go: (href: string) => window.location.assign(href) };
+
+// Preflight for a download link: HEAD runs every server-side refusal but sends no body, so the
+// code comes from the status; a 403 has several reasons, so one GET (JSON on refusal, never a download) names it.
+export async function headFile(url: string): Promise<void> {
+  const res = await fetch(url, { method: "HEAD", credentials: "same-origin" });
+  if (res.ok) return;
+  let code = res.status === 403 ? "forbidden" : res.status === 409 || res.status === 423 ? "scan_pending" : res.status === 429 ? "rate_limited" : "error";
+  if (res.status === 403) {
+    const body = await fetch(url, { credentials: "same-origin" }).then((r) => r.json()).catch(() => null);
+    if (typeof body?.error === "string") code = body.error;
+  }
+  throw new ApiError(res.status, code);
+}

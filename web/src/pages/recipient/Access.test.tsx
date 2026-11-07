@@ -221,3 +221,55 @@ test("download_forbidden + non-previewable file shows the admin-blocked note", a
   expect(await screen.findByText(i18n.t("recipient.blockedByAdmin"))).toBeTruthy();
   expect(screen.queryByRole("button", { name: i18n.t("viewer.open") })).toBeNull();
 });
+
+function mockDl(head: Response, get?: Response) {
+  const f = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/files")) return json(200, filesBody);
+    if (url.endsWith("/content")) return init?.method === "HEAD" ? head : (get ?? head);
+    return json(200, landing);
+  });
+  vi.stubGlobal("fetch", f);
+  return f;
+}
+
+test("download preflight: HEAD 403 + GET reason shows the translated message and does not navigate", async () => {
+  mockDl(new Response(null, { status: 403 }), json(403, { error: "unmarkable" }));
+  const go = vi.spyOn(nav, "go").mockImplementation(() => {});
+  renderPage();
+  fireEvent.click(await screen.findByRole("link", { name: "Download" }));
+  expect(await screen.findByText(i18n.t("recipient.error.unmarkable"))).toBeTruthy();
+  expect(go).not.toHaveBeenCalled();
+});
+
+test("download preflight: HEAD 200 navigates once", async () => {
+  mockDl(new Response(null, { status: 200 }));
+  const go = vi.spyOn(nav, "go").mockImplementation(() => {});
+  renderPage();
+  fireEvent.click(await screen.findByRole("link", { name: "Download" }));
+  await waitFor(() => expect(go).toHaveBeenCalledTimes(1));
+});
+
+test.each([{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }])("modified click %o is left to the browser", async (mod) => {
+  const f = mockDl(new Response(null, { status: 200 }));
+  const go = vi.spyOn(nav, "go").mockImplementation(() => {});
+  renderPage();
+  const link = await screen.findByRole("link", { name: "Download" });
+  expect(fireEvent.click(link, mod)).toBe(true); // true = not defaultPrevented
+  expect(go).not.toHaveBeenCalled();
+  expect(f.mock.calls.some(([, i]) => i?.method === "HEAD")).toBe(false);
+});
+
+test("unpreviewable file: no View button, Download stays", async () => {
+  const body = { ...filesBody, files: [{ id: "f1", name: "a.zip", size: 1, available: true, previewable: false }] };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("/files") ? json(200, body) : json(200, landing))));
+  renderPage();
+  expect(await screen.findByRole("link", { name: "Download" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "View" })).toBeNull();
+});
+
+test("neither View nor Download available shows the no-actions note", async () => {
+  const body = { ...filesBody, allow_download: false, files: [{ id: "f1", name: "a.zip", size: 1, available: true, previewable: false }] };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("/files") ? json(200, body) : json(200, landing))));
+  renderPage();
+  expect(await screen.findByText(i18n.t("recipient.noActions"))).toBeTruthy();
+});

@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -110,6 +111,9 @@ func (p *Provider) Exchange(ctx context.Context, code string, f Flow) (Identity,
 	tok, err := p.oauth(prov).Exchange(ctx, code, oauth2.VerifierOption(f.Verifier))
 	if err != nil {
 		var re *oauth2.RetrieveError
+		if errors.As(err, &re) && re.ErrorCode == "invalid_client" {
+			slog.Error("oidc: IdP rejected the client; check SX_OIDC_CLIENT_SECRET and its expiry", "err", err)
+		}
 		if !errors.As(err, &re) || re.ErrorCode == "invalid_client" || re.Response.StatusCode >= 500 {
 			return Identity{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 		}
@@ -131,9 +135,12 @@ func (p *Provider) Exchange(ctx context.Context, code string, f Flow) (Identity,
 	if err := idt.Claims(&cl); err != nil {
 		return Identity{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
+	if idt.Subject == "" {
+		return Identity{}, fmt.Errorf("%w: no sub", ErrInvalid)
+	}
 	id := Identity{ExternalID: idt.Issuer + " " + idt.Subject}
 	for _, k := range []string{"email", "preferred_username", "upn"} {
-		if s, _ := cl[k].(string); s != "" {
+		if s, _ := cl[k].(string); s != "" && (k == "email" || strings.Contains(s, "@")) {
 			id.Email = s
 			break
 		}

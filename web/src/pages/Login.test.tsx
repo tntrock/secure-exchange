@@ -196,7 +196,8 @@ test("oidc off: no button", async () => {
 test.each([
   ["unavailable", "身分提供者暫時無法連線，請稍後再試或改用本機帳號"],
   ["denied", "登入已取消"],
-  ["email_conflict", "這個網域帳號的 email 已被另一個網域帳號使用，請聯絡管理員"],
+  ["email_conflict", "這個單一登入帳號的 email 已被另一個單一登入帳號使用，請聯絡管理員"],
+  ["constructor", "單一登入失敗，請再試一次"],
   ["invalid", "單一登入失敗，請再試一次"],
   ["bogus", "單一登入失敗，請再試一次"],
 ])("oidc_error=%s shows its message", async (code, msg) => {

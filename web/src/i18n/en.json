@@ -6,12 +6,12 @@
     "domainTitle": "Domain account", "username": "Username",
     "directoryUnavailable": "The domain server is temporarily unreachable. Try again later or use a local account",
     "emailConflict": "This domain account's email is already used by another domain account. Contact an administrator",
-    "or": "or", "oidcDefault": "Sign in with Microsoft", "oidcDenied": "Sign-in was cancelled", "oidcInvalid": "Single sign-on failed, please try again", "oidcUnavailable": "The identity provider is temporarily unreachable. Try again later or use a local account",
+    "or": "or", "oidcDefault": "Sign in with Microsoft", "oidcDenied": "Sign-in was cancelled", "oidcEmailConflict": "This single sign-on account's email is already used by another single sign-on account. Contact an administrator", "oidcInvalid": "Single sign-on failed, please try again", "oidcUnavailable": "The identity provider is temporarily unreachable. Try again later or use a local account",
     "invalid": "Invalid email or password", "invalidCode": "Invalid code", "rateLimited": "Too many attempts, try again later"
   },
   "totp": {
     "title": "Set up two-factor authentication", "scan": "Scan the QR code with an authenticator app, then enter the 6-digit code.",
-    "qrAlt": "Two-factor authentication QR code", "start": "Start setup", "code": "Code", "enable": "Enable", "enabled": "Two-factor authentication is enabled", "failed": "Invalid code or setup failed", "external": "Two-factor authentication for domain accounts is handled by your company sign-in system"
+    "qrAlt": "Two-factor authentication QR code", "start": "Start setup", "code": "Code", "enable": "Enable", "enabled": "Two-factor authentication is enabled", "failed": "Invalid code or setup failed", "external": "Two-factor authentication for external-login accounts is handled by your company sign-in system"
   },
   "files": {
     "title": "My files", "empty": "No files yet", "name": "Name", "size": "Size", "created": "Uploaded",

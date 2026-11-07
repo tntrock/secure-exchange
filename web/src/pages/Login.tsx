@@ -20,7 +20,8 @@ export default function Login() {
   const [lerr, setLerr] = useState("");
   const [oidc, setOidc] = useState<{ label: string } | null>(null);
   const oerr = useSearchParams()[0].get("oidc_error");
-  const oidcMsg = { denied: "login.oidcDenied", unavailable: "login.oidcUnavailable", email_conflict: "login.emailConflict" }[oerr ?? ""] ?? "login.oidcInvalid";
+  const OIDC_MSG: Record<string, string> = { denied: "login.oidcDenied", unavailable: "login.oidcUnavailable", email_conflict: "login.oidcEmailConflict" };
+  const oidcMsg = oerr && Object.hasOwn(OIDC_MSG, oerr) ? OIDC_MSG[oerr] : "login.oidcInvalid";
 
   useEffect(() => { api.authMethods().then((m) => { setLdap(!!m?.ldap); setOidc(m?.oidc ? { label: m.oidc_label ?? "" } : null); }, () => {}); }, []);
 

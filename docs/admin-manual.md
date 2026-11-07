@@ -377,7 +377,7 @@ AD 帳號刪除後重建（`objectGUID` 改變、email 相同），或 email 轉
 
 #### 帳號行為
 
-- 帳號在**第一次登入時自動建立**為員工；之後每次登入都會更新 email 與顯示名稱。email 取 `email`，沒有則 `preferred_username`，再沒有則 `upn`；三者都空則無法登入。`email_verified` 不是必要條件。
+- 帳號在**第一次登入時自動建立**為員工；之後每次登入都會更新 email 與顯示名稱。email 取 `email`；沒有則取 `preferred_username`，再沒有則取 `upn`，但這兩者**必須含 `@`** 才會被採用（例如 `alice` 這種不含 `@` 的值會被略過），都不符合就無法登入。`email_verified` 不是必要條件。
 - 單一登入帳號**不會與本機或網域帳號合併**：即使 email 相同，也是獨立的帳號（唯一識別為 `iss` + `sub`），單一登入永遠不會進到本機或網域帳號，本機密碼登入仍進本機帳號。
 - **角色每次登入重新判斷**；不能在「使用者」頁變更角色或重設 TOTP。外部管理員不計入[最後一位管理員](#最後一位管理員)的檢查，請保留至少一位本機管理員。
 - 管理員可在本機**停用**帳號；被停用的帳號無法登入（稽核 stage 為 `disabled`）。
@@ -393,12 +393,14 @@ AD 帳號刪除後重建（`objectGUID` 改變、email 相同），或 email 轉
 | stage | 頁面代碼 | 說明與處理 |
 |---|---|---|
 | `oidc_denied` | `denied` | 身分提供者回傳錯誤（例如使用者按了取消、或未被指派存取權）。詳細資料的 `idp_error` 是對方的錯誤代碼（最多 64 字元）。 |
-| `oidc_state` | `invalid` | `state` 與瀏覽器 cookie 不符或 cookie 遺失（逾時 10 分鐘、跨瀏覽器、或疑似偽造的登入請求）。請使用者從登入頁重新按按鈕。 |
-| `oidc_token` | `invalid` | 權杖被拒：授權碼無效或已用過、ID token 簽章／`iss`／`aud`／到期驗證失敗，或 `nonce` 不符。多半是 `SX_OIDC_ISSUER` 或 `SX_OIDC_CLIENT_ID` 設定錯誤（例如用了 `common`）。 |
-| `oidc_no_email` | `invalid` | 權杖中 `email`、`preferred_username`、`upn` 都沒有值。請在身分提供者補上 email。 |
-| `oidc_unavailable` | `unavailable` | 連不上身分提供者（探索、金鑰或權杖端點逾時 10 秒／5xx），或**用戶端被拒絕**（`invalid_client`，通常是用戶端密碼到期或填錯，伺服器記錄為 ERROR）。檢查網路、`SX_OIDC_CLIENT_SECRET` 到期日，內部 CA 則檢查 `SX_OIDC_CA`。本機登入不受影響。 |
+| `oidc_state` | `invalid` | `state` 與瀏覽器 cookie 不符，或 cookie 遺失、格式損毀（逾時 10 分鐘、跨瀏覽器、或疑似偽造的登入請求）。請使用者從登入頁重新按按鈕。 |
+| `oidc_token` | `invalid` | 權杖被拒：授權碼無效或已用過、ID token 簽章／`iss`／`aud`／到期驗證失敗、`nonce` 不符、權杖沒有 `sub`（Keycloak 25 以後若缺少 `basic` scope 就不會帶 `sub`），或驗證簽章時抓取金鑰（JWKS）失敗。多半是 `SX_OIDC_CLIENT_ID` 設定錯誤，或身分提供者的金鑰端點暫時連不上（請使用者重試）。 |
+| `oidc_no_email` | `invalid` | 權杖中 `email`、`preferred_username`、`upn` 都沒有可用的值（`preferred_username`、`upn` 必須含 `@`）。請在身分提供者補上 email。 |
+| `oidc_unavailable` | `unavailable` | 連不上身分提供者（探索或權杖端點逾時 10 秒／5xx），或**用戶端被拒絕**（`invalid_client`，通常是用戶端密碼到期或填錯，伺服器記錄為 ERROR）。**發行者填錯**也會在探索階段落在這裡：伺服器 WARN 記錄（`oidc callback`／`oidc start`）會含有 `issuer` 或 `did not match`，常見原因是用了 `common`、用網域名稱而不是租用戶 GUID，或結尾多了 `/`；`SX_OIDC_ISSUER` 必須使用租用戶 GUID 且**結尾不加斜線**。另請檢查網路、`SX_OIDC_CLIENT_SECRET` 到期日，內部 CA 則檢查 `SX_OIDC_CA`。本機登入不受影響。 |
 | `email_conflict` | `email_conflict` | 已有另一個單一登入帳號占用同一個 email，見下。 |
 | `disabled` | `invalid` | 管理員在本機停用了該帳號。 |
+
+資料庫錯誤（記錄在 `oidc upsert`／`oidc session`）時，使用者會看到 `oidc_error=unavailable`，但**不會寫入稽核紀錄**；請查伺服器記錄。
 
 #### email 被舊單一登入帳號占用（`email_conflict`）
 

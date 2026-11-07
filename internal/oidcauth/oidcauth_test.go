@@ -1,6 +1,7 @@
 package oidcauth
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -10,12 +11,14 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -206,6 +209,7 @@ func TestExchangeRejects(t *testing.T) {
 		"nonce":     func(i *idp) { i.claims["nonce"] = "replayed" },
 		"grant":     func(i *idp) { i.tokenStatus, i.tokenBody = 400, `{"error":"invalid_grant"}` },
 		"no token":  func(i *idp) { i.noIDToken = true },
+		"no sub":    func(i *idp) { i.claims["sub"] = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			i := newIDP(t)
@@ -264,6 +268,8 @@ func TestIdentityClaims(t *testing.T) {
 		{name: "preferred_username", claims: map[string]any{"email": nil, "preferred_username": "p@x.test"}, want: with(func(i *Identity) { i.Email = "p@x.test" })},
 		{name: "upn", claims: map[string]any{"email": nil, "upn": "u@x.test"}, want: with(func(i *Identity) { i.Email = "u@x.test" })},
 		{name: "no email", claims: map[string]any{"email": nil}, err: ErrNoEmail},
+		{name: "upn after non-email preferred_username", claims: map[string]any{"email": nil, "preferred_username": "alice", "upn": "a@x.test"}, want: with(func(i *Identity) { i.Email = "a@x.test" })},
+		{name: "non-email preferred_username only", claims: map[string]any{"email": nil, "preferred_username": "alice"}, err: ErrNoEmail},
 		{name: "name falls back to email", claims: map[string]any{"name": nil}, want: with(func(i *Identity) { i.Name = i.Email })},
 		{name: "string claim", claims: map[string]any{"groups": "adm"}, want: with(func(i *Identity) { i.Admin = true })},
 		{name: "string claim differs", claims: map[string]any{"groups": "other"}, want: base},
@@ -314,5 +320,20 @@ func TestDiscoveryRetried(t *testing.T) {
 	defer i.mu.Unlock()
 	if i.discoveries != 2 {
 		t.Fatalf("discovery ran %d times, want 2 (one failure, one cached success)", i.discoveries)
+	}
+}
+
+func TestInvalidClientLoggedAsError(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	i := newIDP(t)
+	i.set(func(i *idp) { i.tokenStatus, i.tokenBody = 401, `{"error":"invalid_client"}` })
+	if _, err := i.provider(t).Exchange(bg, "c", flow); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v", err)
+	}
+	if out := buf.String(); !strings.Contains(out, "level=ERROR") || !strings.Contains(out, "SX_OIDC_CLIENT_SECRET") {
+		t.Fatalf("log = %q", out)
 	}
 }

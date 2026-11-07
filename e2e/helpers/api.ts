@@ -8,7 +8,9 @@ const ORIGIN = { Origin: BASE_URL };
 // apiCall sends one JSON API request with the context's cookies and returns the parsed body
 // (undefined for 204). Throws with the status and body on anything but 2xx.
 export async function apiCall<T = unknown>(request: APIRequestContext, method: string, path: string, body?: unknown): Promise<T> {
-  const r = await request.fetch(BASE_URL + path, { method, headers: ORIGIN, data: body });
+  // a GET is safe to repeat once if the connection is reset (seen once at suite start-up under load)
+  const send = () => request.fetch(BASE_URL + path, { method, headers: ORIGIN, data: body });
+  const r = method === "GET" ? await send().catch(send) : await send();
   if (!r.ok()) throw new Error(`${method} ${path}: ${r.status()} ${await r.text()}`);
   return (r.status() === 204 ? undefined : await r.json()) as T;
 }

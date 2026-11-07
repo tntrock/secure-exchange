@@ -16,5 +16,9 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", testIgnore: /admin\.spec/, use: { ...devices["Desktop Chrome"] } },
+    // admin.spec changes site-wide rules (forbid download): it runs alone, after all other specs
+    { name: "admin", testMatch: /admin\.spec/, dependencies: ["chromium"], use: { ...devices["Desktop Chrome"] } },
+  ],
 });

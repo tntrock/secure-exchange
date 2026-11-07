@@ -155,6 +155,10 @@ func (s *server) requireRole(next http.HandlerFunc, roles ...string) http.Handle
 		if err == nil && u.AuthSource == "ldap" {
 			u = s.recheck(r, token, u)
 		}
+		if err == nil && u != nil && u.AuthSource == "oidc" && s.OIDC == nil { // OIDC turned off since the login
+			s.endSession(r, token, u, "oidc_disabled", false)
+			u = nil
+		}
 		if err != nil || u == nil || !u.Active(time.Now()) {
 			writeJSON(w, http.StatusUnauthorized, errBody("unauthorized"))
 			return

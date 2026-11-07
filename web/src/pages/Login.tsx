@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../api";
 import LangSwitch from "../components/LangSwitch";
@@ -18,8 +18,12 @@ export default function Login() {
   const [user, setUser] = useState("");
   const [dpw, setDpw] = useState("");
   const [lerr, setLerr] = useState("");
+  const [oidc, setOidc] = useState<{ label: string } | null>(null);
+  const oerr = useSearchParams()[0].get("oidc_error");
+  const OIDC_MSG: Record<string, string> = { denied: "login.oidcDenied", unavailable: "login.oidcUnavailable", email_conflict: "login.oidcEmailConflict" };
+  const oidcMsg = oerr && Object.hasOwn(OIDC_MSG, oerr) ? OIDC_MSG[oerr] : "login.oidcInvalid";
 
-  useEffect(() => { api.authMethods().then((m) => setLdap(!!m?.ldap), () => {}); }, []);
+  useEffect(() => { api.authMethods().then((m) => { setLdap(!!m?.ldap); setOidc(m?.oidc ? { label: m.oidc_label ?? "" } : null); }, () => {}); }, []);
 
   const fail = (e: unknown, invalidKey: string) =>
     setErr(e instanceof ApiError && e.status === 429 ? t("login.rateLimited") : e instanceof ApiError && e.status === 403 && e.message === "ip_denied" ? t("recipient.error.ipDenied") : e instanceof ApiError && e.status === 401 ? t(invalidKey) : t("app.error"));
@@ -88,6 +92,13 @@ export default function Login() {
         {err && <p className="error" role="alert">{err}</p>}
         <button type="submit">{mfa || qr ? t("login.totpSubmit") : t("login.submit")}</button>
       </form>
+      {oerr !== null && !mfa && !qr && <p className="error" role="alert">{t(oidcMsg)}</p>}
+      {oidc && !mfa && !qr && (
+        <>
+          <p style={{ textAlign: "center" }}>{t("login.or")}</p>
+          <a href="/api/auth/oidc/start">{oidc.label || t("login.oidcDefault")}</a>
+        </>
+      )}
       {ldap && !mfa && !qr && (
         <>
           <h2>{t("login.domainTitle")}</h2>

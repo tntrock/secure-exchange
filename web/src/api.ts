@@ -113,7 +113,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 
 export const api = {
   me: () => call<Me>("GET", "/api/me"),
-  authMethods: () => call<{ ldap: boolean }>("GET", "/api/auth/methods"),
+  authMethods: () => call<{ ldap: boolean; oidc?: boolean; oidc_label?: string }>("GET", "/api/auth/methods"),
   ldapLogin: (username: string, password: string) => call<{ mfa_required: boolean; totp_setup_required?: boolean }>("POST", "/api/auth/ldap", { username, password }),
   login: (email: string, password: string) => call<{ mfa_required: boolean; totp_setup_required?: boolean }>("POST", "/api/auth/login", { email, password }),
   totp: (code: string) => call<void>("POST", "/api/auth/totp", { code }),

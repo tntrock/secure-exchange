@@ -473,3 +473,69 @@ func TestCertPoolPEMBundleAndDER(t *testing.T) {
 		t.Fatal("garbage accepted")
 	}
 }
+
+func oidcEnv() map[string]string {
+	m := required()
+	m["SX_OIDC_ISSUER"] = "https://idp.test/t/v2.0"
+	m["SX_OIDC_CLIENT_ID"] = "cid"
+	m["SX_OIDC_CLIENT_SECRET"] = "sec"
+	return m
+}
+
+func TestLoadOIDC(t *testing.T) {
+	m := required()
+	m["SX_OIDC_CLIENT_ID"] = "ignored: empty issuer means disabled"
+	if c, err := Load(env(m)); err != nil || c.OIDC != (OIDCConfig{ClientID: "ignored: empty issuer means disabled", Scopes: "openid profile email", AdminClaim: "groups"}) {
+		t.Fatalf("disabled: %+v %v", c, err)
+	}
+
+	c, err := Load(env(oidcEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := OIDCConfig{Issuer: "https://idp.test/t/v2.0", ClientID: "cid", ClientSecret: "sec", Scopes: "openid profile email", AdminClaim: "groups"}
+	if c.OIDC != want {
+		t.Fatalf("defaults: %+v", c.OIDC)
+	}
+
+	m = oidcEnv()
+	m["SX_OIDC_SCOPES"] = "profile"
+	m["SX_OIDC_ADMIN_CLAIM"] = "roles"
+	m["SX_OIDC_ADMIN_VALUE"] = "adm"
+	m["SX_OIDC_BUTTON_TEXT"] = "Corp SSO"
+	m["SX_OIDC_CA"] = writeCA(t)
+	m["SX_OIDC_CLIENT_SECRET"] = "  s e  "
+	if c, err = Load(env(m)); err != nil {
+		t.Fatal(err)
+	}
+	want = OIDCConfig{Issuer: "https://idp.test/t/v2.0", ClientID: "cid", ClientSecret: "  s e  ", Scopes: "openid profile",
+		AdminClaim: "roles", AdminValue: "adm", ButtonText: "Corp SSO", CAFile: m["SX_OIDC_CA"]}
+	if c.OIDC != want {
+		t.Fatalf("custom: %+v", c.OIDC)
+	}
+	m["SX_OIDC_SCOPES"] = "openid email"
+	if c, err = Load(env(m)); err != nil || c.OIDC.Scopes != "openid email" {
+		t.Fatalf("scopes: %+v %v", c.OIDC, err)
+	}
+
+	for _, tc := range []struct{ k, v, want string }{
+		{"SX_OIDC_ISSUER", "http://idp.test", "SX_OIDC_ISSUER"},
+		{"SX_OIDC_ISSUER", "https://", "SX_OIDC_ISSUER"},
+		{"SX_OIDC_ISSUER", "https://%zz", "SX_OIDC_ISSUER"},
+		{"SX_OIDC_CLIENT_ID", "", "SX_OIDC_CLIENT_ID"},
+		{"SX_OIDC_CLIENT_SECRET", "", "SX_OIDC_CLIENT_SECRET"},
+		{"SX_OIDC_CA", filepath.Join(t.TempDir(), "missing.pem"), "SX_OIDC_CA"},
+	} {
+		m := oidcEnv()
+		m[tc.k] = tc.v
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s=%q: %v", tc.k, tc.v, err)
+		}
+	}
+	// the worker does not validate OIDC settings
+	m = oidcEnv()
+	m["SX_OIDC_ISSUER"] = "http://x"
+	if _, err := LoadWorker(env(m)); err != nil {
+		t.Fatal(err)
+	}
+}

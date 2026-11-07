@@ -9,6 +9,7 @@
 3. [安裝部署](#3-安裝部署)
 4. [設定參考](#4-設定參考)
 5. [帳號與權限](#5-帳號與權限)
+    - [單一登入帳號（OIDC / Entra ID）](#單一登入帳號oidc--entra-id)
 6. [廠商帳號管理](#6-廠商帳號管理)
 7. [強制規則](#7-強制規則)
 8. [溯源查詢（追查外流）](#8-溯源查詢追查外流)
@@ -181,6 +182,10 @@ networks:
 
 `SX_LDAP_*` 見[網域帳號（LDAP/AD）](#網域帳號ldapad)。
 
+### 單一登入（OIDC）
+
+`SX_OIDC_*` 見[單一登入帳號（OIDC / Entra ID）](#單一登入帳號oidc--entra-id)。
+
 ### 電子郵件
 
 見[電子郵件](#12-電子郵件)。
@@ -213,7 +218,7 @@ networks:
 | 重設 TOTP | 見下方「員工遺失雙因素驗證裝置」與[廠商遺失驗證器裝置](#廠商遺失驗證器裝置)。 |
 | 重新邀請 | 僅適用於狀態為「已邀請」的員工，寄出新連結並讓舊連結失效。 |
 
-初始管理員仍由 `SX_INIT_ADMIN_*` 環境變數在第一次啟動時建立。LDAP 網域登入見[網域帳號（LDAP/AD）](#網域帳號ldapad)；OIDC 單一登入尚未提供。外部登入來源（LDAP、OIDC）的帳號仍可在這裡停用與啟用；但角色與雙因素驗證由外部來源決定，不能在這裡變更角色或重設 TOTP。
+初始管理員仍由 `SX_INIT_ADMIN_*` 環境變數在第一次啟動時建立。LDAP 網域登入見[網域帳號（LDAP/AD）](#網域帳號ldapad)；OIDC 單一登入見[單一登入帳號（OIDC / Entra ID）](#單一登入帳號oidc--entra-id)。外部登入來源（LDAP、OIDC）的帳號仍可在這裡停用與啟用；但角色與雙因素驗證由外部來源決定，不能在這裡變更角色或重設 TOTP。
 
 ### 員工遺失雙因素驗證裝置
 
@@ -321,6 +326,99 @@ AD 帳號刪除後重建（`objectGUID` 改變、email 相同），或 email 轉
 | stage 為 `ldap_no_email` | 該帳號的 `SX_LDAP_EMAIL_ATTR` 與 `userPrincipalName` 都是空的。 |
 | stage 為 `ldap_disabled` | AD 帳號已停用。stage 為 `disabled` 則是管理員在本機停用。 |
 | 使用者突然被登出，稽核 `auth.session.end` 的 reason 為 `ldap_unavailable`／`ldap_gone`／`ldap_error` | 分別是網域伺服器無法連線、帳號在 AD 已刪除或停用、更新帳號資料失敗。關閉 LDAP 時，既有網域連線也會結束。 |
+
+### 單一登入帳號（OIDC / Entra ID）
+
+讓員工以公司的單一登入（Microsoft Entra ID 或其他 OpenID Connect 身分提供者）登入。登入頁會多出「以 Microsoft 登入」按鈕（只有設定了 `SX_OIDC_ISSUER` 才會出現）。採用 Authorization Code + PKCE，並驗證 `state`、`nonce`、ID token 簽章、`iss` 與 `aud`。設定**只能寫在 `.env`**。
+
+**設定**（修改後 `docker compose up -d`；完整清單見 `.env.example`）：
+
+| 變數 | 預設 | 說明 |
+|---|---|---|
+| `SX_OIDC_ISSUER` | 空（關閉） | 發行者網址，必須是 `https://`。Entra 為 `https://login.microsoftonline.com/<tenant-id>/v2.0`，**必須用你的租用戶 ID**；`common`、`organizations` 與權杖中的 `iss` 不相符，無法使用。 |
+| `SX_OIDC_CLIENT_ID`、`SX_OIDC_CLIENT_SECRET` | 無 | 設定發行者後必填：應用程式（用戶端）識別碼與用戶端密碼的「值」。 |
+| `SX_OIDC_SCOPES` | `openid profile email` | 以空白分隔；缺少 `openid` 時會自動補上。 |
+| `SX_OIDC_ADMIN_CLAIM` | `groups` | 決定管理員的權杖宣告名稱。Entra 建議改為 `roles`。 |
+| `SX_OIDC_ADMIN_VALUE` | 空 | 使其成為管理員的值；留空表示沒有人會因單一登入成為管理員。 |
+| `SX_OIDC_BUTTON_TEXT` | 空 | 登入按鈕文字，設定後原樣顯示；留空則顯示內建的「以 Microsoft 登入」。 |
+| `SX_OIDC_CA` | 系統根憑證 | 內部身分提供者（如 Keycloak）的根憑證檔（PEM 或 DER），作法同 LDAP 的「憑證」：放進 `./certs`，路徑寫 `/etc/secure-exchange/certs/<檔名>`。 |
+
+**重新導向 URI**：沒有獨立的變數，固定是 `SX_BASE_URL` + `/api/auth/oidc/callback`，例如 `https://files.corp.example/api/auth/oidc/callback`。請在身分提供者**完整一字不差**地註冊這個網址。
+
+**啟動時不連線**：系統啟動時只檢查設定，不會連到身分提供者；第一次有人登入時才做探索並快取，失敗則下次登入再試。因此身分提供者故障不會讓系統無法啟動，本機管理員也仍可登入；恢復後不需重啟。
+
+#### Entra ID 設定步驟
+
+1. Entra 系統管理中心 →「應用程式註冊」→「新增註冊」。
+2. 「重新導向 URI」選平台「Web」，填入上述回呼網址（`<SX_BASE_URL>/api/auth/oidc/callback`）。
+3. 記下「應用程式（用戶端）識別碼」（`SX_OIDC_CLIENT_ID`）與「目錄（租用戶）識別碼」，組成 `SX_OIDC_ISSUER=https://login.microsoftonline.com/<租用戶識別碼>/v2.0`。
+4. 「憑證與祕密」→ 新增用戶端密碼，複製「值」（只顯示一次）作為 `SX_OIDC_CLIENT_SECRET`，並**記下到期日**。密碼到期後，所有單一登入都會失敗（`oidc_unavailable`，伺服器記錄為 ERROR），請在到期前換新並更新 `.env`。
+5. 設定管理員對應（見下），`docker compose up -d`。
+
+#### 管理員對應
+
+**建議使用 App Role（`roles`）：**
+
+1. 在應用程式註冊的「應用程式角色」建立角色，值例如 `SecureExchange.Admin`（允許的成員類型：使用者／群組）。
+2. 在「企業應用程式」→ 該應用程式 →「使用者和群組」，把要當管理員的人指派到該角色。
+3. `.env` 設定 `SX_OIDC_ADMIN_CLAIM=roles`、`SX_OIDC_ADMIN_VALUE=SecureExchange.Admin`。
+
+宣告若是字串，須與設定值完全相同；若是陣列，任一元素相同即可（區分大小寫）。
+
+**為什麼不建議用 `groups`**（雖然它是預設值）：
+
+- Entra 權杖的群組宣告裝的是群組的**物件識別碼**（GUID），不是名稱，`SX_OIDC_ADMIN_VALUE` 必須填 GUID。
+- 使用者所屬群組超過 200 個時，Entra 不會把群組放進權杖（overage），改以 `_claim_names` 指向 Graph。系統不會去呼叫 Graph，該使用者會**成為員工而非管理員**，且該次登入的稽核 `auth.login.ok` 詳細資料帶有 `groups_overage: true`。管理員被降級時請先查這個欄位。使用 App Role 沒有此限制。
+
+#### 其他身分提供者
+
+- **Google Workspace**：權杖沒有群組宣告，所以 `SX_OIDC_ADMIN_VALUE` 留空，單一登入的使用者都是員工；需要管理員時，請另外建立本機管理員帳號。
+- **Keycloak**：`SX_OIDC_ISSUER=https://kc.corp.example/realms/<realm>`；若使用內部 CA，設定 `SX_OIDC_CA`。管理員對應請在 Keycloak 讓權杖帶出角色或群組宣告，再設定 `SX_OIDC_ADMIN_CLAIM`／`SX_OIDC_ADMIN_VALUE`。
+
+#### 帳號行為
+
+- 帳號在**第一次登入時自動建立**為員工；之後每次登入都會更新 email 與顯示名稱。email 取 `email`；沒有則取 `preferred_username`，再沒有則取 `upn`，但這兩者**必須含 `@`** 才會被採用（例如 `alice` 這種不含 `@` 的值會被略過），都不符合就無法登入。`email_verified` 不是必要條件。
+- 單一登入帳號**不會與本機或網域帳號合併**：即使 email 相同，也是獨立的帳號（唯一識別為 `iss` + `sub`），單一登入永遠不會進到本機或網域帳號，本機密碼登入仍進本機帳號。
+- **角色每次登入重新判斷**；不能在「使用者」頁變更角色或重設 TOTP。外部管理員不計入[最後一位管理員](#最後一位管理員)的檢查，請保留至少一位本機管理員。
+- 管理員可在本機**停用**帳號；被停用的帳號無法登入（稽核 stage 為 `disabled`）。
+- 登入狀態最長為 `SX_SESSION_TTL`（預設 12 小時，絕對時間、不會延長）。系統**不會定期向身分提供者重新檢查**，因此在 Entra 停用使用者後，要等其登入狀態到期才生效；要立即中斷，請同時在「使用者」頁停用該帳號。
+- 單一登入帳號**沒有 TOTP**，不適用[全站強制雙因素驗證](#全站強制雙因素驗證)；多因素驗證由 Entra 的條件式存取負責。
+- 在本系統登出只結束本系統的登入狀態，**不會**登出 Microsoft（身分提供者）。
+- 移除 `SX_OIDC_ISSUER`（關閉單一登入）後，既有的單一登入連線在下一次請求就會結束（稽核 `auth.session.end` 的 reason 為 `oidc_disabled`）。
+
+#### 疑難排解
+
+登入失敗時，使用者會被帶回 `/login?oidc_error=<代碼>`；到「稽核紀錄」頁找 `auth.login.fail`，詳細資料的 `source` 為 `oidc`，`stage` 如下：
+
+| stage | 頁面代碼 | 說明與處理 |
+|---|---|---|
+| `oidc_denied` | `denied` | 身分提供者回傳錯誤（例如使用者按了取消、或未被指派存取權）。詳細資料的 `idp_error` 是對方的錯誤代碼（最多 64 字元）。 |
+| `oidc_state` | `invalid` | `state` 與瀏覽器 cookie 不符，或 cookie 遺失、格式損毀（逾時 10 分鐘、跨瀏覽器、或疑似偽造的登入請求）。請使用者從登入頁重新按按鈕。 |
+| `oidc_token` | `invalid` | 權杖被拒：授權碼無效或已用過、ID token 簽章／`iss`／`aud`／到期驗證失敗、`nonce` 不符、權杖沒有 `sub`（Keycloak 25 以後若缺少 `basic` scope 就不會帶 `sub`），或驗證簽章時抓取金鑰（JWKS）失敗。多半是 `SX_OIDC_CLIENT_ID` 設定錯誤，或身分提供者的金鑰端點暫時連不上（請使用者重試）。 |
+| `oidc_no_email` | `invalid` | 權杖中 `email`、`preferred_username`、`upn` 都沒有可用的值（`preferred_username`、`upn` 必須含 `@`）。請在身分提供者補上 email。 |
+| `oidc_unavailable` | `unavailable` | 連不上身分提供者（探索或權杖端點逾時 10 秒／5xx），或**用戶端被拒絕**（`invalid_client`，通常是用戶端密碼到期或填錯，伺服器記錄為 ERROR）。**發行者填錯**也會在探索階段落在這裡：伺服器 WARN 記錄（`oidc callback`／`oidc start`）會含有 `issuer` 或 `did not match`，常見原因是用了 `common`、用網域名稱而不是租用戶 GUID，或結尾多了 `/`；`SX_OIDC_ISSUER` 必須使用租用戶 GUID 且**結尾不加斜線**。另請檢查網路、`SX_OIDC_CLIENT_SECRET` 到期日，內部 CA 則檢查 `SX_OIDC_CA`。本機登入不受影響。 |
+| `email_conflict` | `email_conflict` | 已有另一個單一登入帳號占用同一個 email，見下。 |
+| `disabled` | `invalid` | 管理員在本機停用了該帳號。 |
+
+資料庫錯誤（記錄在 `oidc upsert`／`oidc session`）時，使用者會看到 `oidc_error=unavailable`，但**不會寫入稽核紀錄**；請查伺服器記錄。
+
+#### email 被舊單一登入帳號占用（`email_conflict`）
+
+在 Entra 刪除使用者後重建（`sub` 改變、email 相同），或 email 轉給別人時，系統內舊的單一登入帳號仍占用該 email，每次登入都會被擋下。到「稽核紀錄」頁找 stage 為 `email_conflict` 的 `auth.login.fail`，詳細資料中的 `external_id` 是新帳號的識別，格式為 `iss` + 一個空白 + `sub`（例如 `https://login.microsoftonline.com/<tenant-id>/v2.0 <sub>`）。以下 SQL 用 `docker compose exec postgres psql -U sx -d sx -c "…"` 執行，`<email>` 換成該 email：
+
+- **同一個人**（復職、帳號重建）：把舊帳號改綁到新的 `external_id`，檔案與分享都保留。
+
+  ```sh
+  docker compose exec postgres psql -U sx -d sx -c \
+    "UPDATE users SET external_id='<新的 external_id，含 iss 與空白>' WHERE auth_source='oidc' AND lower(email)=lower('<email>');"
+  ```
+
+- **該 email 現在屬於另一個人**：釋出 email 並讓舊帳號維持停用，新的人下次登入會建立全新帳號。
+
+  ```sh
+  docker compose exec postgres psql -U sx -d sx -c \
+    "UPDATE users SET email = email || '.retired-' || left(id::text, 8), disabled = true WHERE auth_source='oidc' AND lower(email)=lower('<email>');"
+  ```
 
 ## 6. 廠商帳號管理
 

@@ -46,6 +46,8 @@ type Deps struct {
 	SyslogEnabled  bool          // a syslog forwarder is running (reported by /api/admin/audit/forwarding)
 	LDAP           Directory     // nil when LDAP login is off
 	LDAPRecheck    time.Duration // how often an LDAP session is re-read from the directory (default 15m)
+	OIDC           OIDCProvider  // nil when OIDC login is off
+	OIDCLabel      string        // login button text (SX_OIDC_BUTTON_TEXT), may be empty
 }
 
 type server struct {
@@ -81,6 +83,8 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/auth/login", perIP(http.HandlerFunc(s.login)))
 	mux.Handle("POST /api/auth/totp", perIP(http.HandlerFunc(s.totp)))
 	mux.Handle("POST /api/auth/ldap", perIP(http.HandlerFunc(s.ldapLogin)))
+	mux.Handle("GET /api/auth/oidc/start", perIP(http.HandlerFunc(s.oidcStart)))
+	mux.Handle("GET /api/auth/oidc/callback", perIP(http.HandlerFunc(s.oidcCallback)))
 	mux.HandleFunc("GET /api/auth/methods", s.authMethods)
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
 	mux.Handle("POST /api/auth/totp/setup", http.HandlerFunc(s.totpSetupPending))

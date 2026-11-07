@@ -6,11 +6,12 @@
     "domainTitle": "網域帳號", "username": "帳號",
     "directoryUnavailable": "網域伺服器暫時無法連線，請稍後再試或改用本機帳號",
     "emailConflict": "這個網域帳號的 email 已被另一個網域帳號使用，請聯絡管理員",
+    "or": "或", "oidcDefault": "以 Microsoft 登入", "oidcDenied": "登入已取消", "oidcEmailConflict": "這個單一登入帳號的 email 已被另一個單一登入帳號使用，請聯絡管理員", "oidcInvalid": "單一登入失敗，請再試一次", "oidcUnavailable": "身分提供者暫時無法連線，請稍後再試或改用本機帳號",
     "invalid": "帳號或密碼錯誤", "invalidCode": "驗證碼錯誤", "rateLimited": "嘗試次數過多，請稍後再試"
   },
   "totp": {
     "title": "設定雙因素驗證", "scan": "請用驗證器 App 掃描 QR code，再輸入產生的 6 位數驗證碼。",
-    "qrAlt": "雙因素驗證 QR code", "start": "開始設定", "code": "驗證碼", "enable": "啟用", "enabled": "雙因素驗證已啟用", "failed": "驗證碼錯誤或無法設定", "external": "網域帳號的雙因素驗證由公司的登入系統負責"
+    "qrAlt": "雙因素驗證 QR code", "start": "開始設定", "code": "驗證碼", "enable": "啟用", "enabled": "雙因素驗證已啟用", "failed": "驗證碼錯誤或無法設定", "external": "外部登入帳號的雙因素驗證由公司的登入系統負責"
   },
   "files": {
     "title": "我的檔案", "empty": "尚無檔案", "name": "名稱", "size": "大小", "created": "上傳時間",
@@ -126,7 +127,7 @@
     "create": "建立並邀請", "listTitle": "所有帳號", "disable": "停用", "enable": "啟用", "resetTotp": "重設 TOTP", "reinvite": "重新邀請",
     "confirmReset": "確定重設 {{email}} 的雙因素驗證？", "confirmDisable": "確定停用 {{email}}？其登入工作階段會立即結束。", "confirmDemote": "確定將 {{email}} 由管理員降為員工？", "yes": "是", "no": "否", "never": "從未",
     "roles": { "staff": "員工", "admin": "管理員", "vendor": "廠商" },
-    "sources": { "local": "本機" },
+    "sources": { "local": "本機", "ldap": "網域", "oidc": "單一登入" },
     "status": { "invited": "已邀請", "active": "有效", "disabled": "已停用", "pending": "待核准", "rejected": "已拒絕", "expired": "已過期" },
     "error": { "generic": "發生錯誤，請檢查表單", "lastAdmin": "不能停用或降級最後一位本機管理員", "external": "外部登入來源帳號的角色與雙因素驗證由外部來源決定，不能在這裡修改", "emailTaken": "此電子郵件已被使用", "wrongState": "帳號目前的狀態不允許此操作" }
   },

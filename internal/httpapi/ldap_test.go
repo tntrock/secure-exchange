@@ -206,10 +206,15 @@ func TestLDAPLoginErrors(t *testing.T) {
 }
 
 func TestLDAPLoginInternalError(t *testing.T) {
-	e, _ := ldapEnv(t)
-	e.breakTable(t, "users")
-	if resp, _ := e.ldapLogin(t, "alice"); resp.StatusCode != 500 {
-		t.Fatal(resp.StatusCode)
+	for _, table := range []string{"users", "sessions"} {
+		e, _ := ldapEnv(t)
+		e.breakTable(t, table)
+		if resp, _ := e.ldapLogin(t, "alice"); resp.StatusCode != 500 {
+			t.Fatal(table, resp.StatusCode)
+		}
+		if st := e.lastLoginFailStage(t); st != "db" {
+			t.Fatal(table, st)
+		}
 	}
 }
 
@@ -396,4 +401,16 @@ func TestLDAPUserCannotEnrolTOTP(t *testing.T) {
 	if err := e.pool.QueryRow(context.Background(), `SELECT totp_secret_sealed IS NULL, totp_enabled FROM users WHERE auth_source='ldap'`).Scan(&noSecret, &enabled); err != nil || !noSecret || enabled {
 		t.Fatal(err, noSecret, enabled)
 	}
+}
+
+// lastLoginFailStage reads the newest login.fail row's stage straight from audit_log (audit.List joins users).
+func (e *env) lastLoginFailStage(t *testing.T) string {
+	t.Helper()
+	var stage string
+	err := e.pool.QueryRow(context.Background(),
+		`SELECT detail->>'stage' FROM audit_log WHERE action=$1 ORDER BY id DESC LIMIT 1`, audit.ActLoginFail).Scan(&stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stage
 }

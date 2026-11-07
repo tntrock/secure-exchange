@@ -571,3 +571,16 @@ func TestIsCertError(t *testing.T) {
 		t.Error("refusal classified as certificate")
 	}
 }
+
+func TestAuthenticateInvalidEmail(t *testing.T) {
+	for _, m := range []string{"bob", "a@b\r\nBcc:x"} {
+		d, _ := fake(&fakeConn{entries: []*ldap.Entry{entryA(map[string][]string{"mail": {m}})}})
+		if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrNoEmail) {
+			t.Fatalf("%q: %v", m, err)
+		}
+	}
+	d, _ := fake(&fakeConn{entries: []*ldap.Entry{entryA(map[string][]string{"mail": {"Bob@Example.COM"}})}})
+	if id, err := d.Authenticate(context.Background(), "a", "pw"); err != nil || id.Email != "bob@example.com" {
+		t.Fatalf("%+v %v", id, err)
+	}
+}

@@ -249,6 +249,9 @@ func TestOIDCCallbackInternalErrors(t *testing.T) {
 		if resp.StatusCode != 302 || resp.Header.Get("Location") != "/login?oidc_error=unavailable" || setCookie(resp, "sx_session") != nil {
 			t.Fatal(table, resp.StatusCode, resp.Header.Get("Location"))
 		}
+		if st := e.lastLoginFailStage(t); st != "db" {
+			t.Fatal(table, st)
+		}
 	}
 }
 

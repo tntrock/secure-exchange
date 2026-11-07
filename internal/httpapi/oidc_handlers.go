@@ -110,7 +110,7 @@ func (s *server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("oidc upsert", "err", err)
-		http.Redirect(w, r, "/login?oidc_error=unavailable", http.StatusFound)
+		fail("", "db", "unavailable")
 		return
 	}
 	if !u.Active(time.Now()) { // disabled here by an admin, whatever the IdP says
@@ -119,7 +119,7 @@ func (s *server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.finishExternalLogin(r, w, u, prevRole, detail); err != nil {
 		slog.Error("oidc session", "err", err)
-		http.Redirect(w, r, "/login?oidc_error=unavailable", http.StatusFound)
+		fail(u.ID.String(), "db", "unavailable")
 		return
 	}
 	http.Redirect(w, r, "/files", http.StatusFound)

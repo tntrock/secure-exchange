@@ -19,6 +19,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 
 	"github.com/tntrock/secure-exchange/internal/config"
+	"github.com/tntrock/secure-exchange/internal/mail"
 )
 
 var (
@@ -177,6 +178,7 @@ func (d *Directory) identity(c conn, e *ldap.Entry) (Identity, error) {
 	if id.Email == "" {
 		id.Email = e.GetEqualFoldAttributeValue("userPrincipalName")
 	}
+	id.Email, _ = mail.ValidAddress(id.Email) // malformed counts as no email
 	g := d.cfg.AdminGroup
 	if g == "" {
 		return id, nil

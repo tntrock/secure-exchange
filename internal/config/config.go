@@ -40,6 +40,13 @@ type LDAPConfig struct {
 	TLSInsecure                               bool // skip certificate verification (SX_LDAP_TLS_INSECURE)
 }
 
+// OIDCConfig is the OpenID Connect login; an empty Issuer disables it.
+type OIDCConfig struct {
+	Issuer, ClientID, ClientSecret, Scopes string
+	AdminClaim, AdminValue                 string
+	ButtonText, CAFile                     string
+}
+
 type PreviewConfig struct {
 	MaxBytes, MaxVideoBytes        int64
 	MaxPages, MaxVideoSeconds, DPI int
@@ -74,6 +81,7 @@ type Config struct {
 	SMTP              SMTPConfig
 	Syslog            SyslogConfig
 	LDAP              LDAPConfig
+	OIDC              OIDCConfig
 	ShareMaxDays      int
 	Preview           PreviewConfig
 	Mark              MarkConfig
@@ -153,6 +161,16 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 			EmailAttr:    get("SX_LDAP_EMAIL_ATTR", "mail"),
 			NameAttr:     get("SX_LDAP_NAME_ATTR", "displayName"),
 			AdminGroup:   get("SX_LDAP_ADMIN_GROUP", ""),
+		},
+		OIDC: OIDCConfig{
+			Issuer:       get("SX_OIDC_ISSUER", ""),
+			ClientID:     get("SX_OIDC_CLIENT_ID", ""),
+			ClientSecret: getenv("SX_OIDC_CLIENT_SECRET"), // untrimmed, like SX_LDAP_BIND_PASSWORD
+			Scopes:       withOpenID(get("SX_OIDC_SCOPES", "openid profile email")),
+			AdminClaim:   get("SX_OIDC_ADMIN_CLAIM", "groups"),
+			AdminValue:   get("SX_OIDC_ADMIN_VALUE", ""),
+			ButtonText:   get("SX_OIDC_BUTTON_TEXT", ""),
+			CAFile:       get("SX_OIDC_CA", ""),
 		},
 		S3: S3Config{
 			Endpoint:  get("SX_S3_ENDPOINT", ""),
@@ -301,6 +319,21 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 				c.LDAP.TLSInsecure = b
 			}
 		}
+		if c.OIDC.Issuer != "" {
+			if u, err := url.Parse(c.OIDC.Issuer); err != nil || u.Scheme != "https" || u.Host == "" {
+				bad("SX_OIDC_ISSUER", fmt.Errorf("%q must be https://host/...", c.OIDC.Issuer))
+			}
+			for _, kv := range [][2]string{{"SX_OIDC_CLIENT_ID", c.OIDC.ClientID}, {"SX_OIDC_CLIENT_SECRET", c.OIDC.ClientSecret}} {
+				if kv[1] == "" {
+					errs = append(errs, fmt.Errorf("%s is required when SX_OIDC_ISSUER is set", kv[0]))
+				}
+			}
+			if c.OIDC.CAFile != "" {
+				if _, err := CertPool(c.OIDC.CAFile); err != nil {
+					bad("SX_OIDC_CA", err)
+				}
+			}
+		}
 		switch c.SMTP.TLS {
 		case "starttls", "tls":
 		case "none":
@@ -347,4 +380,14 @@ func CertPool(path string) (*x509.CertPool, error) {
 	}
 	p.AddCert(cert)
 	return p, nil
+}
+
+// withOpenID makes sure the space-separated scope list contains "openid".
+func withOpenID(scopes string) string {
+	for _, s := range strings.Fields(scopes) {
+		if s == "openid" {
+			return scopes
+		}
+	}
+	return strings.TrimSpace("openid " + scopes)
 }

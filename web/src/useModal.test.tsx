@@ -57,3 +57,15 @@ test("with nothing focusable the container itself takes focus", () => {
   fireEvent.keyDown(document.body, { key: "Tab" });
   expect(document.activeElement).toBe(screen.getByTestId("e"));
 });
+
+test("Escape during IME composition or already handled does not close", () => {
+  const onClose = vi.fn();
+  render(<Host onClose={onClose} />);
+  open();
+  fireEvent.keyDown(document.body, { key: "Escape", isComposing: true });
+  expect(onClose).not.toHaveBeenCalled();
+  const e = new KeyboardEvent("keydown", { key: "Escape", cancelable: true, bubbles: true });
+  e.preventDefault();
+  document.body.dispatchEvent(e);
+  expect(onClose).not.toHaveBeenCalled();
+});

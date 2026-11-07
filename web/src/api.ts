@@ -219,10 +219,15 @@ export const nav = { go: (href: string) => window.location.assign(href) };
 export async function headFile(url: string): Promise<void> {
   const res = await fetch(url, { method: "HEAD", credentials: "same-origin" });
   if (res.ok) return;
-  let code = res.status === 403 ? "forbidden" : res.status === 409 || res.status === 423 ? "scan_pending" : res.status === 429 ? "rate_limited" : "error";
+  let code = res.status === 403 ? "forbidden" : res.status === 409 ? "scan_pending" : res.status === 429 ? "rate_limited" : "error";
   if (res.status === 403) {
-    const body = await fetch(url, { credentials: "same-origin" }).then((r) => r.json()).catch(() => null);
-    if (typeof body?.error === "string") code = body.error;
+    const ac = new AbortController();
+    const r = await fetch(url, { credentials: "same-origin", signal: ac.signal }).catch(() => null);
+    if (r?.ok) ac.abort(); // the file itself: never read its body
+    else {
+      const body = await r?.json().catch(() => null);
+      if (typeof body?.error === "string") code = body.error;
+    }
   }
   throw new ApiError(res.status, code);
 }

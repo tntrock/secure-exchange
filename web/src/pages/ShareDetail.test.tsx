@@ -170,7 +170,12 @@ test("shows the effective flags and a note when an administrator rule forced the
   };
   await i18n.changeLanguage("en");
   render1(body);
-  expect(await screen.findByText("Changed by an administrator rule")).toBeTruthy();
+  expect((await screen.findAllByText("Changed by an administrator rule")).length).toBe(2);
+  cleanup();
+  render1({ ...body, forced: ["watermark"] });
+  const wm = (await screen.findByText(/^Watermark:/)).closest("li")!;
+  expect(wm.textContent).toContain("Changed by an administrator rule");
+  expect(screen.getByText(/^Allow download:/).closest("li")!.textContent).not.toContain("administrator");
   cleanup();
   render1({ ...detail });
   await screen.findByText("ok@x.com");

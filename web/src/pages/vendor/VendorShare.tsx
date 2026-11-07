@@ -8,7 +8,8 @@ import { api, ApiError, fmtDate, fmtSize, headFile, nav, type RecipientFiles } f
 // One share's files for a signed-in vendor; same behaviour as the recipient files step, under /api/vendor/shares/{id}.
 export default function VendorShare() {
   const { id = "" } = useParams();
-  const from = useLocation().pathname;
+  const { pathname, search, hash } = useLocation();
+  const from = pathname + search + hash;
   const { t, i18n } = useTranslation();
   const [data, setData] = useState<RecipientFiles | null>(null);
   const [err, setErr] = useState("");
@@ -71,7 +72,7 @@ export default function VendorShare() {
                     {!f.available ? t("recipient.fileUnavailable") : data.download_forbidden && f.previewable === false ? t("recipient.blockedByAdmin") : (
                       <>
                         {f.previewable !== false && <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>}{" "}
-                          {f.previewable === false && !data.allow_download && t("recipient.noActions")}
+                        {f.previewable === false && !data.allow_download && t("recipient.noActions")}
                         {data.allow_download && (
                           <a href={`${base}/files/${encodeURIComponent(f.id)}/content`} download data-file={f.id} onClick={download}>{t("files.download")}</a>
                         )}

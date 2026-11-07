@@ -171,7 +171,7 @@ export default function UploadPage() {
         {step === "upload" && data && (
           <>
             <ul>
-              <li>{t("intake.allowedExts", { exts: exts.length ? exts.join(", ") : t("intake.anyExt") })}</li>
+              {!landing?.none_allowed && <li>{t("intake.allowedExts", { exts: exts.length ? exts.join(", ") : t("intake.anyExt") })}</li>}
               <li>{t("intake.filesLeft", { count: data.files_left })}</li>
               <li>{t("intake.bytesLeft", { size: fmtSize(data.bytes_left, lng) })}</li>
             </ul>

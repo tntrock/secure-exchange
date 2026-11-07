@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import i18n from "../../i18n";
 import VendorShares from "./VendorShares";
 
@@ -28,4 +28,11 @@ test.each([["domain_blocked", "recipient.error.domain_blocked"], ["ip_denied", "
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error }), { status: 403 })));
   render(<MemoryRouter><VendorShares /></MemoryRouter>);
   expect(await screen.findByText(i18n.t(key))).toBeTruthy();
+});
+
+test("401 sends the vendor to the login page with the return path", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 })));
+  const Stub = () => <p>login from {String((useLocation().state as { from?: string } | null)?.from)}</p>;
+  render(<MemoryRouter initialEntries={["/vendor/shares?q=1"]}><Routes><Route path="/vendor/shares" element={<VendorShares />} /><Route path="/login" element={<Stub />} /></Routes></MemoryRouter>);
+  expect(await screen.findByText("login from /vendor/shares?q=1")).toBeTruthy();
 });

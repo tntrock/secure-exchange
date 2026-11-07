@@ -99,7 +99,7 @@ test("headFile maps status to a code; 403 fetches the reason with one GET", asyn
   vi.stubGlobal("fetch", f);
   await expect(headFile("/x")).rejects.toMatchObject({ status: 403, message: "view_only" });
   expect(f).toHaveBeenCalledTimes(2);
-  for (const [s, c] of [[409, "scan_pending"], [423, "scan_pending"], [429, "rate_limited"], [500, "error"]] as const) {
+  for (const [s, c] of [[409, "scan_pending"], [423, "error"], [429, "rate_limited"], [500, "error"]] as const) {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: s })));
     await expect(headFile("/x")).rejects.toMatchObject({ status: s, message: c });
   }
@@ -107,4 +107,10 @@ test("headFile maps status to a code; 403 fetches the reason with one GET", asyn
   await expect(headFile("/x")).rejects.toMatchObject({ message: "forbidden" }); // GET gave no JSON
   vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 200 })));
   await expect(headFile("/x")).resolves.toBeUndefined();
+  // HEAD 403 but GET 200: abort without reading the body
+  const abort = vi.spyOn(AbortController.prototype, "abort");
+  vi.stubGlobal("fetch", vi.fn(async (_u: string, init?: RequestInit) => new Response(init?.method === "HEAD" ? null : "file bytes", { status: init?.method === "HEAD" ? 403 : 200 })));
+  await expect(headFile("/x")).rejects.toMatchObject({ status: 403, message: "forbidden" });
+  expect(abort).toHaveBeenCalledTimes(1);
+  abort.mockRestore();
 });

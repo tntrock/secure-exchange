@@ -15,7 +15,7 @@ export function useModal(ref: React.RefObject<HTMLElement | null>, onClose: () =
     if (first) first.focus();
     else { root.tabIndex = -1; root.focus(); }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { close.current(); return; }
+      if (e.key === "Escape") { if (!e.isComposing && !e.defaultPrevented) close.current(); return; }
       if (e.key !== "Tab") return;
       const list = items();
       if (!list.length) { e.preventDefault(); root.focus(); return; }

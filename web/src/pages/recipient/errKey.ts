@@ -12,7 +12,7 @@ export function errKey(e: unknown): string {
     case 409: case 423: return "scanPending";
     case 403:
       return ({ view_limit: "viewLimit", domain_blocked: "domain_blocked", unmarkable: "unmarkable", view_only: "viewOnly",
-        quarantined: "quarantined", scan_failed: "scanFailed", forbidden: "generic" } as Record<string, string>)[m] ?? "ipDenied";
+        quarantined: "quarantined", scan_failed: "scanFailed", forbidden: "generic", ip_denied: "ipDenied" } as Record<string, string>)[m] ?? "generic";
   }
   return "generic";
 }

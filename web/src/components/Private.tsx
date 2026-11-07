@@ -9,7 +9,8 @@ export default function Private({ roles, children }: { roles: string[]; children
   const { t } = useTranslation();
   const [ok, setOk] = useState<boolean | null>(null);
   const [role, setRole] = useState("");
-  const from = useLocation().pathname;
+  const { pathname, search, hash } = useLocation();
+  const from = pathname + search + hash;
   useEffect(() => {
     api.me().then(
       (me) => { setRole(me.role); setOk(true); },

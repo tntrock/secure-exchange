@@ -131,7 +131,7 @@ export default function Viewer({ base, onClose, onSessionEnded }: { base: string
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={t("viewer.title")} ref={dlg} onKeyDown={onKey}
+    <div role="dialog" aria-modal="true" aria-label={t("viewer.title")} ref={dlg} tabIndex={-1} onKeyDown={onKey}
       onContextMenu={(e) => e.preventDefault()}
       style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#222", color: "#eee", display: "flex", flexDirection: "column", userSelect: "none" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 8, background: "#111" }}>

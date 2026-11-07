@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { errKey } from "../recipient/errKey";
-import { api, fmtDate, type VendorShareSummary } from "../../api";
+import { api, ApiError, fmtDate, type VendorShareSummary } from "../../api";
 
 export default function VendorShares() {
   const { t, i18n } = useTranslation();
   const [rows, setRows] = useState<VendorShareSummary[] | null>(null);
   const [err, setErr] = useState("");
-  useEffect(() => { api.vendorShares().then(setRows, (e) => setErr(errKey(e))); }, []);
+  const { pathname, search, hash } = useLocation();
+  useEffect(() => { api.vendorShares().then(setRows, (e) => setErr(e instanceof ApiError && e.status === 401 ? "login" : errKey(e))); }, []);
+  if (err === "login") return <Navigate to="/login" replace state={{ from: pathname + search + hash }} />;
   return (
     <>
       <h1>{t("vendorPortal.title")}</h1>

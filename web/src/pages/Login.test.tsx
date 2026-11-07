@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import i18n from "../i18n";
-import Login from "./Login";
+import Login, { safeFrom } from "./Login";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -261,4 +261,25 @@ test.each([["//evil.example", false], ["https://evil.example", false], ["/\\evil
     fireEvent.click(screen.getByRole("button", { name: "Log in" }));
   }
   expect(await screen.findByText("files page")).toBeTruthy();
+});
+
+test("safeFrom keeps query and hash, rejects off-site and control-character paths", () => {
+  expect(safeFrom("/a?b#c")).toBe("/a?b#c");
+  for (const v of ["//x", "/\\x", "https://x", "/\t/x", "/a\nb", "/a\x7f", 5, null]) expect(safeFrom(v)).toBeNull();
+});
+
+test("return path survives the TOTP step", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("/login") ? json(200, { mfa_required: true }) : url.endsWith("/totp") ? new Response(null, { status: 204 }) : json(200, { role: "staff" }))));
+  void i18n.changeLanguage("en");
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/login", state: { from: "/vendor/shares/abc?x=1#h" } }]}>
+      <Routes><Route path="/login" element={<Login />} /><Route path="/vendor/shares/abc" element={<p>deep page</p>} /></Routes>
+    </MemoryRouter>,
+  );
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@x.com" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(await screen.findByLabelText("Code (6 digits)"), { target: { value: "123456" } });
+  fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+  expect(await screen.findByText("deep page")).toBeTruthy();
 });

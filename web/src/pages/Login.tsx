@@ -6,7 +6,7 @@ import { api, ApiError } from "../api";
 import LangSwitch from "../components/LangSwitch";
 
 // only same-origin absolute paths: a crafted `from` like //evil.example must not redirect off-site
-export const safeFrom = (v: unknown): string | null => (typeof v === "string" && v.startsWith("/") && !v.startsWith("//") && !v.startsWith("/\\") ? v : null);
+export const safeFrom = (v: unknown): string | null => (typeof v === "string" && v.startsWith("/") && !v.startsWith("//") && !v.startsWith("/\\") && !/[\x00-\x1f\x7f]/.test(v) ? v : null);
 
 export default function Login() {
   const { t } = useTranslation();

@@ -238,4 +238,5 @@ test("when no file type is accepted the picker is replaced by a message", async 
   await screen.findByText("old.pdf");
   expect(screen.getByText(i18n.t("upload.noneAllowed"))).toBeTruthy();
   expect(container.querySelector("input[type=file]")).toBeNull();
+  expect(screen.queryByText(i18n.t("intake.allowedExts", { exts: i18n.t("intake.anyExt") }))).toBeNull();
 });

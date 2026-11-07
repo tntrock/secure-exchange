@@ -266,3 +266,15 @@ test("unmount before the info request settles does not render a message", async 
   expect(json).not.toHaveBeenCalled(); // it bailed out before reading the error body
   expect(document.body.textContent).toBe("");
 });
+
+test("after clicking a page the dialog (tabindex -1) takes focus and keys still page", async () => {
+  stub(200, { kind: "pages", status: "ready", page_count: 2 });
+  render(<Viewer base="/b" onClose={() => {}} />);
+  const img = await screen.findByAltText("Page 1");
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" })); // tabindex -1 is not a first-focus target
+  fireEvent.click(img);
+  (img.closest("[tabindex]") as HTMLElement).focus(); // what a browser does on mousedown
+  expect(document.activeElement).toBe(screen.getByRole("dialog"));
+  fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+  expect(screen.getByText("2 / 2")).toBeTruthy();
+});

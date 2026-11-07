@@ -1,0 +1,24 @@
+# Override used by scripts/e2e.sh (Playwright browser tests): catch-all mail server, a ClamAV
+# signature directory on the host (CI caches it), and a Caddyfile that keeps X-Forwarded-For from
+# the client so each test gets its own rate-limit bucket (see e2e/Caddyfile).
+#   docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml up
+services:
+  mailpit:
+    image: axllent/mailpit:v1.33
+    ports:
+      - "59025:8025" # API / web UI on the host
+    networks: [sx]
+  app:
+    environment:
+      SX_SMTP_HOST: mailpit
+      SX_SMTP_PORT: "1025"
+      SX_SMTP_TLS: none
+    depends_on:
+      mailpit:
+        condition: service_started
+  clamav:
+    volumes:
+      - ./.e2e-clamav:/var/lib/clamav
+  caddy:
+    volumes:
+      - ./e2e/Caddyfile:/etc/caddy/Caddyfile:ro

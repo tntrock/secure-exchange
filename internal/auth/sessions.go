@@ -17,6 +17,7 @@ type Session struct {
 	UserID    uuid.UUID
 	MFAPassed bool
 	ExpiresAt time.Time
+	CheckedAt time.Time
 }
 
 // Sessions stores server-side sessions keyed by SHA-256 of the bearer token.
@@ -47,8 +48,8 @@ func (s *Sessions) Create(ctx context.Context, userID uuid.UUID, mfaPassed bool,
 // Lookup returns the unexpired session for token, or ErrNotFound.
 func (s *Sessions) Lookup(ctx context.Context, token string) (*Session, error) {
 	se := &Session{}
-	err := s.pool.QueryRow(ctx, `SELECT user_id, mfa_passed, expires_at FROM sessions WHERE token_hash=$1 AND expires_at > now()`,
-		TokenHash(token)).Scan(&se.UserID, &se.MFAPassed, &se.ExpiresAt)
+	err := s.pool.QueryRow(ctx, `SELECT user_id, mfa_passed, expires_at, checked_at FROM sessions WHERE token_hash=$1 AND expires_at > now()`,
+		TokenHash(token)).Scan(&se.UserID, &se.MFAPassed, &se.ExpiresAt, &se.CheckedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -68,4 +69,15 @@ func (s *Sessions) Revoke(ctx context.Context, token string) error {
 func (s *Sessions) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, userID)
 	return err
+}
+
+// ClaimCheck atomically claims the periodic directory re-check; true only for the one caller that won it.
+func (s *Sessions) ClaimCheck(ctx context.Context, token string, every time.Duration) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(ctx, `UPDATE sessions SET checked_at = now() WHERE token_hash = $1 AND checked_at < now() - $2::interval RETURNING true`,
+		TokenHash(token), every).Scan(&ok)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return ok, err
 }

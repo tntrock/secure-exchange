@@ -23,6 +23,7 @@ type User struct {
 	Approval                             string // pending, approved or rejected
 	LastLoginAt                          *time.Time
 	OrgID, CreatedBy                     *uuid.UUID
+	ExternalID                           string // directory id for non-local accounts, else ""
 }
 
 type Users struct {
@@ -32,11 +33,11 @@ type Users struct {
 
 func NewUsers(pool *pgxpool.Pool, keys *sxcrypto.Keyring) *Users { return &Users{pool, keys} }
 
-const userCols = `id, email, display_name, role, auth_source, coalesce(password_hash,''), totp_enabled, disabled, expires_at, approval, vendor_org_id, created_by, last_login_at`
+const userCols = `id, email, display_name, role, auth_source, coalesce(password_hash,''), totp_enabled, disabled, expires_at, approval, vendor_org_id, created_by, last_login_at, coalesce(external_id,'')`
 
 func scanUser(row pgx.Row) (*User, error) {
 	u := &User{}
-	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.AuthSource, &u.PasswordHash, &u.TOTPEnabled, &u.Disabled, &u.ExpiresAt, &u.Approval, &u.OrgID, &u.CreatedBy, &u.LastLoginAt)
+	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.AuthSource, &u.PasswordHash, &u.TOTPEnabled, &u.Disabled, &u.ExpiresAt, &u.Approval, &u.OrgID, &u.CreatedBy, &u.LastLoginAt, &u.ExternalID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -62,7 +63,7 @@ func (s *Users) Create(ctx context.Context, email, displayName, role, password s
 }
 
 func (s *Users) ByEmail(ctx context.Context, email string) (*User, error) {
-	return scanUser(s.pool.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE lower(email)=lower($1)`, email))
+	return scanUser(s.pool.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE auth_source='local' AND lower(email)=lower($1)`, email))
 }
 
 func (s *Users) ByID(ctx context.Context, id uuid.UUID) (*User, error) {
@@ -124,4 +125,33 @@ func (s *Users) SetNotifyPrefs(ctx context.Context, id uuid.UUID, p NotifyPrefs)
 		err = ErrNotFound
 	}
 	return err
+}
+
+// UpsertExternal creates or refreshes the account for (source, externalID) and sets its role from admin.
+// prevRole is "" when the row was created. The disabled flag is never touched.
+func (s *Users) UpsertExternal(ctx context.Context, source, externalID, email, name string, admin bool) (u *User, prevRole string, err error) {
+	role := "staff"
+	if admin {
+		role = "admin"
+	}
+	var id uuid.UUID
+	err = s.pool.QueryRow(ctx, `WITH old AS (SELECT role FROM users WHERE auth_source=$1 AND external_id=$2),
+up AS (INSERT INTO users (id, email, display_name, role, auth_source, external_id) VALUES ($3,$4,$5,$6,$1,$2)
+  ON CONFLICT (auth_source, external_id) WHERE external_id IS NOT NULL
+  DO UPDATE SET email=EXCLUDED.email, display_name=EXCLUDED.display_name, role=EXCLUDED.role RETURNING id)
+SELECT up.id, coalesce((SELECT role FROM old),'') FROM up`,
+		source, externalID, uuid.New(), email, name, role).Scan(&id, &prevRole)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == "23505" {
+		return nil, "", ErrEmailTaken
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	u, err = s.ByID(ctx, id)
+	return u, prevRole, err
+}
+
+func (s *Users) ByExternal(ctx context.Context, source, externalID string) (*User, error) {
+	return scanUser(s.pool.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE auth_source=$1 AND external_id=$2`, source, externalID))
 }

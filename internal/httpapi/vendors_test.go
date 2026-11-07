@@ -136,6 +136,7 @@ func TestVendorRoutes(t *testing.T) {
 		{"POST", "/disable", nil, 204},
 		{"POST", "/reinvite", nil, 409},
 		{"POST", "/enable", nil, 204},
+		{"POST", "/enable", nil, 409}, // not disabled
 	} {
 		if resp, b := e.do(t, c.method, "/api/vendors/"+v.ID+c.path, c.body); resp.StatusCode != c.want {
 			t.Errorf("%s %s: %d %s", c.method, c.path, resp.StatusCode, b)
@@ -143,6 +144,15 @@ func TestVendorRoutes(t *testing.T) {
 	}
 	if vs := e.vendors(t, ""); vs[1].ExpiresAt != later || vs[0].Status != "rejected" {
 		t.Fatal(vs)
+	}
+	if resp, b := e.do(t, "POST", "/api/vendors/"+rv.ID+"/disable", nil); resp.StatusCode != 409 || string(b) != "{\"error\":\"bad_status\"}\n" {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	if resp, b := e.do(t, "PATCH", "/api/vendors/"+rv.ID, map[string]any{"expires_at": later}); resp.StatusCode != 409 {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	if resp, b := e.do(t, "POST", "/api/vendors", body("r@v.com")); resp.StatusCode != 201 {
+		t.Fatal(resp.StatusCode, string(b)) // a rejected vendor can be invited again
 	}
 
 	// invitation landing and activation: no login needed
@@ -191,7 +201,7 @@ func TestVendorRoutes(t *testing.T) {
 		n     int
 		actor string
 	}{
-		audit.ActVendorCreate: {2, "user"}, audit.ActVendorApprove: {1, "user"}, audit.ActVendorReject: {1, "user"},
+		audit.ActVendorCreate: {3, "user"}, audit.ActVendorApprove: {1, "user"}, audit.ActVendorReject: {1, "user"},
 		audit.ActVendorReinvite: {1, "user"}, audit.ActVendorExpiry: {1, "user"}, audit.ActVendorDisable: {1, "user"},
 		audit.ActVendorEnable: {1, "user"}, audit.ActVendorActivate: {2, "vendor"},
 	} {
@@ -199,6 +209,9 @@ func TestVendorRoutes(t *testing.T) {
 		if err != nil || len(got) != want.n || got[0].Event.ActorType != want.actor || got[0].Event.TargetType != "user" {
 			t.Errorf("%s: %+v %v", action, got, err)
 		}
+	}
+	if cr, _, _ := e.audit.List(ctx, audit.Filter{ActionPrefix: audit.ActVendorCreate}); cr[0].Event.Detail["reopened"] != true {
+		t.Error("reopen not audited", cr[0].Event)
 	}
 	ok, _, _ := e.audit.List(ctx, audit.Filter{ActionPrefix: audit.ActVendorActivate})
 	results := map[string]bool{}

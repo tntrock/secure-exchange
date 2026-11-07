@@ -142,6 +142,7 @@
       "generic": "發生錯誤，請檢查表單",
       "email_taken": "此電子郵件已被使用",
       "wrong_state": "帳號目前的狀態不允許此操作",
+      "bad_status": "此廠商目前的狀態不允許這項操作",
       "forbidden": "您沒有執行此操作的權限",
       "email": { "domain_blocked": "不允許此 Email 網域", "required": "請輸入電子郵件", "invalid": "電子郵件格式不正確" },
       "display_name": { "required": "請輸入顯示名稱", "out_of_range": "顯示名稱過長" },

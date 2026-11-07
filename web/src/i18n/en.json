@@ -142,6 +142,7 @@
       "generic": "Something went wrong, please check the form",
       "email_taken": "This email address is already in use",
       "wrong_state": "That action is not allowed in the account's current state",
+      "bad_status": "That action is not available for this vendor in its current status",
       "forbidden": "You do not have permission to do that",
       "email": { "domain_blocked": "This email domain is not allowed", "required": "Email is required", "invalid": "Invalid email address" },
       "display_name": { "required": "Display name is required", "out_of_range": "Display name is too long" },

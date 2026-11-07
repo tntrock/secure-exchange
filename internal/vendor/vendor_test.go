@@ -550,3 +550,76 @@ func TestApprovalMailDedupesSharedAdminEmail(t *testing.T) {
 		t.Fatalf("approval mails: %+v", got)
 	}
 }
+
+func TestCreateReopensRejected(t *testing.T) {
+	e := setup(t, "approval")
+	ctx := context.Background()
+	v := e.create(e.staff, "r@v.com")
+	if err := e.svc.Reject(ctx, e.admin, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	in := CreateInput{Email: "R@V.com", DisplayName: "Vic2", Org: "Other", ExpiresAt: time.Now().AddDate(0, 0, 60)}
+	again, err := e.svc.Create(ctx, e.staff2, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != v.ID || again.Status != "pending" || !again.Reopened || again.DisplayName != "Vic2" || again.Org != "Other" ||
+		!again.ExpiresAt.After(v.ExpiresAt) || again.CreatedByID == nil || *again.CreatedByID != e.staff2.ID {
+		t.Fatalf("%+v", again)
+	}
+	// still pending: now a duplicate; approving mails the invitation as for a fresh vendor
+	if _, err := e.svc.Create(ctx, e.staff, in); !errors.Is(err, ErrEmailTaken) {
+		t.Fatal(err)
+	}
+	if err := e.svc.Approve(ctx, e.admin, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if s := e.status(v.ID); s != "invited" || e.token("r@v.com") == "" {
+		t.Fatal(s)
+	}
+	if _, err := e.svc.Create(ctx, e.staff, in); !errors.Is(err, ErrEmailTaken) {
+		t.Fatal(err)
+	}
+	// an admin reopening gets the invitation at once
+	w := e.create(e.admin, "w@v.com")
+	if _, err := e.svc.pool.Exec(ctx, `UPDATE users SET approval = 'rejected' WHERE id = $1`, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	w2, err := e.svc.Create(ctx, e.admin, e.input("w@v.com"))
+	if err != nil || w2.ID != w.ID || w2.Status != "invited" {
+		t.Fatal(w2, err)
+	}
+}
+
+func TestStatusGatedActions(t *testing.T) {
+	e := setup(t, "approval")
+	ctx := context.Background()
+	p := e.create(e.staff, "p@v.com") // pending
+	r := e.create(e.staff, "rj@v.com")
+	if err := e.svc.Reject(ctx, e.admin, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []uuid.UUID{p.ID, r.ID} {
+		for _, dis := range []bool{true, false} {
+			if err := e.svc.SetDisabled(ctx, e.staff, id, dis); !errors.Is(err, ErrBadStatus) {
+				t.Fatal(dis, err)
+			}
+		}
+		if err := e.svc.SetExpiry(ctx, e.staff, id, time.Now().AddDate(0, 0, 10)); !errors.Is(err, ErrBadStatus) {
+			t.Fatal(err)
+		}
+	}
+	a := e.create(e.admin, "a@v.com") // invited
+	if err := e.svc.SetDisabled(ctx, e.admin, a.ID, false); !errors.Is(err, ErrBadStatus) {
+		t.Fatal(err) // enable only applies to disabled
+	}
+	if err := e.svc.SetDisabled(ctx, e.admin, a.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.SetDisabled(ctx, e.admin, a.ID, true); !errors.Is(err, ErrBadStatus) {
+		t.Fatal(err)
+	}
+	if err := e.svc.SetExpiry(ctx, e.admin, a.ID, time.Now().AddDate(0, 0, 10)); err != nil {
+		t.Fatal(err)
+	}
+}

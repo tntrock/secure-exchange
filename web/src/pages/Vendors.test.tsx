@@ -110,3 +110,29 @@ test("validation and forbidden errors map to messages", async () => {
   fireEvent.click(await screen.findByRole("button", { name: i18n.t("vendors.create") }));
   expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("vendors.error.forbidden"));
 });
+
+test("only active, invited, disabled and expired rows offer actions", async () => {
+  mockApi("staff", [v("p", "pending", true), v("r", "rejected", true), v("d", "disabled", true), v("x", "expired", true)]);
+  renderPage();
+  await screen.findByText("p@v.com");
+  const row = (id: string) => screen.getByText(`${id}@v.com`).closest("tr")!;
+  for (const id of ["p", "r"]) expect(within(row(id)).queryByRole("button")).toBeNull();
+  expect(within(row("d")).getByRole("button", { name: i18n.t("vendors.enable") })).toBeTruthy();
+  expect(within(row("d")).queryByRole("button", { name: i18n.t("vendors.disable") })).toBeNull();
+  expect(within(row("d")).queryByRole("button", { name: i18n.t("vendors.changeExpiry") })).toBeNull();
+  expect(within(row("x")).getByRole("button", { name: i18n.t("vendors.changeExpiry") })).toBeTruthy();
+});
+
+test("expiry editor shows the local day, not the UTC day", async () => {
+  vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-480); // UTC+8
+  const f = mockApi("staff", [{ ...v("m", "active", true), expires_at: "2026-11-07T20:00:00Z" }]);
+  renderPage();
+  await screen.findByText("m@v.com");
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("vendors.changeExpiry") }));
+  const day = within(screen.getByText("m@v.com").closest("tr")!).getByLabelText(i18n.t("vendors.expiresOn")) as HTMLInputElement;
+  expect(day.value).toBe("2026-11-08");
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("vendors.save") }));
+  await waitFor(() => expect(find(f, "/api/vendors/m", "PATCH")).toBeTruthy());
+  expect(JSON.parse(find(f, "/api/vendors/m", "PATCH")![1]!.body as string).expires_at).toMatch(/^2026-11-08T/);
+  vi.restoreAllMocks();
+});

@@ -244,7 +244,7 @@ scripts/e2e.sh                                          # 全部；參數會傳�
 E2E_KEEP=1 scripts/e2e.sh tests/auth.spec.ts            # 結束後保留環境以便除錯
 ```
 
-需要 Docker、Node.js 與 `openssl`；已有 `.env` 時拒絕執行。ClamAV 病毒碼存在 `.e2e-clamav/`，第一次執行需下載數百 MB。失敗時的 trace 用 `cd e2e && npx playwright show-report`（或 `npx playwright show-trace test-results/<測試>/trace.zip`）開啟；app 與 worker 的日誌在 `e2e/test-results/compose.log`。測試環境的 Caddy 會信任測試送出的 `X-Forwarded-For`，讓每個測試有自己的限流額度（僅限 e2e）。OIDC 登入以 Dex（`https://dex.localhost:59556/dex`，自簽憑證放在暫時的 `.e2e-dex/`）測試。LDAP 沒有端對端測試（由 Go 測試以 stub 涵蓋）。
+需要 Docker、Node.js 與 `openssl`；已有 `.env` 時拒絕執行。ClamAV 病毒碼存在 `.e2e-clamav/`，第一次執行需下載數百 MB。失敗時的 trace 用 `cd e2e && npx playwright show-report`（或 `npx playwright show-trace test-results/<測試>/trace.zip`）開啟；app 與 worker 的日誌在 `e2e/test-results/compose.log`。測試環境的 Caddy 會信任測試送出的 `X-Forwarded-For`，讓每個測試有自己的限流額度（僅限 e2e）。OIDC 登入以 Dex（`https://dex.localhost:59556/dex`，自簽憑證放在暫時的 `.e2e-dex/`）測試。LDAP 沒有端對端測試（由 Go 測試以 stub 涵蓋）。 CI 由 `.github/workflows/e2e.yml` 在每個非文件變更的 PR 與 main push 執行（尚非必要檢查），失敗時上傳 `playwright-report` 與 `test-results`（含 `compose.log`）為 artifact，保留 7 天。
 
 ## 安全性
 

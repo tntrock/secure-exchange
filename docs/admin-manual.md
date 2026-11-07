@@ -1,5 +1,7 @@
 # 安全檔案交換：管理員手冊
 
+[English](admin-manual.en.md)
+
 本手冊給負責部署與維運安全檔案交換系統的管理員。日常操作（上傳、分享、上傳請求、廠商）請見[使用者手冊](user-manual.md)。
 
 ## 目錄
@@ -111,6 +113,9 @@ docker compose up -d
 | `SX_DOMAIN` | （必填） | 對外網域 |
 | `POSTGRES_PASSWORD` | （必填） | 內建資料庫密碼 |
 | `SX_HTTP_PORT`／`SX_HTTPS_PORT` | 80／443 | 主機對外埠 |
+| `SX_BASE_URL` | compose 組成 `https://${SX_DOMAIN}` | 對外網址，用於信件連結與 OIDC 回呼。**不含 `SX_HTTPS_PORT`**，見下方說明 |
+| `SX_LISTEN` | `:8080` | 容器內監聽位址（compose 不需變更，Caddy 轉送到此） |
+| `SX_DATABASE_URL` | compose 自動組成 | PostgreSQL 連線網址；直接執行執行檔時必填，compose 以 `POSTGRES_PASSWORD` 組成 |
 | `SX_MASTER_KEYS` | （必填） | 主金鑰清單，`id:金鑰` 以逗號分隔 |
 | `SX_ACTIVE_KEY_ID` | （必填） | 新資料使用哪一把金鑰 |
 | `SX_INIT_ADMIN_EMAIL`／`SX_INIT_ADMIN_PASSWORD` | — | 第一位管理員 |
@@ -118,11 +123,27 @@ docker compose up -d
 | `SX_SESSION_TTL` | `12h` | 登入狀態有效時間 |
 | `SX_TRUSTED_PROXIES` | （compose 自動設定） | 信任哪些反向代理的 `X-Forwarded-For` |
 
+**主機 HTTPS 埠不是 443 時**：compose 以 `https://${SX_DOMAIN}` 設定 app 與 worker 的 `SX_BASE_URL`，不含 `SX_HTTPS_PORT`，信件連結與 OIDC 回呼網址會缺少埠號。compose 檔中 `environment` 的值優先於 `.env`，因此**在 `.env` 設定 `SX_BASE_URL` 無效**；請建立 `docker-compose.override.yml` 覆寫：
+
+```yaml
+services:
+  app:
+    environment:
+      SX_BASE_URL: https://files.example.com:8443
+  worker:
+    environment:
+      SX_BASE_URL: https://files.example.com:8443
+```
+
+（直接執行執行檔而非 compose 時，則在環境中設定 `SX_BASE_URL`。）
+
 ### 儲存
 
 | 變數 | 預設 | 說明 |
 |---|---|---|
 | `SX_STORAGE` | `local` | `local`（存在 `sxdata` volume）或 `s3` |
+| `SX_STORAGE_DIR` | `/data/blobs` | `local` 時加密檔案的目錄（compose 位於 `sxdata` volume） |
+| `SX_STAGING_DIR` | `/data/staging` | 上傳進行中的加密暫存目錄 |
 | `SX_S3_ENDPOINT`、`SX_S3_BUCKET`、`SX_S3_ACCESS_KEY`、`SX_S3_SECRET_KEY`、`SX_S3_REGION`、`SX_S3_USE_SSL` | — | S3 相容儲存設定 |
 
 使用 S3 且 S3 位於 compose 之外時，worker 也必須能連到 S3。請建立 `docker-compose.override.yml`，讓 worker 多接一個網路，並在防火牆上限制該網路只能連到 S3 端點：
@@ -150,6 +171,8 @@ networks:
 | `SX_PREVIEW_MAX_VIDEO_BYTES` | 1.5 GiB | 影片可預覽的大小上限 |
 | `SX_PREVIEW_MAX_VIDEO_SECONDS` | `7200` | 影片可預覽的長度上限（秒） |
 | `SX_RENDER_DPI` | `110` | 文件頁面解析度 |
+| `SX_WORKER_TMP` | `/work` | worker 存放解密明文的暫存目錄，必須已存在且為 tmpfs（compose 掛載 `/work`） |
+| `SX_WORKER_ALLOW_NON_TMPFS` | （未設） | 設為 `1` 時，worker 允許暫存目錄不是 tmpfs。**僅供開發測試**：明文會落到磁碟，正式環境請勿設定 |
 
 調高上限時請一併調整 worker 的 `/work` tmpfs 與 `mem_limit`，見[線上預覽 worker](#10-線上預覽-worker)。
 
@@ -226,7 +249,7 @@ networks:
 
 ### 全站強制雙因素驗證
 
-「規則」頁的「全站強制雙因素驗證（TOTP）」開啟後，沒有設定雙因素驗證的**本機員工與管理員**在密碼登入後，必須先完成驗證器綁定才能使用其他功能。廠商本來就一律要求雙因素驗證，不受此開關影響；LDAP／OIDC 帳號也不適用。
+「規則」頁的「要求本機員工與管理員使用雙因素驗證（TOTP）」開啟後，沒有設定雙因素驗證的**本機員工與管理員**在密碼登入後，必須先完成驗證器綁定才能使用其他功能。廠商本來就一律要求雙因素驗證，不受此開關影響；LDAP／OIDC 帳號也不適用。
 
 ### 最後一位管理員
 
@@ -471,7 +494,7 @@ AD 帳號刪除後重建（`objectGUID` 改變、email 相同），或 email 轉
 
 | 設定 | 說明 |
 |---|---|
-| 全站強制雙因素驗證（TOTP） | 只套用於本機員工與管理員，見「全站強制雙因素驗證」。 |
+| 要求本機員工與管理員使用雙因素驗證（TOTP） | 只套用於本機員工與管理員，見「全站強制雙因素驗證」。 |
 
 **分享**
 
@@ -782,10 +805,15 @@ docker compose exec postgres psql -U sx -d sx -c \
 
 ## 15. 升級
 
+1. 閱讀 [GitHub Releases](https://github.com/tntrock/secure-exchange/releases) 的版本說明，留意新增或變更的環境變數與遷移注意事項。
+2. 備份資料庫，取得新版程式碼，並比對 `.env.example` 與你的 `.env`，補上新增的變數。
+3. 重新建置並啟動：
+
 ```sh
 cd secure-exchange
 docker compose exec -T postgres pg_dump -U sx sx > before-upgrade.sql   # 先備份
 git pull
+git diff ORIG_HEAD HEAD -- .env.example   # 新版新增或變更的設定，補進 .env
 docker compose up -d --build
 ```
 
@@ -797,7 +825,6 @@ docker compose logs --tail=50 app worker
 curl -fsS https://<SX_DOMAIN>/healthz     # 應回傳 ok
 ```
 
-升級前請閱讀版本說明，留意新增或變更的環境變數（與 `.env.example` 比對）。
 
 > 升級到 7.3 時，遷移 0009 會為稽核紀錄建立索引：大型安裝首次啟動可能需要數分鐘，期間需寫入稽核的操作會等待。請以單一實例升級。
 

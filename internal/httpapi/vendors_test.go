@@ -195,12 +195,12 @@ func TestVendorRoutes(t *testing.T) {
 		audit.ActVendorReinvite: {1, "user"}, audit.ActVendorExpiry: {1, "user"}, audit.ActVendorDisable: {1, "user"},
 		audit.ActVendorEnable: {1, "user"}, audit.ActVendorActivate: {2, "vendor"},
 	} {
-		got, err := e.audit.List(ctx, audit.Filter{Action: action})
+		got, _, err := e.audit.List(ctx, audit.Filter{ActionPrefix: action})
 		if err != nil || len(got) != want.n || got[0].Event.ActorType != want.actor || got[0].Event.TargetType != "user" {
 			t.Errorf("%s: %+v %v", action, got, err)
 		}
 	}
-	ok, _ := e.audit.List(ctx, audit.Filter{Action: audit.ActVendorActivate})
+	ok, _, _ := e.audit.List(ctx, audit.Filter{ActionPrefix: audit.ActVendorActivate})
 	results := map[string]bool{}
 	for _, a := range ok {
 		results[a.Event.Result] = true

@@ -2,10 +2,12 @@
 package config
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/mail"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +24,11 @@ type SMTPConfig struct {
 	Username, Password string
 	From               string
 	TLS                string // "starttls", "tls" or "none"
+}
+
+// SyslogConfig is the audit forwarder target; an empty Addr disables it.
+type SyslogConfig struct {
+	Addr, Transport, CAFile string // Transport: "udp", "tcp" or "tls"
 }
 
 type PreviewConfig struct {
@@ -56,6 +63,7 @@ type Config struct {
 	InitAdminEmail    string
 	InitAdminPassword string
 	SMTP              SMTPConfig
+	Syslog            SyslogConfig
 	ShareMaxDays      int
 	Preview           PreviewConfig
 	Mark              MarkConfig
@@ -71,7 +79,7 @@ func Load(getenv func(string) string) (*Config, error) { return load(getenv, fal
 
 // LoadWorker is Load for the preview worker: it checks only what the worker uses
 // (database, master keys, base URL, storage, preview and scan limits, SX_WORKER_TMP), not the web
-// server or SMTP settings.
+// server, SMTP or syslog settings.
 func LoadWorker(getenv func(string) string) (*Config, error) { return load(getenv, true) }
 
 func load(getenv func(string) string, worker bool) (*Config, error) {
@@ -123,6 +131,7 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 			From:     web("SX_SMTP_FROM"),
 			TLS:      get("SX_SMTP_TLS", "starttls"),
 		},
+		Syslog: SyslogConfig{Addr: get("SX_SYSLOG_ADDR", ""), Transport: get("SX_SYSLOG_TRANSPORT", "tls"), CAFile: get("SX_SYSLOG_CA", "")},
 		S3: S3Config{
 			Endpoint:  get("SX_S3_ENDPOINT", ""),
 			Bucket:    get("SX_S3_BUCKET", ""),
@@ -233,6 +242,18 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 		default:
 			bad("SX_VENDOR_CREATION", fmt.Errorf("%q must be staff, approval or admin", c.VendorCreation))
 		}
+		switch c.Syslog.Transport {
+		case "udp", "tcp", "tls":
+		default:
+			bad("SX_SYSLOG_TRANSPORT", fmt.Errorf("%q must be udp, tcp or tls", c.Syslog.Transport))
+		}
+		if c.Syslog.CAFile != "" {
+			if c.Syslog.Transport != "tls" {
+				bad("SX_SYSLOG_CA", errors.New("only used with SX_SYSLOG_TRANSPORT=tls"))
+			} else if _, err := CertPool(c.Syslog.CAFile); err != nil {
+				bad("SX_SYSLOG_CA", err)
+			}
+		}
 		switch c.SMTP.TLS {
 		case "starttls", "tls":
 		case "none":
@@ -261,3 +282,16 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 
 // LocalSMTPHost reports whether h may be used with SX_SMTP_TLS=none (unencrypted, local testing only).
 func LocalSMTPHost(h string) bool { return h == "localhost" || h == "127.0.0.1" || h == "mailpit" }
+
+// CertPool loads PEM certificates from path (e.g. SX_SYSLOG_CA).
+func CertPool(path string) (*x509.CertPool, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	p := x509.NewCertPool()
+	if !p.AppendCertsFromPEM(b) {
+		return nil, fmt.Errorf("%s: no PEM certificates", path)
+	}
+	return p, nil
+}

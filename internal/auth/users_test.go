@@ -1,8 +1,12 @@
 package auth
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestUserActive(t *testing.T) {
@@ -27,5 +31,39 @@ func TestUserActive(t *testing.T) {
 		if got := tc.u.Active(now); got != tc.want {
 			t.Errorf("%s: Active = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestNotifyPrefsRoundTrip(t *testing.T) {
+	us := newUsers(t)
+	ctx := context.Background()
+	u, err := us.Create(ctx, "n@x.com", "", "staff", "password-12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := us.NotifyPrefs(ctx, u.ID); err != nil || p != (NotifyPrefs{true, true, true}) {
+		t.Fatal(p, err)
+	}
+	want := NotifyPrefs{FirstOpen: false, Download: true, Upload: false}
+	if err := us.SetNotifyPrefs(ctx, u.ID, want); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := us.NotifyPrefs(ctx, u.ID); err != nil || p != want {
+		t.Fatal(p, err)
+	}
+}
+
+func TestNotifyPrefsErrors(t *testing.T) {
+	us := newUsers(t)
+	ctx := context.Background()
+	if _, err := us.NotifyPrefs(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	if err := us.SetNotifyPrefs(ctx, uuid.New(), NotifyPrefs{}); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	us.pool.Close()
+	if err := us.SetNotifyPrefs(ctx, uuid.New(), NotifyPrefs{}); err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
 	}
 }

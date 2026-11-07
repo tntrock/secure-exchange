@@ -100,7 +100,7 @@ func TestRulesTighteningDigest(t *testing.T) {
 	if len(n) != 2 || n["a@x.com"] != 1 || n["b@x.com"] != 1 {
 		t.Fatal(n)
 	}
-	ents, _ := e.audit.List(ctx, audit.Filter{Action: audit.ActRulesUpdate})
+	ents, _, _ := e.audit.List(ctx, audit.Filter{ActionPrefix: audit.ActRulesUpdate})
 	if len(ents) != 1 {
 		t.Fatal(ents)
 	}

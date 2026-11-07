@@ -285,7 +285,13 @@ func (s *Service) opened(ctx context.Context, tx pgx.Tx, sh *Share, r *Recipient
 	if err != nil {
 		return err
 	}
+	var notify bool
 	if tag.RowsAffected() == 1 {
+		if err := tx.QueryRow(ctx, `SELECT notify_first_open FROM users WHERE id = $1`, sh.OwnerID).Scan(&notify); err != nil {
+			return err
+		}
+	}
+	if notify {
 		subject, body := mail.NotifyFirstOpen(r.Email, s.shareURL(sh))
 		if err := s.outbox.Enqueue(ctx, tx, mail.Message{To: sh.OwnerEmail, Subject: subject, Body: body}); err != nil {
 			return err
@@ -417,7 +423,13 @@ func (s *Service) RecordDownload(ctx context.Context, a *Access, fileID uuid.UUI
 	if err != nil {
 		return err
 	}
+	var notify bool
 	if tag.RowsAffected() == 1 {
+		if err := tx.QueryRow(ctx, `SELECT notify_download FROM users WHERE id = $1`, a.Share.OwnerID).Scan(&notify); err != nil {
+			return err
+		}
+	}
+	if notify {
 		subject, body := mail.NotifyDownload(a.Recipient.Email, file.Name, s.shareURL(a.Share))
 		if err := s.outbox.Enqueue(ctx, tx, mail.Message{To: a.Share.OwnerEmail, Subject: subject, Body: body}); err != nil {
 			return err

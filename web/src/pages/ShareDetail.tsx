@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { api, ApiError, fmtDate, fmtSize, type ShareDetailInfo } from "../api";
 import VendorPicker from "../components/VendorPicker";
 import Viewer from "../components/Viewer";
+import ShareAudit from "../components/ShareAudit";
 
 export default function ShareDetail({ admin = false }: { admin?: boolean }) {
   const { id = "" } = useParams();
@@ -100,6 +101,7 @@ export default function ShareDetail({ admin = false }: { admin?: boolean }) {
           <button type="submit">{t("share.add")}</button>
         </form>
       )}
+      <ShareAudit id={id} admin={admin} />
       {viewing && <Viewer base={`/api/admin/files/${viewing}/preview`} onClose={() => setViewing("")} />}
     </>
   );

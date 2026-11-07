@@ -26,6 +26,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/scan"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
+	"github.com/tntrock/secure-exchange/internal/syslogfwd"
 	"github.com/tntrock/secure-exchange/internal/upload"
 	"github.com/tntrock/secure-exchange/internal/vendor"
 )
@@ -98,6 +99,10 @@ func serve(ctx context.Context) error {
 		return fmt.Errorf("seed rules: %w", err)
 	}
 	go siteRules.RunRetention(ctx, store, auditLog, time.Hour)
+	if cfg.Syslog.Addr != "" {
+		host, _ := os.Hostname()
+		go (&syslogfwd.Forwarder{Pool: pool, Cfg: cfg.Syslog, Host: host}).Run(ctx)
+	}
 	handler := httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: sessions, Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),
@@ -105,6 +110,7 @@ func serve(ctx context.Context) error {
 		Vendors:        vendor.NewService(pool, users, sessions, outbox, cfg.BaseURL, cfg.VendorCreation, siteRules),
 		Accounts:       account.New(pool, users, sessions, outbox, siteRules, cfg.BaseURL),
 		Rules:          siteRules,
+		SyslogEnabled:  cfg.Syslog.Addr != "",
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL, CodeDelay: 300 * time.Millisecond,
 		FontFile: cfg.FontFile, Mark: cfg.Mark,
 		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies, cfg.Preview, siteRules),

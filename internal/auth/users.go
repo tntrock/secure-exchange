@@ -100,3 +100,28 @@ func (s *Users) TouchLogin(ctx context.Context, id uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `UPDATE users SET last_login_at = now() WHERE id = $1`, id)
 	return err
 }
+
+// NotifyPrefs are the mails a user opts in to; virus alerts are always sent.
+type NotifyPrefs struct {
+	FirstOpen bool `json:"first_open"`
+	Download  bool `json:"download"`
+	Upload    bool `json:"upload"`
+}
+
+func (s *Users) NotifyPrefs(ctx context.Context, id uuid.UUID) (p NotifyPrefs, err error) {
+	err = s.pool.QueryRow(ctx, `SELECT notify_first_open, notify_download, notify_upload FROM users WHERE id = $1`, id).
+		Scan(&p.FirstOpen, &p.Download, &p.Upload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = ErrNotFound
+	}
+	return
+}
+
+func (s *Users) SetNotifyPrefs(ctx context.Context, id uuid.UUID, p NotifyPrefs) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET notify_first_open = $2, notify_download = $3, notify_upload = $4 WHERE id = $1`,
+		id, p.FirstOpen, p.Download, p.Upload)
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrNotFound
+	}
+	return err
+}

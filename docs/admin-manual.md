@@ -15,6 +15,7 @@
 9. [病毒掃描（ClamAV）](#9-病毒掃描clamav)
 10. [線上預覽 worker](#10-線上預覽-worker)
 11. [稽核紀錄](#11-稽核紀錄)
+    - [11.1 轉送到 SIEM（syslog）](#111-轉送到-siemsyslog)
 12. [電子郵件](#12-電子郵件)
 13. [備份與還原](#13-備份與還原)
 14. [主金鑰輪替](#14-主金鑰輪替)
@@ -171,6 +172,10 @@ networks:
 | 變數 | 預設 | 說明 |
 |---|---|---|
 | `SX_VENDOR_CREATION` | `approval` | 誰能建立廠商帳號，見[廠商帳號管理](#6-廠商帳號管理) |
+
+### 稽核轉送
+
+`SX_SYSLOG_ADDR`、`SX_SYSLOG_TRANSPORT`、`SX_SYSLOG_CA` 見[轉送到 SIEM](#111-轉送到-siemsyslog)。
 
 ### 電子郵件
 
@@ -432,17 +437,26 @@ worker 會用 LibreOffice、poppler 與 FFmpeg 處理不受信任的檔案，因
 
 所有安全相關事件都寫入資料庫的 `audit_log` 表。這張表**只能新增、不能修改或刪除**（資料庫規則擋下），每筆紀錄還包含前一筆的雜湊值，形成雜湊鏈，任何竄改都會讓鏈斷掉。
 
-目前版本沒有稽核紀錄的瀏覽介面（第七階段加入），請以 SQL 查詢：
+### 在網頁上查詢
 
-```sh
-# 最近 50 筆
-docker compose exec postgres psql -U sx -d sx -c \
-  "SELECT at, actor_type, actor_id, ip, action, target_type, target_id, result, detail FROM audit_log ORDER BY id DESC LIMIT 50;"
+管理員登入後，點上方導覽的「稽核紀錄」（`/admin/audit`）。可用下列條件篩選，按「篩選」後分頁瀏覽：
 
-# 某段期間的登入失敗
-docker compose exec postgres psql -U sx -d sx -c \
-  "SELECT at, ip, detail FROM audit_log WHERE action = 'auth.login.fail' AND at > now() - interval '1 day' ORDER BY at;"
-```
+- **起始時間**、**結束時間**：查詢的時間範圍。
+- **操作者**：輸入 email 或使用者 id。
+- **動作**：以前綴比對，例如輸入 `share.` 列出所有分享相關事件，輸入 `auth.login.fail` 找登入失敗。
+- **對象**：輸入對象 id。若輸入的是**分享 id**，結果也會一併列出該分享底下的檔案檢視與下載紀錄。
+
+例如查「過去一天的登入失敗」：起始時間設為一天前，動作填 `auth.login.fail`。
+
+### 匯出 CSV
+
+按「匯出 CSV」會依目前的篩選條件下載。檔案為 UTF-8 並帶 BOM（Excel 可直接開啟中文），依 id 由小到大排列。為避免在試算表中被當成公式執行，開頭為 `=`、`+`、`-`、`@`、Tab 或換行字元（CR）的儲存格，內容前會加上一個 `'`；若要還原原始值，請去掉最前面的 `'`。
+
+### 驗證雜湊鏈
+
+按「驗證雜湊鏈」會重新計算整條鏈。結果會顯示已檢查的筆數；若有被竄改或遺失的紀錄，則顯示第一筆斷鏈的 id。
+
+**匯出與驗證本身也會寫入稽核紀錄**（`audit.export`、`audit.verify`）。
 
 常見的事件類型：
 
@@ -454,10 +468,35 @@ docker compose exec postgres psql -U sx -d sx -c \
 | 上傳請求 | `request.create`、`request.revoke`、`request.otp.request`、`request.otp.verify` |
 | 使用者 | `user.create`、`user.activate`、`user.disable`、`user.enable`、`user.role`、`user.totp_reset`、`user.reinvite` |
 | 廠商 | `vendor.create`、`vendor.approve`、`vendor.reject`、`vendor.disable`、`vendor.enable`、`vendor.expiry`、`vendor.reinvite`、`vendor.activate` |
-| 溯源 | `trace.lookup` |
+| 溯源與稽核 | `trace.lookup`、`audit.export`、`audit.verify` |
 | 強制規則 | `rules.update`（含修改前後的規則）、`file.retention_delete`（自動清除，`actor_type` 為 `system`） |
 
 `actor_type` 表示操作者類型：`user`（員工、管理員）、`vendor`、`recipient`（分享收件人，廠商檢視分享時也記為此類）、`uploader`（上傳請求的上傳者）、`system`（系統自動作業，例如病毒掃描）。
+
+### 11.1 轉送到 SIEM（syslog）
+
+可把稽核紀錄即時轉送到 Splunk、ELK 等 SIEM，作為資料庫以外的獨立備份。
+
+| 變數 | 預設 | 說明 |
+|---|---|---|
+| `SX_SYSLOG_ADDR` | 空（關閉） | SIEM 位址，格式 `host:port`，例如 `siem.example.com:6514` |
+| `SX_SYSLOG_TRANSPORT` | `tls` | `udp`、`tcp` 或 `tls` |
+| `SX_SYSLOG_CA` | 空 | 僅 `tls` 使用：驗證 SIEM 憑證的 CA（PEM 檔路徑）；未設定則使用系統根憑證 |
+
+設定後重新啟動即生效。
+
+**格式**：RFC 5424 syslog。facility 為 13（log audit）；`result` 為 `ok` 的事件 severity 為 6（info），其他結果為 4（warning），因此 PRI 分別是 `<110>` 與 `<108>`。APP-NAME 為 `secure-exchange`，MSGID 為動作名稱（例如 `share.create`），訊息本文為該筆稽核紀錄的 JSON：`id`、`at`、`actor_type`、`actor_id`、`ip`、`user_agent`、`action`、`target_type`、`target_id`、`result`、`detail`、`prev_hash`、`hash`（雜湊為十六進位字串）。TCP 與 TLS 採用 octet-counting 分框（RFC 6587）；UDP 則每筆紀錄一個封包。
+
+**SIEM 端設定**：Splunk 可建立 TCP（或 SSL）資料輸入並指定 sourcetype 為 `syslog`；ELK 可用 Logstash 的 `syslog` 或 `tcp` input 搭配 TLS，再以 `json` filter 解析本文。請確認輸入端接受 octet-counting 分框（RFC 6587）。若該 SIEM 只支援換行分框，請在前面放一個支援 octet-counting 的 syslog 收集器（例如 rsyslog 或 syslog-ng）。
+
+**行為與限制**：
+
+- 每 2 秒檢查一次，每批最多 500 筆；失敗時每 10 秒重試。進度記在資料庫，服務重啟或 SIEM 中斷後會從上次位置接續。有多個執行個體時，只有一個負責轉送。
+- **第一次啟用時會從第 1 筆開始送出全部歷史紀錄**，筆數多時請先確認 SIEM 容量。
+- 傳送為**至少一次**（at-least-once）：在送出與記錄進度之間當機，或 SIEM 在寫入途中中斷，極少數情況下可能重送或遺失最多一批（500 筆）。SIEM 端請以 `id` 去重。
+- UDP 無法確認送達，可能靜默丟失；正式環境建議使用 `tls`。
+- 使用 UDP 時，單筆稽核紀錄超過約 64 KB 就無法送出，轉送會卡在該筆並出現警示；有此疑慮請改用 TCP 或 `tls`。
+- 轉送持續失敗超過 15 分鐘時，管理介面頂端會出現警示橫幅。
 
 ## 12. 電子郵件
 
@@ -553,6 +592,8 @@ curl -fsS https://<SX_DOMAIN>/healthz     # 應回傳 ok
 ```
 
 升級前請閱讀版本說明，留意新增或變更的環境變數（與 `.env.example` 比對）。
+
+> 升級到 7.3 時，遷移 0009 會為稽核紀錄建立索引：大型安裝首次啟動可能需要數分鐘，期間需寫入稽核的操作會等待。請以單一實例升級。
 
 ## 16. 監控與疑難排解
 

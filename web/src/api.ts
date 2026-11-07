@@ -74,6 +74,14 @@ export interface UserInfo {
 }
 export type UserAction = "disable" | "enable" | "reset-totp" | "reinvite";
 
+export interface AuditRow {
+  id: number; at: string; actor_type: string; actor_id: string; actor_label: string; ip: string; user_agent: string;
+  action: string; target_type: string; target_id: string; result: string; detail: Record<string, unknown>;
+}
+export type AuditQuery = { since?: string; until?: string; actor?: string; action?: string; target?: string; before?: number };
+export interface ForwardingStatus { enabled: boolean; pending: number; last_ok_at: string | null; failing_since: string | null; last_error: string; alert: boolean }
+export interface NotifyPrefs { first_open: boolean; download: boolean; upload: boolean }
+
 export class ApiError extends Error {
   status: number;
   field?: string;
@@ -170,7 +178,22 @@ export const api = {
   activate: (tk: string, password: string, code: string) => call<void>("POST", `/api/activate/${encodeURIComponent(tk)}`, { password, code }),
   totpSetupPending: () => call<{ otpauth_url: string }>("POST", "/api/auth/totp/setup"),
   totpEnroll: (code: string) => call<{ mfa_required: boolean }>("POST", "/api/auth/totp/enroll", { code }),
+  auditList: (q: AuditQuery) => call<{ entries: AuditRow[]; next_before: number }>("GET", `/api/admin/audit${auditQS(q)}`),
+  auditExportURL: (q: AuditQuery) => `/api/admin/audit/export${auditQS({ ...q, before: undefined })}`,
+  auditVerify: () => call<{ checked: number; bad_id: number }>("POST", "/api/admin/audit/verify"),
+  auditForwarding: () => call<ForwardingStatus>("GET", "/api/admin/audit/forwarding"),
+  shareAudit: (id: string, admin: boolean) => call<{ entries: AuditRow[] }>("GET", `/api/${admin ? "admin/" : ""}shares/${encodeURIComponent(id)}/audit`),
+  getNotifyPrefs: () => call<NotifyPrefs>("GET", "/api/me/notifications"),
+  putNotifyPrefs: (p: NotifyPrefs) => call<void>("PUT", "/api/me/notifications", p),
 };
+
+
+function auditQS(q: AuditQuery): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(q)) if (v) p.set(k, String(v));
+  const s = p.toString();
+  return s ? `?${s}` : "";
+}
 
 export const fmtSize = (n: number, lng: string) => {
   const u = ["B", "KB", "MB", "GB", "TB"];

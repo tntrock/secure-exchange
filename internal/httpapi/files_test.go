@@ -112,7 +112,7 @@ func TestDownloadRanges(t *testing.T) {
 		t.Fatal(resp.StatusCode, resp.Header)
 	}
 	// audit: every 200/206 served (4 ranges + full), not the 416
-	ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 50})
+	ents, _, _ := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDownload, Limit: 50})
 	if len(ents) != 5 {
 		t.Fatalf("want 5 download audits, got %d", len(ents))
 	}
@@ -164,7 +164,7 @@ func TestDeleteThenGone(t *testing.T) {
 		rc.Close()
 		t.Fatal("blob still exists")
 	}
-	if ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDelete, Limit: 5}); len(ents) != 1 {
+	if ents, _, _ := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDelete, Limit: 5}); len(ents) != 1 {
 		t.Fatal(len(ents))
 	}
 }
@@ -199,7 +199,7 @@ func TestDownloadAuditByServedStatus(t *testing.T) {
 	sum := sha256.Sum256(plain)
 	etag := `"` + hex.EncodeToString(sum[:]) + `"`
 	count := func() int {
-		ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 50})
+		ents, _, _ := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDownload, Limit: 50})
 		return len(ents)
 	}
 	for i, c := range []struct {
@@ -223,7 +223,7 @@ func TestDownloadAuditByServedStatus(t *testing.T) {
 			t.Fatalf("case %d: %d audits", i, got)
 		}
 	}
-	ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 1})
+	ents, _, _ := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDownload, Limit: 1})
 	if d := ents[0].Event.Detail; d["status"] != float64(206) || d["range"] != "bytes 5-35/36" {
 		t.Fatalf("%v", d)
 	}

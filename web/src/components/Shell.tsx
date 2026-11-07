@@ -1,11 +1,16 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import LangSwitch from "./LangSwitch";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 
 export default function Shell({ role, children }: { role: string; children: React.ReactNode }) {
   const { t } = useTranslation();
   const nav = useNavigate();
+  const [fwdAlert, setFwdAlert] = useState(false);
+  useEffect(() => {
+    if (role === "admin") api.auditForwarding().then((s) => setFwdAlert(!!s?.alert), () => {});
+  }, [role]);
   return (
     <>
       <header>
@@ -27,10 +32,13 @@ export default function Shell({ role, children }: { role: string; children: Reac
         {role === "admin" && <Link to="/admin/shares">{t("nav.allShares")}</Link>}
         {role === "admin" && <Link to="/admin/trace">{t("nav.trace")}</Link>}
         {role === "admin" && <Link to="/admin/rules">{t("nav.rules")}</Link>}
+        {role === "admin" && <Link to="/admin/audit">{t("nav.audit")}</Link>}
+        {role !== "vendor" && <Link to="/settings">{t("nav.settings")}</Link>}
         <span className="spacer" />
         <LangSwitch />
         <button onClick={() => api.logout().finally(() => nav("/login"))}>{t("app.logout")}</button>
       </header>
+      {fwdAlert && <p className="error" role="alert">{t("audit.fwdAlert")}</p>}
       <main>{children}</main>
     </>
   );

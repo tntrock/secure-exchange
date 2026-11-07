@@ -178,7 +178,7 @@ func TestTusFullUpload(t *testing.T) {
 		t.Fatal("missing Tus-Resumable")
 	}
 	e.readBack(id, data)
-	ents, err := audit.New(e.pool).List(context.Background(), audit.Filter{Action: audit.ActUpload})
+	ents, _, err := audit.New(e.pool).List(context.Background(), audit.Filter{ActionPrefix: audit.ActUpload})
 	if err != nil || len(ents) != 1 || ents[0].Event.TargetID != id || ents[0].Event.ActorID != e.users["a"].ID.String() {
 		t.Fatalf("audit: %v %+v", err, ents)
 	}

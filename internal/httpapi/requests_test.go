@@ -173,7 +173,7 @@ func TestUploaderVerifySetsCookie(t *testing.T) {
 	if resp.StatusCode != 200 || fl.FilesLeft != 3 || fl.BytesLeft != 1<<20 || fl.Files == nil || len(fl.Files) != 0 {
 		t.Fatal(resp.StatusCode, string(b))
 	}
-	ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActRequestOTPVerify, Limit: 5})
+	ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActRequestOTPVerify, Limit: 5})
 	if err != nil || len(ents) != 2 || ents[0].Event.Result != "ok" || ents[1].Event.Result != "fail" || ents[0].Event.ActorType != "uploader" {
 		t.Fatalf("%v %+v", err, ents)
 	}

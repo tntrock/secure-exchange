@@ -59,7 +59,7 @@ func (e *env) invite(t *testing.T, email string) string {
 
 func (e *env) auditActions(t *testing.T, action string) []audit.Entry {
 	t.Helper()
-	got, err := e.audit.List(context.Background(), audit.Filter{Action: action})
+	got, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: action})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,4 +452,31 @@ func TestTOTPEnableLosesRace(t *testing.T) {
 	beforeEnableTOTP = func() { e.pool.Exec(context.Background(), `UPDATE users SET totp_enabled = true WHERE id = $1`, u.ID) }
 	t.Cleanup(func() { beforeEnableTOTP = func() {} })
 	wantStatus(t, e, "POST", "/api/me/totp/enable", map[string]string{"code": good}, 409, `{"error":"totp_already_enabled"}`+"\n")
+}
+
+func TestMeNotificationsAPI(t *testing.T) {
+	e := newEnv(t)
+	u := e.user(t, "s@x.com")
+	vsecret := e.mkVendor(t, "v@x.com")
+	e.loginAs(t, "s@x.com", "")
+	_, b := e.do(t, "GET", "/api/me/notifications", nil)
+	if strings.TrimSpace(string(b)) != `{"first_open":true,"download":true,"upload":true}` {
+		t.Fatal(string(b))
+	}
+	if resp, b := e.do(t, "PUT", "/api/me/notifications", map[string]bool{"first_open": false, "download": true, "upload": false}); resp.StatusCode != 204 {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	_, b = e.do(t, "GET", "/api/me/notifications", nil)
+	if strings.TrimSpace(string(b)) != `{"first_open":false,"download":true,"upload":false}` {
+		t.Fatal(string(b))
+	}
+	wantStatus(t, e, "PUT", "/api/me/notifications", map[string]bool{"first_open": true, "download": true}, 400, "{\"error\":\"bad_request\"}\n")
+	var n int
+	e.pool.QueryRow(context.Background(), `SELECT count(*) FROM audit_log WHERE action = 'user.notify_prefs' AND actor_id = $1 AND detail->>'first_open' = 'false'`, u.ID.String()).Scan(&n)
+	if n != 1 {
+		t.Fatalf("audit rows %d", n)
+	}
+	e.loginAs(t, "v@x.com", vsecret)
+	wantStatus(t, e, "GET", "/api/me/notifications", nil, 403, forbiddenBody)
+	wantStatus(t, e, "PUT", "/api/me/notifications", map[string]bool{"first_open": true, "download": true, "upload": true}, 403, forbiddenBody)
 }

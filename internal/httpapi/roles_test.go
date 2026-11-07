@@ -166,7 +166,7 @@ func TestLoginRejectsInactiveVendor(t *testing.T) {
 			if resp.StatusCode != 401 || string(b) != "{\"error\":\"invalid_credentials\"}\n" {
 				t.Fatal(resp.StatusCode, string(b))
 			}
-			got, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActLoginFail})
+			got, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActLoginFail})
 			if err != nil || len(got) != 1 || got[0].Event.Detail["stage"] != "inactive" {
 				t.Fatal(got, err)
 			}

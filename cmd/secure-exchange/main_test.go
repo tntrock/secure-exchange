@@ -56,7 +56,7 @@ func TestRunRotateKeys(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT totp_secret_sealed FROM users WHERE id=$1`, u.ID).Scan(&sealed); err != nil || sealed[3] != 2 {
 		t.Fatalf("totp not rotated: %v %v", sealed[:4], err)
 	}
-	ents, err := audit.New(pool).List(ctx, audit.Filter{Action: audit.ActKeyRotate})
+	ents, _, err := audit.New(pool).List(ctx, audit.Filter{ActionPrefix: audit.ActKeyRotate})
 	if err != nil || len(ents) != 1 || ents[0].Event.ActorType != "system" {
 		t.Fatalf("audit: %v %+v", err, ents)
 	}

@@ -22,7 +22,19 @@
   },
   "recipient": {"blockedByAdmin":"此檔案目前無法存取（管理員已禁止下載）","title":"取得分享的檔案","from":"{{name}} 與您分享了檔案","expires":"有效期限：{{at}}","email":"您的 Email","sendCode":"寄送驗證碼","code":"6 位數驗證碼","verify":"驗證","resend":"重新寄送驗證碼","changeEmail":"使用其他 Email","codeSent":"若您在名單中，將收到驗證碼","filesTitle":"分享的檔案","fileUnavailable":"無法使用","leave":"離開","error":{"domain_blocked":"您的 Email 網域不允許存取此分享","notFound":"找不到此分享","gone":"此分享已過期或已被撤銷","ipDenied":"您目前的網路位置不允許存取此分享","rateLimited":"嘗試次數過多，請稍後再試","invalidCode":"驗證碼錯誤或已失效","viewLimit":"此分享的檢視次數已達上限","sessionEnded":"登入已結束，請重新驗證","generic":"發生錯誤，請稍後再試"}},
   "viewer": { "reLogin": "登入已失效，請重新登入", "view_limit": "此分享已達檢視次數上限", "ip_denied": "不允許從您目前的網路位置存取", "open": "檢視", "close": "關閉", "prev": "上一頁", "next": "下一頁", "zoomIn": "放大", "zoomOut": "縮小", "page": "第 {{n}} 頁", "pending": "預覽處理中，請稍後再試", "notReady": "此檔案無法預覽", "gone": "分享已失效", "ended": "連線已結束，請重新驗證", "error": "無法載入預覽", "title": "檔案檢視器" },
-  "nav": { "rules": "規則", "files": "我的檔案", "shares": "我的分享", "trace": "溯源查詢", "requests": "上傳請求", "vendors": "廠商", "users": "使用者", "allShares": "所有分享", "sharedWithMe": "與我分享", "vendorUpload": "上傳" },
+  "nav": { "rules": "規則", "files": "我的檔案", "shares": "我的分享", "trace": "溯源查詢", "requests": "上傳請求", "vendors": "廠商", "users": "使用者", "allShares": "所有分享", "sharedWithMe": "與我分享", "vendorUpload": "上傳", "audit": "稽核紀錄", "settings": "設定" },
+  "audit": {
+    "title": "稽核紀錄", "since": "起始時間", "until": "結束時間", "actor": "操作者", "action": "動作", "target": "對象", "filter": "篩選",
+    "time": "時間", "ip": "IP", "result": "結果", "detail": "詳細資料", "empty": "沒有紀錄", "prev": "上一頁", "next": "下一頁",
+    "export": "匯出 CSV", "verify": "驗證雜湊鏈", "verifyOk": "已驗證 {{n}} 筆，雜湊鏈完整",
+    "verifyBad": "雜湊鏈在第 {{id}} 筆紀錄中斷", "shareTitle": "操作歷程",
+    "fwdAlert": "syslog 轉送已失敗超過 15 分鐘，稽核紀錄暫存於資料庫，恢復後會自動補送"
+  },
+  "settings": {
+    "title": "設定", "notify": "電子郵件通知", "first_open": "收件人首次開啟我的分享時",
+    "download": "收件人下載我的檔案時", "upload": "有人上傳到我的上傳請求時",
+    "virusNote": "病毒警示一律會寄出，無法關閉。", "save": "儲存", "saved": "已儲存。", "totp": "雙因素驗證"
+  },
   "allShares": { "title": "所有分享", "tabShares": "分享", "tabRequests": "上傳請求", "search": "以擁有者 Email 搜尋", "searchBtn": "搜尋", "owner": "擁有者", "more": "更多", "empty": "沒有符合的項目", "back": "返回所有分享", "adminNote": "管理員檢視：僅能線上檢視，一律加浮水印，不提供下載" },
   "vendorPortal": {
     "title": "與我分享", "empty": "目前沒有人與您分享檔案", "owner": "分享者", "message": "附言", "expires": "有效期限", "files": "檔案數",

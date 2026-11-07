@@ -22,7 +22,19 @@
   },
   "recipient": {"blockedByAdmin":"This file is currently unavailable (download is disabled by the administrator)","title":"Access shared files","from":"{{name}} shared files with you","expires":"Expires: {{at}}","email":"Your email","sendCode":"Send code","code":"6-digit code","verify":"Verify","resend":"Resend code","changeEmail":"Use a different email","codeSent":"If you are on the recipient list, a code has been sent","filesTitle":"Shared files","fileUnavailable":"Unavailable","leave":"Leave","error":{"domain_blocked":"Your email domain is not allowed to access this share","notFound":"Share not found","gone":"This share has expired or been revoked","ipDenied":"Access from your network location is not allowed","rateLimited":"Too many attempts, please try again later","invalidCode":"Incorrect or expired code","viewLimit":"This share has reached its view limit","sessionEnded":"Your session has ended, please verify again","generic":"Something went wrong, please try again"}},
   "viewer": { "reLogin": "Your login has expired, please sign in again", "view_limit": "This share has reached its view limit", "ip_denied": "Access from your network location is not allowed", "open": "View", "close": "Close", "prev": "Previous page", "next": "Next page", "zoomIn": "Zoom in", "zoomOut": "Zoom out", "page": "Page {{n}}", "pending": "Preview is still processing, please try again later", "notReady": "This file cannot be previewed", "gone": "This share is no longer available", "ended": "Your session has ended, please verify again", "error": "Could not load the preview", "title": "File viewer" },
-  "nav": { "rules": "Rules", "files": "My files", "shares": "My shares", "trace": "Leak tracing", "requests": "Requests", "vendors": "Vendors", "users": "Users", "allShares": "All shares", "sharedWithMe": "Shared with me", "vendorUpload": "Upload" },
+  "nav": { "rules": "Rules", "files": "My files", "shares": "My shares", "trace": "Leak tracing", "requests": "Requests", "vendors": "Vendors", "users": "Users", "allShares": "All shares", "sharedWithMe": "Shared with me", "vendorUpload": "Upload", "audit": "Audit log", "settings": "Settings" },
+  "audit": {
+    "title": "Audit log", "since": "From", "until": "To", "actor": "Actor", "action": "Action", "target": "Target", "filter": "Filter",
+    "time": "Time", "ip": "IP", "result": "Result", "detail": "Detail", "empty": "No records", "prev": "Previous", "next": "Next",
+    "export": "Export CSV", "verify": "Verify hash chain", "verifyOk": "Verified {{n}} records, hash chain intact",
+    "verifyBad": "Hash chain broken at record #{{id}}", "shareTitle": "Activity history",
+    "fwdAlert": "Syslog forwarding has been failing for more than 15 minutes. Audit records are kept in the database and will be sent automatically once it recovers."
+  },
+  "settings": {
+    "title": "Settings", "notify": "Email notifications", "first_open": "When a recipient opens my share for the first time",
+    "download": "When a recipient downloads my files", "upload": "When someone uploads to my upload request",
+    "virusNote": "Virus alerts are always sent and cannot be turned off.", "save": "Save", "saved": "Saved.", "totp": "Two-factor authentication"
+  },
   "allShares": { "title": "All shares", "tabShares": "Shares", "tabRequests": "Upload requests", "search": "Search by owner email", "searchBtn": "Search", "owner": "Owner", "more": "More", "empty": "Nothing found", "back": "Back to all shares", "adminNote": "Admin view: online viewing only, always watermarked, no download" },
   "vendorPortal": {
     "title": "Shared with me", "empty": "Nothing has been shared with you yet", "owner": "From", "message": "Message", "expires": "Expires", "files": "Files",

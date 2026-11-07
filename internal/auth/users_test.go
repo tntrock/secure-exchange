@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -27,5 +28,24 @@ func TestUserActive(t *testing.T) {
 		if got := tc.u.Active(now); got != tc.want {
 			t.Errorf("%s: Active = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestNotifyPrefsRoundTrip(t *testing.T) {
+	us := newUsers(t)
+	ctx := context.Background()
+	u, err := us.Create(ctx, "n@x.com", "", "staff", "password-12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := us.NotifyPrefs(ctx, u.ID); err != nil || p != (NotifyPrefs{true, true, true}) {
+		t.Fatal(p, err)
+	}
+	want := NotifyPrefs{FirstOpen: false, Download: true, Upload: false}
+	if err := us.SetNotifyPrefs(ctx, u.ID, want); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := us.NotifyPrefs(ctx, u.ID); err != nil || p != want {
+		t.Fatal(p, err)
 	}
 }

@@ -90,6 +90,8 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/activate/{token}", perIP(http.HandlerFunc(s.activateStaff)))
 
 	mux.Handle("GET /api/me", s.requireAccount(s.me))
+	mux.Handle("GET /api/me/notifications", s.requireUser(s.getNotifyPrefs))
+	mux.Handle("PUT /api/me/notifications", s.requireUser(s.setNotifyPrefs))
 	mux.Handle("GET /api/files", s.requireUser(s.listFiles))
 	mux.Handle("GET /api/files/{id}/content", s.requireUser(s.downloadFile))
 	mux.Handle("DELETE /api/files/{id}", s.requireUser(s.deleteFile))

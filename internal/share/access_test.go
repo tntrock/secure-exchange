@@ -532,3 +532,44 @@ func TestRequestCodeDailyBackstop(t *testing.T) {
 	}
 	e.code(t, tok, "bob@x.com")
 }
+
+func TestFirstOpenRespectsOptOut(t *testing.T) {
+	e := setup(t)
+	if _, err := e.pool.Exec(context.Background(), `UPDATE users SET notify_first_open = false WHERE id = $1`, e.owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, tok := e.newShare(t, nil, "bob@x.com")
+	if _, _, err := e.svc.VerifyCode(context.Background(), tok, "bob@x.com", e.code(t, tok, "bob@x.com"), ip1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := mailsTo(t, e, "owner@x.com", "opened"); n != 0 {
+		t.Fatalf("first-open mails %d", n)
+	}
+	if n := count(t, e, `SELECT count(*) FROM share_recipients WHERE first_opened_at IS NOT NULL`); n != 1 {
+		t.Fatalf("first_opened_at stamped %d", n)
+	}
+}
+
+func TestDownloadRespectsOptOut(t *testing.T) {
+	e := setup(t)
+	if _, err := e.pool.Exec(context.Background(), `UPDATE users SET notify_download = false WHERE id = $1`, e.owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, tok := e.newShare(t, nil, "bob@x.com")
+	_, a, err := e.svc.VerifyCode(context.Background(), tok, "bob@x.com", e.code(t, tok, "bob@x.com"), ip1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.RecordDownload(context.Background(), a, a.Share.Files[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := mailsTo(t, e, "owner@x.com", "downloaded"); n != 0 {
+		t.Fatalf("download mails %d", n)
+	}
+	if n := count(t, e, `SELECT count(*) FROM share_downloads`); n != 1 {
+		t.Fatalf("downloads recorded %d", n)
+	}
+	if n := mailsTo(t, e, "owner@x.com", "opened"); n != 1 {
+		t.Fatalf("first-open mail should remain: %d", n)
+	}
+}

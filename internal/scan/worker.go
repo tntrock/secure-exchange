@@ -65,6 +65,7 @@ type file struct {
 	keyID, attempts int
 	deleted         bool
 	owner, uploader string
+	notifyUpload    bool
 	requestID       *uuid.UUID // nil for a vendor upload
 }
 
@@ -87,10 +88,10 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if err := w.Pool.QueryRow(ctx, `SELECT f.name, f.size, f.wrapped_dek, f.key_id, f.storage_key, f.deleted_at IS NOT NULL,
-			o.email, f.request_id, COALESCE(u.email, v.email, '')
+			o.email, f.request_id, COALESCE(u.email, v.email, ''), o.notify_upload
 		FROM files f JOIN users o ON o.id = f.owner_id LEFT JOIN request_uploaders u ON u.id = f.uploader_id
 		  LEFT JOIN users v ON v.id = f.vendor_id
-		WHERE f.id = $1`, f.id).Scan(&f.name, &f.size, &f.wrapped, &f.keyID, &f.key, &f.deleted, &f.owner, &f.requestID, &f.uploader); err != nil {
+		WHERE f.id = $1`, f.id).Scan(&f.name, &f.size, &f.wrapped, &f.keyID, &f.key, &f.deleted, &f.owner, &f.requestID, &f.uploader, &f.notifyUpload); err != nil {
 		return true, w.retry(ctx, f, err)
 	}
 	if f.deleted {
@@ -173,6 +174,9 @@ func (w *Worker) finish(ctx context.Context, f *file, status, result string) err
 	}
 	switch status {
 	case "clean", "skipped":
+		if !f.notifyUpload { // owner opted out; virus and error notices are always sent
+			to = nil
+		}
 		subject, body = mail.NotifyIntakeUpload(f.uploader, f.name, url, status == "skipped")
 	case "infected":
 		subject, body = mail.NotifyInfected(f.uploader, f.name, result, url)

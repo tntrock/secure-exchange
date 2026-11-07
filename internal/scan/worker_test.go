@@ -461,3 +461,33 @@ func TestScanVendorUploadNotifies(t *testing.T) {
 		})
 	}
 }
+
+func TestScanCleanRespectsOptOut(t *testing.T) {
+	f := newFakeClamd(t, "stream: OK")
+	e := newEnv(t, f.addr)
+	e.pool.Exec(ctx, `UPDATE users SET notify_upload = false WHERE id = $1`, e.owner)
+	id := e.file(t, []byte("hello"))
+	e.run(t)
+	if s, _ := e.status(t, id); s != "clean" {
+		t.Fatal(s)
+	}
+	if n := e.count(t, `SELECT count(*) FROM mail_outbox`); n != 0 {
+		t.Fatalf("outbox %d", n)
+	}
+	if e.count(t, `SELECT count(*) FROM scan_jobs`) != 0 {
+		t.Fatal("job left")
+	}
+}
+
+func TestScanInfectedIgnoresOptOut(t *testing.T) {
+	f := newFakeClamd(t, "stream: Eicar-Test-Signature FOUND")
+	e := newEnv(t, f.addr)
+	e.pool.Exec(ctx, `UPDATE users SET notify_upload = false WHERE id = $1`, e.owner)
+	e.user(t, uuid.New(), "a1@example.com", "admin", false)
+	e.file(t, []byte("evil"))
+	e.run(t)
+	to, _ := e.mails(t)
+	if strings.Join(to, ",") != "a1@example.com,owner@example.com" {
+		t.Fatalf("%v", to)
+	}
+}

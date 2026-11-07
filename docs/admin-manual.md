@@ -816,19 +816,14 @@ docker compose exec postgres psql -U sx -d sx -c \
 ```sh
 docker compose ps
 docker compose logs --tail=50 app worker
-curl -fsS https://<SX_DOMAIN>/healthz     # 應回傳 ok
+curl -fsS <SX_BASE_URL>/healthz     # 應回傳 ok
 ```
-
-
-> 升級到 7.3 時，遷移 0009 會為稽核紀錄建立索引：大型安裝首次啟動可能需要數分鐘，期間需寫入稽核的操作會等待。請以單一實例升級。
-
-> 升級到 7.4 時，遷移 0010 會把 email 的唯一索引改為「每個來源各自唯一」（本機與網域帳號可各有相同 email，但永遠不合併），並在 sessions 加上 `checked_at` 欄位。需要新的設定請見[網域帳號（LDAP/AD）](#網域帳號ldapad)。
 
 ## 16. 監控與疑難排解
 
 ### 健康檢查
 
-- `https://<SX_DOMAIN>/healthz` 回傳 `ok` 表示 app 正常。
+- `<SX_BASE_URL>/healthz` 回傳 `ok` 表示 app 正常。
 - `docker compose ps` 查看各服務狀態；`docker compose logs -f <服務>` 查看即時記錄。
 
 ### 常見問題

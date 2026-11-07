@@ -816,19 +816,14 @@ The database schema is upgraded automatically when the app starts (a lock protec
 ```sh
 docker compose ps
 docker compose logs --tail=50 app worker
-curl -fsS https://<SX_DOMAIN>/healthz     # should return ok
+curl -fsS <SX_BASE_URL>/healthz     # should return ok
 ```
-
-
-> When upgrading to 7.3, migration 0009 creates an index on the audit log: on a large installation the first start can take several minutes, during which operations that must write audit records wait. Upgrade with a single instance.
-
-> When upgrading to 7.4, migration 0010 changes the unique index on email to "unique per source" (a local account and a domain account may have the same email but are never merged), and adds a `checked_at` column to sessions. For the new settings needed, see [Domain accounts (LDAP/AD)](#domain-accounts-ldapad).
 
 ## 16. Monitoring and troubleshooting
 
 ### Health check
 
-- `https://<SX_DOMAIN>/healthz` returning `ok` means the app is healthy.
+- `<SX_BASE_URL>/healthz` returning `ok` means the app is healthy.
 - `docker compose ps` shows the state of each service; `docker compose logs -f <service>` follows the live log.
 
 ### Common problems

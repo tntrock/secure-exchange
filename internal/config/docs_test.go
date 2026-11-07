@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"regexp"
-	"strings"
 	"testing"
 )
 
@@ -29,7 +28,7 @@ func TestEnvVarsDocumented(t *testing.T) {
 			t.Fatal(err)
 		}
 		for v := range vars {
-			if !strings.Contains(string(b), v) {
+			if !regexp.MustCompile(v + `\b`).Match(b) { // whole name: SX_STORAGE_DIR must not count for SX_STORAGE
 				t.Errorf("%s missing from %s", v, doc)
 			}
 		}

@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      SX_BASE_URL: https://${SX_DOMAIN:?set SX_DOMAIN in .env}
+      SX_BASE_URL: ${SX_BASE_URL:-https://${SX_DOMAIN:?set SX_DOMAIN in .env}}
       SX_DATABASE_URL: postgres://sx:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/sx?sslmode=disable
       SX_TRUSTED_PROXIES: 172.30.0.0/24 # the sx network below (Caddy's source address)
       GOMEMLIMIT: 3584MiB # soft GC target below mem_limit (4g) so the Go heap collects before the OOM killer
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      SX_BASE_URL: https://${SX_DOMAIN:?set SX_DOMAIN in .env}
+      SX_BASE_URL: ${SX_BASE_URL:-https://${SX_DOMAIN:?set SX_DOMAIN in .env}}
       SX_DATABASE_URL: postgres://sx:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/sx?sslmode=disable
     read_only: true
     tmpfs:

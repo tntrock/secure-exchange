@@ -1,5 +1,7 @@
 # secure-exchange
 
+[English](README.en.md)
+
 [![CI](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/tntrock/secure-exchange/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/tntrock/secure-exchange/security/code-scanning)
 [![codecov](https://codecov.io/gh/tntrock/secure-exchange/graph/badge.svg)](https://codecov.io/gh/tntrock/secure-exchange)
@@ -7,23 +9,22 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](web/package.json)
 [![License: AGPL-3.0](https://img.shields.io/github/license/tntrock/secure-exchange)](LICENSE)
 
-繁體中文 | [English](README.en.md)
-
 自架的安全檔案交換系統，開源（AGPL-3.0）。單一 Go 執行檔（內嵌網頁介面）、以 PostgreSQL 存放中繼資料、檔案內容存放於本機磁碟或 S3 相容儲存。
 
-## 功能（第一至六階段）
+## 功能
 
-- 支援超大檔案的可續傳上傳（tus）；檔案在寫入磁碟或 S3 之前一律先加密（AES-256-GCM，每個檔案一把金鑰，再由主金鑰包裝）。
-- argon2id 密碼登入、可選的 TOTP 雙因素驗證、速率限制、雜湊鏈稽核紀錄。
-- 網頁介面支援繁體中文與英文。
-- `rotate-keys` 子命令，可將已存資料換到新的主金鑰。
-- 一次性分享：將檔案分享給指定收件人，每位收件人以 email 一次性驗證碼驗證；支援期限、檢視次數、IP 限制、撤銷與通知。
-- 線上檢視：文件、圖片與影片以伺服器端產生的頁面圖片與影片片段呈現，可依收件人加上浮水印；轉檔在隔離的 worker 容器中進行。
-- 下載追蹤標記：收件人的每次下載都有追蹤碼，並依檔案類型嵌入標記；管理員可在「溯源查詢」頁把外流檔案追回收件人。
-- 上傳請求：以連結向沒有帳號的人收取檔案，上傳者以 email 驗證碼驗證。
-- 所有外部上傳都經 ClamAV 掃描，感染的檔案會被隔離。
-- 廠商帳號：供長期合作的外部人員使用，密碼加上強制雙因素驗證，有「與我分享」清單，並可直接上傳檔案給員工。
-- 管理員強制規則：在「規則」頁統一設定禁止下載、強制浮水印、Email 網域與外部 IP 限制、期限與大小上限、儲存配額和保存天數，立即生效並套用到既有分享，所有變更都寫入稽核紀錄。
+- **加密儲存：** 支援超大檔案的可續傳上傳（tus）；檔案在寫入磁碟或 S3 之前一律先加密（AES-256-GCM，每個檔案一把金鑰，再由主金鑰包裝）；`rotate-keys` 子命令可將已存資料換到新的主金鑰。
+- **登入：** 本機帳號（argon2id 密碼）、網域帳號（LDAP/AD）與單一登入（OIDC，如 Entra ID）；可選的 TOTP 雙因素驗證，速率限制。
+- **一次性分享：** 將檔案分享給指定收件人，每位收件人以 email 一次性驗證碼驗證；支援期限、檢視次數、IP 限制、撤銷與通知。
+- **線上檢視：** 文件、圖片與影片以伺服器端產生的頁面圖片與影片片段呈現，可依收件人加上浮水印；轉檔在隔離的 worker 容器中進行。
+- **下載追蹤標記與溯源：** 收件人的每次下載都有追蹤碼，並依檔案類型嵌入標記；管理員可在「溯源查詢」頁把外流檔案追回收件人。
+- **上傳請求：** 以連結向沒有帳號的人收取檔案，上傳者以 email 驗證碼驗證。
+- **廠商帳號：** 供長期合作的外部人員使用，密碼加上強制雙因素驗證，有「與我分享」清單，並可直接上傳檔案給員工。
+- **病毒掃描：** 所有外部上傳都經 ClamAV 掃描，感染的檔案會被隔離。
+- **強制規則：** 管理員在「規則」頁統一設定禁止下載、強制浮水印、Email 網域與外部 IP 限制、期限與大小上限、儲存配額和保存天數，立即生效並套用到既有分享。
+- **稽核：** 所有變更都寫入雜湊鏈稽核紀錄，可驗證、匯出 CSV，並以 syslog 轉送到 SIEM；管理員可瀏覽全站分享。
+- **自動清除：** 依保存天數自動刪除已結束分享的檔案，並每小時清理過期的工作階段、驗證碼與未寄出郵件。
+- **介面：** 網頁介面支援繁體中文與英文。
 
 操作說明請見[使用者手冊](docs/user-manual.md)與[管理員手冊](docs/admin-manual.md)。
 
@@ -35,10 +36,12 @@
 cp .env.example .env
 # 編輯 .env：SX_DOMAIN、POSTGRES_PASSWORD、SX_MASTER_KEYS、初始管理員
 openssl rand -base64 32      # 輸出值填入 SX_MASTER_KEYS=1:<金鑰>
-docker compose up -d
+docker compose up -d --build
 ```
 
 開啟 `https://<SX_DOMAIN>`，以 `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD` 登入。本機試用可設 `SX_DOMAIN=localhost`（使用 Caddy 本機 CA，`curl` 請加 `-k`）。`scripts/smoke.sh` 會在用完即丟的環境做上傳／續傳／下載／分享／線上檢視的端對端檢查（需 Docker；已有 `.env` 時拒絕執行）。
+
+主機 HTTPS 埠不是 443（`SX_HTTPS_PORT`）時，請在 `.env` 設定 `SX_BASE_URL=https://<網域>:<埠>`，否則信件連結與 OIDC 回呼網址會缺少埠號。
 
 所有設定皆為環境變數；每個 `SX_*` 設定都在 `.env.example` 中說明。
 

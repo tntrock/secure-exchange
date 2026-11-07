@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -73,9 +74,11 @@ func newEnv(t *testing.T, mods ...func(*Deps)) *env {
 		m(&d)
 	}
 	e.deps = d
-	e.ts = httptest.NewTLSServer(NewServer(d))
+	done := &sync.Map{}
+	e.ts = httptest.NewTLSServer(syncHandler(NewServer(d), done))
 	t.Cleanup(e.ts.Close)
 	e.c = e.ts.Client()
+	e.c.Transport = &syncRT{base: e.c.Transport, done: done}
 	e.c.Jar, _ = cookiejar.New(nil)
 	return e
 }

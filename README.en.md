@@ -1,5 +1,7 @@
 # secure-exchange
 
+[繁體中文](README.md)
+
 [![CI](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tntrock/secure-exchange/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/tntrock/secure-exchange/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/tntrock/secure-exchange/security/code-scanning)
 [![codecov](https://codecov.io/gh/tntrock/secure-exchange/graph/badge.svg)](https://codecov.io/gh/tntrock/secure-exchange)
@@ -7,25 +9,24 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](web/package.json)
 [![License: AGPL-3.0](https://img.shields.io/github/license/tntrock/secure-exchange)](LICENSE)
 
-[繁體中文](README.md) | English
-
 Self-hosted secure file exchange, open source (AGPL-3.0). One Go binary with the web UI embedded, PostgreSQL for metadata, and local disk or S3-compatible storage for file contents.
 
-## Features (phases 1–6)
+## Features
 
-- Resumable uploads (tus) of very large files; files are encrypted (AES-256-GCM, per-file key wrapped by your master key) before anything touches disk or S3.
-- Password login with argon2id, optional TOTP two-factor authentication, rate limiting, hash-chained audit log.
-- Web UI in Traditional Chinese and English.
-- `rotate-keys` subcommand to move stored data to a new master key.
-- One-time shares: send files to named recipients, each verified by an emailed one-time code; expiry, view limit, IP restriction, revocation and notifications.
-- Online viewer: documents, images and videos are shown as server-rendered pages and video segments, optionally watermarked per recipient; rendering happens in an isolated worker container.
-- Download trace marks: every recipient download gets a tracking code and, where the file type allows, an embedded mark; administrators trace leaked files back to the recipient on the **Leak tracing** page.
-- Upload requests: collect files from people without an account via a link; uploaders verify by email code.
-- ClamAV scanning of every external upload; infected files are quarantined.
-- Vendor accounts for long-term partners: password plus mandatory TOTP, a "Shared with me" list, and direct uploads to staff.
-- Admin enforcement rules: on the **Rules** page set download ban, forced watermark, email-domain and external-IP restrictions, expiry and size limits, storage quota and retention; changes apply immediately, including to existing shares, and are audited.
+- **Encrypted storage:** resumable uploads (tus) of very large files; files are encrypted (AES-256-GCM, per-file key wrapped by your master key) before anything touches disk or S3; the `rotate-keys` subcommand moves stored data to a new master key.
+- **Sign-in:** local accounts (argon2id passwords), domain accounts (LDAP/AD) and single sign-on (OIDC, e.g. Entra ID); optional TOTP two-factor authentication; rate limiting.
+- **One-time shares:** send files to named recipients, each verified by an emailed one-time code; expiry, view limit, IP restriction, revocation and notifications.
+- **Online viewer:** documents, images and videos are shown as server-rendered pages and video segments, optionally watermarked per recipient; rendering happens in an isolated worker container.
+- **Download trace marks and leak tracing:** every recipient download gets a tracking code and, where the file type allows, an embedded mark; administrators trace leaked files back to the recipient on the **Leak tracing** page.
+- **Upload requests:** collect files from people without an account via a link; uploaders verify by email code.
+- **Vendor accounts:** for long-term partners: password plus mandatory two-factor authentication, a "Shared with me" list, and direct uploads to staff.
+- **Virus scanning:** every external upload is scanned by ClamAV; infected files are quarantined.
+- **Enforcement rules:** on the **Rules** page administrators set download ban, forced watermark, email-domain and external-IP restrictions, expiry and size limits, storage quota and retention; changes apply immediately, including to existing shares.
+- **Audit:** every change is written to a hash-chained audit log that can be verified, exported as CSV and forwarded to a SIEM via syslog; administrators can browse all shares.
+- **Automatic cleanup:** files of ended shares are deleted after the retention period, and expired sessions, verification codes and unsent mail are purged hourly.
+- **Interface:** the web UI is available in Traditional Chinese and English.
 
-User and administrator manuals (Traditional Chinese): [docs/user-manual.md](docs/user-manual.md), [docs/admin-manual.md](docs/admin-manual.md).
+For usage instructions see the [user manual](docs/user-manual.en.md) and the [administrator manual](docs/admin-manual.en.md).
 
 ## Quick deployment
 
@@ -35,10 +36,12 @@ Requires Docker with Compose and a DNS name pointing at the host (ports 80/443 o
 cp .env.example .env
 # edit .env: SX_DOMAIN, POSTGRES_PASSWORD, SX_MASTER_KEYS, initial admin
 openssl rand -base64 32      # use the output as the key in SX_MASTER_KEYS=1:<key>
-docker compose up -d
+docker compose up -d --build
 ```
 
 Open `https://<SX_DOMAIN>` and sign in with `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD`. For a local trial use `SX_DOMAIN=localhost` (Caddy's local CA; use `curl -k`). `scripts/smoke.sh` runs an end-to-end upload, resume, download, share and online-viewer check on a throwaway stack (needs Docker; refuses to run if a `.env` exists).
+
+If the host's HTTPS port is not 443 (`SX_HTTPS_PORT`), set `SX_BASE_URL=https://<domain>:<port>` in `.env`; otherwise links in emails and the OIDC callback URL will lack the port.
 
 Configuration is entirely through environment variables; every `SX_*` setting is documented in `.env.example`.
 

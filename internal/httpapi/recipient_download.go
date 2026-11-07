@@ -30,16 +30,20 @@ func (s *server) recipientDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := fileRow{id: fid}
-	err := s.Pool.QueryRow(r.Context(), `SELECT f.name, f.size, f.sha256, f.wrapped_dek, f.key_id, f.storage_key
+	err := s.Pool.QueryRow(r.Context(), `SELECT f.name, f.size, f.sha256, f.wrapped_dek, f.key_id, f.storage_key, f.scan_status
 		FROM share_files sf JOIN files f ON f.id = sf.file_id
 		WHERE sf.share_id = $1 AND sf.file_id = $2 AND f.deleted_at IS NULL`, a.Share.ID, fid).
-		Scan(&f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key)
+		Scan(&f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key, &f.scan)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 		return
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return
+	}
+	if code, msg := scanRefusal(f.scan); code != 0 {
+		writeJSON(w, code, errBody(msg))
 		return
 	}
 	if !a.Share.AllowDownload {

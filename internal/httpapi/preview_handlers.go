@@ -105,15 +105,19 @@ func (s *server) sharedFile(w http.ResponseWriter, r *http.Request, a *share.Acc
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 		return uuid.Nil, false
 	}
-	var one int
-	err = s.Pool.QueryRow(r.Context(), `SELECT 1 FROM share_files sf JOIN files f ON f.id = sf.file_id
-		WHERE sf.share_id = $1 AND sf.file_id = $2 AND f.deleted_at IS NULL`, a.Share.ID, fid).Scan(&one)
+	var scan string
+	err = s.Pool.QueryRow(r.Context(), `SELECT f.scan_status FROM share_files sf JOIN files f ON f.id = sf.file_id
+		WHERE sf.share_id = $1 AND sf.file_id = $2 AND f.deleted_at IS NULL`, a.Share.ID, fid).Scan(&scan)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 		return uuid.Nil, false
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return uuid.Nil, false
+	}
+	if code, msg := scanRefusal(scan); code != 0 {
+		writeJSON(w, code, errBody(msg))
 		return uuid.Nil, false
 	}
 	return fid, true

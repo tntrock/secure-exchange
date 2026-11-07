@@ -56,8 +56,12 @@ func (s *Sessions) Lookup(ctx context.Context, token string) (*Session, error) {
 	return se, err
 }
 
-func (s *Sessions) MarkMFA(ctx context.Context, token string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE sessions SET mfa_passed=true WHERE token_hash=$1`, TokenHash(token))
+// PendingMFATTL is how long a password-only (half-logged-in) session lives.
+const PendingMFATTL = 10 * time.Minute
+
+// MarkMFA completes the second factor and extends the session to the full ttl.
+func (s *Sessions) MarkMFA(ctx context.Context, token string, ttl time.Duration) error {
+	_, err := s.pool.Exec(ctx, `UPDATE sessions SET mfa_passed=true, expires_at=$2 WHERE token_hash=$1`, TokenHash(token), time.Now().Add(ttl))
 	return err
 }
 

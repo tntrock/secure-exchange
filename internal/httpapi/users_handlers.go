@@ -225,7 +225,7 @@ func (s *server) totpEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err == nil {
-		err = s.Sessions.MarkMFA(r.Context(), token)
+		err = s.Sessions.MarkMFA(r.Context(), token, s.SessionTTL)
 	}
 	if err != nil {
 		slog.Error("totp enrol", "err", err)

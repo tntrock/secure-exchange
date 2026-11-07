@@ -374,3 +374,64 @@ func seedRules(t *testing.T, pool *pgxpool.Pool) *rules.Service {
 	}
 	return rs
 }
+
+// sessionTTLLeft is the time until the newest session of email expires.
+func (e *env) sessionTTLLeft(t *testing.T, email string) time.Duration {
+	t.Helper()
+	var exp time.Time
+	err := e.pool.QueryRow(context.Background(), `SELECT s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
+		WHERE u.email=$1 ORDER BY s.created_at DESC LIMIT 1`, email).Scan(&exp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return time.Until(exp)
+}
+
+func TestPendingMFASessionShortTTL(t *testing.T) {
+	e := newEnv(t) // SessionTTL is 1h
+	within := func(got, want time.Duration) {
+		t.Helper()
+		if got > want || got < want-10*time.Second {
+			t.Fatalf("ttl left %v, want about %v", got, want)
+		}
+	}
+	// TOTP-enabled user: half session is short, full session after the code is SessionTTL
+	secret := e.mkVendor(t, "v@v.com")
+	e.login(t, "v@v.com", pw)
+	within(e.sessionTTLLeft(t, "v@v.com"), auth.PendingMFATTL)
+	code, _ := totp.GenerateCode(secret, time.Now())
+	if resp, b := e.do(t, "POST", "/api/auth/totp", map[string]string{"code": code}); resp.StatusCode != 200 {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	within(e.sessionTTLLeft(t, "v@v.com"), time.Hour)
+
+	// forced enrolment half session
+	e.user(t, "s@x.com")
+	e.forceTOTP(t, true)
+	e.c.Jar, _ = cookiejar.New(nil)
+	e.login(t, "s@x.com", pw)
+	within(e.sessionTTLLeft(t, "s@x.com"), auth.PendingMFATTL)
+	_, b := e.do(t, "POST", "/api/auth/totp/setup", nil)
+	enrol, _ := totp.GenerateCode(otpSecret(t, otpURL(t, b)), time.Now())
+	if resp, b := e.do(t, "POST", "/api/auth/totp/enroll", map[string]string{"code": enrol}); resp.StatusCode != 200 {
+		t.Fatal(resp.StatusCode, string(b))
+	}
+	within(e.sessionTTLLeft(t, "s@x.com"), time.Hour)
+}
+
+func TestRateKeyIPv6Slash64(t *testing.T) {
+	for _, c := range []struct{ ip, want string }{
+		{"2001:db8:1:2::1", "2001:db8:1:2::/64"},
+		{"2001:db8:1:2:ffff::9", "2001:db8:1:2::/64"},
+		{"2001:db8:1:3::1", "2001:db8:1:3::/64"},
+		{"192.0.2.7", "192.0.2.7"},
+		{"::ffff:192.0.2.7", "192.0.2.7"},
+	} {
+		s := &server{Deps: Deps{}}
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "[" + c.ip + "]:1"
+		if got := s.rateKey(r); got != c.want {
+			t.Errorf("%s: got %s want %s", c.ip, got, c.want)
+		}
+	}
+}

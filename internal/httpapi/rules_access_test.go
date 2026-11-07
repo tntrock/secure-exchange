@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/netip"
 	"testing"
@@ -148,11 +149,11 @@ func TestExternalIPAllow(t *testing.T) {
 		resp.Body.Close()
 		return resp.StatusCode
 	}
-	if c := req("192.168.1.1"); c != 403 {
+	if c := req("192.168.1.1"); c != 401 {
 		t.Fatal(c)
 	}
 	wantReasons(t, e, audit.ActLoginFail, "stage", "ip_denied")
-	if c := req("10.1.1.1"); c == 403 {
+	if c := req("10.1.1.1"); c == 401 {
 		t.Fatal("allowed vendor IP denied")
 	}
 	body, _ := json.Marshal(map[string]string{"email": "a@x.com", "password": pw})
@@ -199,4 +200,27 @@ func wantReasons(t *testing.T, e *env, action, key string, want ...string) {
 			t.Fatalf("%s: want one %q, got %v", action, w, got)
 		}
 	}
+}
+
+func TestVendorIPDeniedSameAsBadPassword(t *testing.T) {
+	e := newEnv(t, func(d *Deps) { d.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")} })
+	e.mkVendor(t, "v@vendor.com")
+	e.setRules(t, func(r *rules.Rules) { r.ExternalIPAllow = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")} })
+	post := func(password string) (int, string) {
+		body, _ := json.Marshal(map[string]string{"email": "v@vendor.com", "password": password})
+		rq, _ := newReq(e.ts.URL+"/api/auth/login", body, "192.168.1.1")
+		resp, err := e.c.Do(rq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	cGood, bGood := post(pw)
+	cBad, bBad := post("wrong-password-123")
+	if cGood != 401 || cGood != cBad || bGood != bBad || bGood != `{"error":"invalid_credentials"}`+"\n" {
+		t.Fatal(cGood, bGood, cBad, bBad)
+	}
+	wantReasons(t, e, audit.ActLoginFail, "reason", "ip_denied")
 }

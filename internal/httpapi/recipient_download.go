@@ -116,17 +116,17 @@ func (s *server) planDownload(ctx context.Context, f *fileRow, rs io.ReadSeeker,
 	if err != nil {
 		return mark.Plan{}, nil, err
 	}
-	pixels := 0
+	w, h := 0, 0
 	if mark.ImageMIME(head) != "" && f.size <= s.Mark.MaxBytes {
 		if _, err := rs.Seek(0, io.SeekStart); err != nil {
 			return mark.Plan{}, nil, err
 		}
-		pixels = math.MaxInt // undecodable: unmarkable
+		w, h = math.MaxInt32, math.MaxInt32 // undecodable: unmarkable
 		if c, _, err := image.DecodeConfig(rs); err == nil {
-			pixels = c.Width * c.Height // checked against MaxPixels before any full decode
+			w, h = c.Width, c.Height // checked against MaxPixels before any full decode
 		}
 	}
-	return mark.Decide(f.name, head, f.size, pixels, p, watermark, s.Mark), p, nil
+	return mark.Decide(f.name, head, f.size, w, h, p, watermark, s.Mark), p, nil
 }
 
 // markedResponse is the response of a marked download. Its headers go out with the first byte, so

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"image"
 	"image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -738,5 +739,27 @@ func TestMarkSlotWaitTimesOut(t *testing.T) {
 	}
 	if ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDownload, Limit: 5}); err != nil || len(ents) != 0 {
 		t.Fatal(err, ents)
+	}
+}
+
+func TestSmallImageIsNotClaimedMarked(t *testing.T) {
+	var small bytes.Buffer
+	png.Encode(&small, image.NewRGBA(image.Rect(0, 0, 100, 100)))
+	e, f, tok := markShare(t, "s.png", small.Bytes(), false)
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO file_previews (file_id, kind, status, width, height) VALUES ($1,'image','ready',100,100)`, f); err != nil {
+		t.Fatal(err)
+	}
+	_, b := e.get(t, "/api/files")
+	var items []struct {
+		Mark struct {
+			Plain string `json:"plain"`
+		} `json:"mark"`
+	}
+	if err := json.Unmarshal(b, &items); err != nil || len(items) != 1 || items[0].Mark.Plain != "none" {
+		t.Fatal(err, string(b))
+	}
+	resp, got := e.get(t, contentURL(tok, f))
+	if resp.StatusCode != 200 || !bytes.Equal(got, small.Bytes()) {
+		t.Fatal(resp.StatusCode, len(got))
 	}
 }

@@ -50,6 +50,7 @@ export default function ShareDetail({ admin = false }: { admin?: boolean }) {
         <li>{t("share.statusLabel")}: {status}</li>
         <li>{t("share.allowDownload")}: {yn(d.allow_download)}</li>
         <li>{t("share.watermark")}: {yn(d.watermark)}</li>
+        {d.forced?.length ? <li><em>{t("share.forcedByAdmin")}</em></li> : null}
         <li>{t("share.views")}: {d.max_views == null ? `${d.view_count} (${t("share.unlimited")})` : `${d.view_count} / ${d.max_views}`}</li>
         <li>{t("share.ipAllow")}: {d.ip_allow.length ? d.ip_allow.join(", ") : t("share.none")}</li>
         {d.message && <li>{t("share.message")}: {d.message}</li>}

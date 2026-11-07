@@ -157,3 +157,22 @@ test("admin mode: admin endpoints, owner email, no add form, revoke, view withou
   fireEvent.click(screen.getByRole("button", { name: i18n.t("viewer.open") }));
   await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).startsWith("/api/admin/files/f1/preview"))).toBe(true));
 });
+
+test("shows the effective flags and a note when an administrator rule forced them", async () => {
+  const body = { ...detail, allow_download: false, watermark: true, forced: ["download", "watermark"] };
+  const render1 = (b: object) => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify(b)))));
+    return render(
+      <MemoryRouter initialEntries={["/shares/s1"]}>
+        <Routes><Route path="/shares/:id" element={<ShareDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+  };
+  await i18n.changeLanguage("en");
+  render1(body);
+  expect(await screen.findByText("Changed by an administrator rule")).toBeTruthy();
+  cleanup();
+  render1({ ...detail });
+  await screen.findByText("ok@x.com");
+  expect(screen.queryByText("Changed by an administrator rule")).toBeNull();
+});

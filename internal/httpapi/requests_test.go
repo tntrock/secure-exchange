@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/mail/mailtest"
+	"github.com/tntrock/secure-exchange/internal/rules"
 )
 
 var requestLinkRE = regexp.MustCompile(`https://x\.example/r/([A-Za-z0-9_-]+)`)
@@ -127,7 +129,7 @@ func TestUploaderLandingAndCode(t *testing.T) {
 	var land map[string]any
 	json.Unmarshal(b, &land)
 	exts, _ := land["allowed_exts"].([]any)
-	if resp.StatusCode != 200 || len(land) != 6 || land["owner_name"] != "D" || len(exts) != 2 || land["max_files"] != float64(3) {
+	if resp.StatusCode != 200 || len(land) != 7 || land["owner_name"] != "D" || len(exts) != 2 || land["max_files"] != float64(3) {
 		t.Fatal(resp.StatusCode, string(b))
 	}
 	if resp, b := e.do(t, "POST", "/api/r/"+tok+"/code", map[string]string{"email": "eve@y.com"}); resp.StatusCode != 200 || string(b) != `{"sent":true}`+"\n" {
@@ -446,5 +448,37 @@ func TestUploaderSessionDatabaseFailure(t *testing.T) {
 	}
 	if resp, _ := e.do(t, "GET", "/api/r/"+tok, nil); resp.StatusCode != 500 {
 		t.Fatal("landing:", resp.StatusCode)
+	}
+}
+
+func TestUploaderLandingEffectiveExts(t *testing.T) {
+	for _, c := range []struct {
+		req, site, want []string
+		none            bool
+	}{
+		{[]string{"pdf", "docx"}, []string{"pdf", "png"}, []string{"pdf"}, false},
+		{nil, []string{"pdf"}, []string{"pdf"}, false},
+		{[]string{"docx"}, []string{"pdf"}, []string{}, true},
+		{nil, nil, []string{}, false},
+	} {
+		e := newEnv(t)
+		e.user(t, "a@x.com")
+		e.login(t, "a@x.com", pw)
+		e.setRules(t, func(r *rules.Rules) { r.UploadExts = c.site })
+		resp, b := e.do(t, "POST", "/api/requests", map[string]any{"emails": []string{"u@y.com"}, "expires_at": time.Now().Add(48 * time.Hour).Format(time.RFC3339),
+			"max_files": 3, "max_total_bytes": 1 << 20, "allowed_exts": c.req})
+		if resp.StatusCode != 201 {
+			t.Fatal(resp.StatusCode, string(b))
+		}
+		tok := requestLinkRE.FindStringSubmatch(e.lastMail(t, "u@y.com").Body)[1]
+		_, b = e.do(t, "GET", "/api/r/"+tok, nil)
+		var land struct {
+			Exts []string `json:"allowed_exts"`
+			None bool     `json:"none_allowed"`
+		}
+		json.Unmarshal(b, &land)
+		if !slices.Equal(land.Exts, c.want) || land.None != c.none || !strings.Contains(string(b), `"allowed_exts":[`) {
+			t.Fatalf("req %v site %v: %s", c.req, c.site, b)
+		}
 	}
 }

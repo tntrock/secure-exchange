@@ -18,6 +18,7 @@ export interface ShareDetailInfo {
   files: { id: string; name: string; size: number; deleted: boolean }[];
   recipients: Recipient[];
   owner_email?: string;
+  forced?: ("download" | "watermark")[];
 }
 
 export type VendorStatus = "pending" | "rejected" | "disabled" | "expired" | "invited" | "active";
@@ -51,7 +52,7 @@ export interface UploadRequestDetail extends UploadRequest {
 export interface RequestReq {
   emails: string[]; expires_at: string; max_files: number; max_total_bytes: number; allowed_exts: string[]; message: string;
 }
-export interface IntakeLanding { owner_name: string; message: string; expires_at: string; max_files: number; max_total_bytes: number; allowed_exts: string[] }
+export interface IntakeLanding { owner_name: string; message: string; expires_at: string; max_files: number; max_total_bytes: number; allowed_exts: string[]; none_allowed?: boolean }
 export interface IntakeFiles { files: { id: string; name: string; size: number; created_at: string }[]; files_left: number; bytes_left: number }
 
 export interface Rules {

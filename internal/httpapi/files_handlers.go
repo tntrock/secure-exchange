@@ -23,7 +23,7 @@ import (
 func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	rows, err := s.Pool.Query(r.Context(), `SELECT f.id, f.name, f.content_type, f.size, f.sha256, f.created_at,
-			COALESCE(p.status, 'unsupported'), COALESCE(p.kind, 'none'),
+			COALESCE(p.status, 'unsupported'), COALESCE(p.kind, 'none'), COALESCE(p.width, 0), COALESCE(p.height, 0),
 			f.scan_status, f.scan_result, f.request_id, v.email
 		FROM files f LEFT JOIN file_previews p ON p.file_id = f.id LEFT JOIN users v ON v.id = f.vendor_id
 		WHERE f.owner_id = $1 AND f.deleted_at IS NULL ORDER BY f.created_at DESC`, u.ID)
@@ -51,13 +51,14 @@ func (s *server) listFiles(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var it item
 		var sum []byte
+		var width, height int
 		var at time.Time
-		if err := rows.Scan(&it.ID, &it.Name, &it.ContentType, &it.Size, &sum, &at, &it.PreviewStatus, &it.PreviewKind, &it.ScanStatus, &it.ScanResult, &it.RequestID, &it.VendorEmail); err != nil {
+		if err := rows.Scan(&it.ID, &it.Name, &it.ContentType, &it.Size, &sum, &at, &it.PreviewStatus, &it.PreviewKind, &width, &height, &it.ScanStatus, &it.ScanResult, &it.RequestID, &it.VendorEmail); err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 			return
 		}
 		it.SHA256, it.CreatedAt = fmt.Sprintf("%x", sum), at.UTC().Format(time.RFC3339)
-		p := &preview.Preview{Kind: preview.Kind(it.PreviewKind), Status: preview.Status(it.PreviewStatus)}
+		p := &preview.Preview{Kind: preview.Kind(it.PreviewKind), Status: preview.Status(it.PreviewStatus), Width: width, Height: height}
 		wm, plain := s.listPlan(it.Name, it.Size, p, true), s.listPlan(it.Name, it.Size, p, false)
 		it.Mark = fileMark{wm.Method, plain.Method, wm.Degraded}
 		out = append(out, it)
@@ -202,8 +203,8 @@ type fileMark struct {
 }
 
 // listPlan is mark.Decide for file lists, which decrypt nothing: the preview kind stands in for the
-// first bytes (Classify gives a .pdf kind pages only with the %PDF- magic) and pixels are unknown (0),
-// so an image is degraded only by MaxBytes.
+// first bytes (Classify gives a .pdf kind pages only with the %PDF- magic) and the size comes from the preview,
+// so an image is degraded by MaxBytes or MaxPixels, and unmarked below mark.MinSide.
 // ponytail: images are told jpeg/png by extension, so a gif named .png lists as markable; the
 // download re-decides from the real bytes. Store a sniffed type on files if that ever matters.
 func (s *server) listPlan(name string, size int64, p *preview.Preview, watermark bool) mark.Plan {
@@ -216,7 +217,7 @@ func (s *server) listPlan(name string, size int64, p *preview.Preview, watermark
 	case p.Kind == preview.KindImage && (strings.EqualFold(filepath.Ext(name), ".jpg") || strings.EqualFold(filepath.Ext(name), ".jpeg")):
 		head = []byte("\xff\xd8\xff")
 	}
-	return mark.Decide(name, head, size, 0, p, watermark, s.Mark)
+	return mark.Decide(name, head, size, p.Width, p.Height, p, watermark, s.Mark)
 }
 
 // scanRefusal is the status and error code for a file that may not be read yet (0 when it may).

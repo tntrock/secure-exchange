@@ -64,13 +64,13 @@ Data storage:
 
 ### 3.1 Prepare the configuration file
 
-The images come from `ghcr.io/tntrock/secure-exchange` and `ghcr.io/tntrock/secure-exchange-worker`; no local build is needed. There are two ways to get the deployment files (the download commands work only once v1.0.0 is published).
+The images come from `ghcr.io/tntrock/secure-exchange` and `ghcr.io/tntrock/secure-exchange-worker`; no local build is needed. There are two ways to get the deployment files.
 
 **Option A: download from the Release**
 
 ```sh
 mkdir secure-exchange && cd secure-exchange && mkdir certs
-B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
+B=https://github.com/tntrock/secure-exchange/releases/latest/download
 for f in docker-compose.yml env.example Caddyfile clamd.conf; do
   curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
 done
@@ -83,7 +83,7 @@ cp env.example .env
 ```sh
 git clone https://github.com/tntrock/secure-exchange.git
 cd secure-exchange
-git checkout v1.0.0
+git checkout $(git describe --tags --abbrev=0)   # latest release tag
 mkdir -p certs
 cp .env.example .env
 ```

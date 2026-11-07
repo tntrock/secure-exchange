@@ -56,6 +56,8 @@ func (s *Service) SweepRetention(ctx context.Context, store blob.Store, log *aud
 			continue
 		}
 		n++
+		// the row is already marked deleted: finish its blob, previews and audit row even if shutdown cancels ctx
+		ctx := context.WithoutCancel(ctx)
 		if err := store.Delete(ctx, key); err != nil {
 			slog.Error("retention: delete blob", "file", id, "err", err)
 		}

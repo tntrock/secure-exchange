@@ -1,12 +1,12 @@
 import { useState } from "react";
-import QRCode from "qrcode";
+import TotpQr from "../components/TotpQr";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import { useExternal } from "../useExternal";
 
 export default function TotpSetup() {
   const { t } = useTranslation();
-  const [qr, setQr] = useState("");
+  const [qr, setQr] = useState(""); // otpauth URL once setup started
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [enabled, setEnabled] = useState(false);
@@ -16,7 +16,7 @@ export default function TotpSetup() {
     setErr("");
     try {
       const { otpauth_url } = await api.totpSetup();
-      setQr(await QRCode.toDataURL(otpauth_url, { margin: 1, width: 220 }));
+      setQr(otpauth_url);
     } catch {
       setErr(t("totp.failed"));
     }
@@ -43,8 +43,7 @@ export default function TotpSetup() {
         <button onClick={start}>{t("totp.start")}</button>
       ) : (
         <>
-          <p>{t("totp.scan")}</p>
-          <img src={qr} alt={t("totp.qrAlt")} width={220} height={220} />
+          <TotpQr url={qr} />
           <form onSubmit={enable}>
             <label>
               {t("totp.code")}

@@ -77,7 +77,7 @@ After an administrator creates your account, you receive an activation invitatio
 
 1. Open the link in the email. It is valid for 7 days and can be used once; if an administrator invites you again, the old link stops working.
 2. Set a **password** (at least 12 characters) and enter it again to confirm.
-3. If the system requires two-factor authentication, the page shows a QR code; scan it with an authenticator app and enter the 6-digit code.
+3. If the system requires two-factor authentication, the page shows a QR code; scan it with an authenticator app and enter the 6-digit code (if you can't scan, type the key shown below the QR code into the app).
 4. When done, you return to the login page; sign in with your email and new password.
 
 If the page says the link is no longer valid, ask an administrator to invite you again.
@@ -89,7 +89,7 @@ If an administrator turns on "Require two-factor authentication for local staff 
 ### Setting up two-factor authentication (strongly recommended)
 
 1. On the "My files" page, click "Two-factor settings".
-2. Click "Start setup" and scan the QR code with an authenticator app on your phone (for example Google Authenticator, Microsoft Authenticator or 1Password).
+2. Click "Start setup" and scan the QR code with an authenticator app on your phone (for example Google Authenticator, Microsoft Authenticator or 1Password); if you can't scan, type in the key shown below the QR code.
 3. Enter the 6-digit code shown in the app and click "Enable".
 4. From then on, every sign-in requires a code.
 
@@ -354,7 +354,7 @@ Uploaded files are virus-scanned, and the other party can open them only after t
 
 1. You receive an invitation email to activate your account; the link is valid for 7 days and can be used once.
 2. Open the link; the page shows your account email and a QR code.
-3. Scan the QR code with an authenticator app on your phone (for example Google Authenticator or Microsoft Authenticator).
+3. Scan the QR code with an authenticator app on your phone (for example Google Authenticator or Microsoft Authenticator); if you can't scan, type in the key shown below the QR code.
 4. Set a **password** (at least 12 characters) and enter it again to confirm.
 5. Enter the 6-digit code shown in the authenticator app and click "Activate account".
 6. When you see "Your account is active", **wait for the authenticator app to move to the next code**, then sign in on the login page. The code you just used cannot be reused.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import QRCode from "qrcode";
+import TotpQr from "../components/TotpQr";
 import { useTranslation } from "react-i18next";
 import LangSwitch from "../components/LangSwitch";
 import { api, ApiError } from "../api";
@@ -10,7 +10,7 @@ const MIN_PW = 12;
 export default function Invite({ kind = "vendor" }: { kind?: "vendor" | "staff" }) {
   const { token = "" } = useParams();
   const { t } = useTranslation();
-  const [info, setInfo] = useState<{ email: string; qr: string; totp: boolean } | null>(null);
+  const [info, setInfo] = useState<{ email: string; otpauth: string; totp: boolean } | null>(null);
   const [gone, setGone] = useState(false);
   const [loadFailed, setLoadFailed] = useState(""); // i18n key of the load error
   const [password, setPassword] = useState("");
@@ -22,7 +22,7 @@ export default function Invite({ kind = "vendor" }: { kind?: "vendor" | "staff" 
   const load = useCallback(async () => {
     try {
       const r = kind === "staff" ? await api.activateInfo(token) : { totp_required: true, ...(await api.inviteInfo(token)) };
-      setInfo({ email: r.email, totp: r.totp_required, qr: r.totp_required ? await QRCode.toDataURL(r.otpauth_url, { margin: 1, width: 220 }) : "" });
+      setInfo({ email: r.email, totp: r.totp_required, otpauth: r.totp_required ? r.otpauth_url : "" });
     } catch (e) {
       const s = e instanceof ApiError ? e.status : 0;
       if (s === 410 || s === 404) setGone(true);
@@ -60,8 +60,7 @@ export default function Invite({ kind = "vendor" }: { kind?: "vendor" | "staff" 
       ) : (
         <form onSubmit={submit}>
           <p>{t("invite.account", { email: info.email })}</p>
-          {info.totp && <><p>{t("totp.scan")}</p>
-          <img src={info.qr} alt={t("totp.qrAlt")} width={220} height={220} /></>}
+          {info.totp && <TotpQr url={info.otpauth} />}
           <label>
             {t("login.password")}
             <input type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} />

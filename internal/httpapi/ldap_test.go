@@ -253,11 +253,11 @@ func TestLDAPLoginLocallyDisabled(t *testing.T) {
 
 func TestAuthMethods(t *testing.T) {
 	off := newEnv(t)
-	if resp, b := off.do(t, "GET", "/api/auth/methods", nil); resp.StatusCode != 200 || strings.TrimSpace(string(b)) != `{"ldap":false}` {
+	if resp, b := off.do(t, "GET", "/api/auth/methods", nil); resp.StatusCode != 200 || strings.TrimSpace(string(b)) != `{"ldap":false,"oidc":false,"oidc_label":""}` {
 		t.Fatal(resp.StatusCode, string(b))
 	}
 	on, _ := ldapEnv(t)
-	if resp, b := on.do(t, "GET", "/api/auth/methods", nil); resp.StatusCode != 200 || strings.TrimSpace(string(b)) != `{"ldap":true}` {
+	if resp, b := on.do(t, "GET", "/api/auth/methods", nil); resp.StatusCode != 200 || strings.TrimSpace(string(b)) != `{"ldap":true,"oidc":false,"oidc_label":""}` {
 		t.Fatal(resp.StatusCode, string(b))
 	}
 }

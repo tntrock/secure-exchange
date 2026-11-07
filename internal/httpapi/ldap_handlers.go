@@ -20,7 +20,7 @@ type Directory interface {
 }
 
 func (s *server) authMethods(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"ldap": s.LDAP != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"ldap": s.LDAP != nil, "oidc": s.OIDC != nil, "oidc_label": s.OIDCLabel})
 }
 
 func (s *server) ldapLogin(w http.ResponseWriter, r *http.Request) {
@@ -76,17 +76,10 @@ func (s *server) ldapLogin(w http.ResponseWriter, r *http.Request) {
 		fail(u.ID.String(), "disabled", http.StatusUnauthorized, "invalid_credentials")
 		return
 	}
-	token, err := s.Sessions.Create(r.Context(), u.ID, true, s.ip(r), UserAgent(r), s.SessionTTL)
-	if err != nil {
+	if err := s.finishExternalLogin(r, w, u, prevRole, detail); err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
 	}
-	s.setSessionCookie(w, token, int(s.SessionTTL.Seconds()))
-	s.touchLogin(r, u.ID)
-	if prevRole != "" && prevRole != u.Role {
-		detail["role_from"], detail["role_to"] = prevRole, u.Role
-	}
-	s.record(r, audit.Event{Action: audit.ActLoginOK, ActorID: u.ID.String(), Result: "ok", Detail: detail})
 	writeJSON(w, http.StatusOK, map[string]bool{"mfa_required": false, "totp_setup_required": false})
 }
 

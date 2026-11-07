@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/intake"
 	"github.com/tntrock/secure-exchange/internal/ldapauth"
 	"github.com/tntrock/secure-exchange/internal/mail"
+	"github.com/tntrock/secure-exchange/internal/oidcauth"
 	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/scan"
@@ -115,8 +117,17 @@ func serve(ctx context.Context) error {
 		}
 		dir = d
 	}
+	var oidcp httpapi.OIDCProvider // stays a nil interface when OIDC is off
+	if cfg.OIDC.Issuer != "" {
+		p, err := oidcauth.New(cfg.OIDC, strings.TrimRight(cfg.BaseURL, "/")+"/api/auth/oidc/callback")
+		if err != nil {
+			return fmt.Errorf("oidc: %w", err)
+		}
+		oidcp = p
+	}
 	handler := httpapi.NewServer(httpapi.Deps{
-		LDAP:  dir,
+		LDAP: dir,
+		OIDC: oidcp, OIDCLabel: cfg.OIDC.ButtonText,
 		Users: users, Sessions: sessions, Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),
 		Requests:       intake.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),

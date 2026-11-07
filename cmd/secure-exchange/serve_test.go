@@ -189,6 +189,7 @@ func TestServeErrors(t *testing.T) {
 		{"storage dir under a file", map[string]string{"SX_STORAGE_DIR": filepath.Join(file, "blobs")}, `err="mkdir `},
 		{"staging dir under a file", map[string]string{"SX_STAGING_DIR": filepath.Join(file, "staging")}, "staging dir:"},
 		{"listen fails", map[string]string{"SX_LISTEN": "127.0.0.1:99999"}, "listen tcp"},
+		{"ldap insecure warns", map[string]string{"SX_LISTEN": "127.0.0.1:99999", "SX_LDAP_URL": "ldaps://dc.example", "SX_LDAP_BIND_DN": "cn=sx", "SX_LDAP_BIND_PASSWORD": "p", "SX_LDAP_BASE_DN": "dc=example", "SX_LDAP_TLS_INSECURE": "true"}, "SX_LDAP_TLS_INSECURE is on"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

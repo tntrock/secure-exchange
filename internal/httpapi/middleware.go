@@ -146,13 +146,16 @@ func (s *server) requireVendor(next http.HandlerFunc) http.Handler {
 // requireRole admits an Active user whose role is in roles (any role when empty).
 func (s *server) requireRole(next http.HandlerFunc, roles ...string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, se, ok := s.session(r)
+		token, se, ok := s.session(r)
 		if !ok || !se.MFAPassed {
 			writeJSON(w, http.StatusUnauthorized, errBody("unauthorized"))
 			return
 		}
 		u, err := s.Users.ByID(r.Context(), se.UserID)
-		if err != nil || !u.Active(time.Now()) {
+		if err == nil && u.AuthSource == "ldap" {
+			u = s.recheck(r, token, u)
+		}
+		if err != nil || u == nil || !u.Active(time.Now()) {
 			writeJSON(w, http.StatusUnauthorized, errBody("unauthorized"))
 			return
 		}

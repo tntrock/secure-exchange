@@ -19,6 +19,7 @@ const (
 	ActLoginOK     = "auth.login.ok"
 	ActLoginFail   = "auth.login.fail"
 	ActLogout      = "auth.logout"
+	ActSessionEnd  = "auth.session.end"
 	ActTOTPEnable  = "auth.totp.enable"
 	ActUpload      = "file.upload"
 	ActDownload    = "file.download"

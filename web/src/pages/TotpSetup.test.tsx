@@ -20,7 +20,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 test("setup renders the QR of the otpauth url, enabling with a code succeeds", async () => {
   const f = mockApi(json(200, { otpauth_url: "otpauth://totp/x" }), new Response(null, { status: 204 }));
   render(<TotpSetup />);
-  fireEvent.click(screen.getByRole("button", { name: "Start setup" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Start setup" }));
   const img = await screen.findByRole("img", { name: "Two-factor authentication QR code" });
   expect(img.getAttribute("src")).toBe("data:image/png;base64,QR");
   expect(toDataURL).toHaveBeenCalledWith("otpauth://totp/x", { margin: 1, width: 220 });
@@ -33,7 +33,7 @@ test("setup renders the QR of the otpauth url, enabling with a code succeeds", a
 test("setup failure shows the error and keeps the start button", async () => {
   mockApi(json(500, {}), json(500, {}));
   render(<TotpSetup />);
-  fireEvent.click(screen.getByRole("button", { name: "Start setup" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Start setup" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Invalid code or setup failed");
   expect(screen.getByRole("button", { name: "Start setup" })).toBeTruthy();
 });
@@ -41,7 +41,7 @@ test("setup failure shows the error and keeps the start button", async () => {
 test("wrong code shows the error and stays on the form", async () => {
   mockApi(json(200, { otpauth_url: "otpauth://totp/x" }), json(400, { error: "invalid_code" }));
   render(<TotpSetup />);
-  fireEvent.click(screen.getByRole("button", { name: "Start setup" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Start setup" }));
   fireEvent.change(await screen.findByLabelText("Code"), { target: { value: "000000" } });
   fireEvent.click(screen.getByRole("button", { name: "Enable" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Invalid code or setup failed");
@@ -53,4 +53,15 @@ test("domain accounts see a message instead of the start button", async () => {
   render(<TotpSetup />);
   expect(await screen.findByText(i18n.t("totp.external"))).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Start setup" })).toBeNull();
+});
+
+test("nothing is offered while /api/me is pending, then the start button for local accounts", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  vi.stubGlobal("fetch", vi.fn(async () => { await gate; return json(200, { id: "u", role: "staff", auth_source: "local" }); }));
+  render(<TotpSetup />);
+  expect(screen.queryByRole("button", { name: "Start setup" })).toBeNull();
+  expect(screen.queryByText(i18n.t("totp.external"))).toBeNull();
+  release();
+  expect(await screen.findByRole("button", { name: "Start setup" })).toBeTruthy();
 });

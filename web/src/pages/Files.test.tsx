@@ -165,3 +165,17 @@ test.each([["ldap", false], ["local", true]])("settings link for auth_source %s 
   await act(async () => {});
   expect(!!screen.queryByRole("link", { name: "Two-factor settings" })).toBe(shown);
 });
+
+test("settings link is absent while /api/me is pending", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url === "/api/me") { await gate; return json(200, { id: "u", role: "staff", auth_source: "local" }); }
+    return json(200, null);
+  }));
+  renderPage();
+  await screen.findByText("No files yet");
+  expect(screen.queryByRole("link", { name: "Two-factor settings" })).toBeNull();
+  release();
+  expect(await screen.findByRole("link", { name: "Two-factor settings" })).toBeTruthy();
+});

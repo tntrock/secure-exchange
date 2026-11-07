@@ -46,3 +46,27 @@ test.each([["ldap", false], ["local", true]])("totp link for auth_source %s show
   await act(async () => {});
   expect(!!screen.queryByRole("link", { name: i18n.t("settings.totp") })).toBe(shown);
 });
+
+test("totp link is absent while /api/me is pending", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url === "/api/me") { await gate; return new Response(JSON.stringify({ id: "u", role: "staff", auth_source: "local" })); }
+    return new Response(JSON.stringify({ first_open: true, download: true, upload: true }));
+  }));
+  render(<MemoryRouter><Settings /></MemoryRouter>);
+  await screen.findByLabelText(i18n.t("settings.download"));
+  expect(screen.queryByRole("link", { name: i18n.t("settings.totp") })).toBeNull();
+  release();
+  expect(await screen.findByRole("link", { name: i18n.t("settings.totp") })).toBeTruthy();
+});
+
+test("Saved hides again once a checkbox is toggled", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (_u: string, init?: RequestInit) =>
+    init?.method === "PUT" ? new Response(null, { status: 204 }) : new Response(JSON.stringify({ first_open: true, download: true, upload: true }))));
+  render(<MemoryRouter><Settings /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.save") }));
+  expect(await screen.findByText(i18n.t("settings.saved"))).toBeTruthy();
+  fireEvent.click(screen.getByLabelText(i18n.t("settings.download")));
+  expect(screen.queryByText(i18n.t("settings.saved"))).toBeNull();
+});

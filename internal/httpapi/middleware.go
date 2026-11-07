@@ -103,11 +103,16 @@ func tooMany(w http.ResponseWriter) {
 
 // rateLimit rejects with 429 once key(r) has used up its budget.
 func rateLimit(key func(*http.Request) string, r rate.Limit, burst int) func(http.Handler) http.Handler {
+	return rateLimitFn(key, r, burst, func(w http.ResponseWriter, _ *http.Request) { tooMany(w) })
+}
+
+// rateLimitFn is rateLimit with a custom denial (e.g. a redirect for browser-navigated routes).
+func rateLimitFn(key func(*http.Request) string, r rate.Limit, burst int, deny http.HandlerFunc) func(http.Handler) http.Handler {
 	l := newLimiter(r, burst)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if !l.allow(key(req)) {
-				tooMany(w)
+				deny(w, req)
 				return
 			}
 			next.ServeHTTP(w, req)

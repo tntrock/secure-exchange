@@ -77,14 +77,18 @@ func NewServer(deps Deps) http.Handler {
 
 func (s *server) routes() *http.ServeMux {
 	perIP := rateLimit(s.rateKey, rate.Every(6*time.Second), 10)
+	// browser-navigated SSO routes get their own budget and a redirect the login page can explain, not a JSON 429
+	sso := rateLimitFn(s.rateKey, rate.Every(6*time.Second), 10, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/login?oidc_error=rate_limited", http.StatusFound)
+	})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 
 	mux.Handle("POST /api/auth/login", perIP(http.HandlerFunc(s.login)))
 	mux.Handle("POST /api/auth/totp", perIP(http.HandlerFunc(s.totp)))
 	mux.Handle("POST /api/auth/ldap", perIP(http.HandlerFunc(s.ldapLogin)))
-	mux.Handle("GET /api/auth/oidc/start", perIP(http.HandlerFunc(s.oidcStart)))
-	mux.Handle("GET /api/auth/oidc/callback", perIP(http.HandlerFunc(s.oidcCallback)))
+	mux.Handle("GET /api/auth/oidc/start", sso(http.HandlerFunc(s.oidcStart)))
+	mux.Handle("GET /api/auth/oidc/callback", sso(http.HandlerFunc(s.oidcCallback)))
 	mux.HandleFunc("GET /api/auth/methods", s.authMethods)
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
 	mux.Handle("POST /api/auth/totp/setup", http.HandlerFunc(s.totpSetupPending))

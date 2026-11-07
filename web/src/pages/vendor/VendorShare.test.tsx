@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import i18n from "../../i18n";
 import { nav } from "../../api";
 import VendorShare from "./VendorShare";
@@ -43,10 +43,12 @@ test("410 shows the expired message", async () => {
   expect(await screen.findByText("This share has expired or been revoked")).toBeTruthy();
 });
 
+const LoginStub = () => <p>login page from {String((useLocation().state as { from?: string } | null)?.from)}</p>;
+
 test("401 sends the vendor to the login page", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json(401, { error: "unauthorized" })));
-  render(<MemoryRouter initialEntries={["/vendor/shares/s1"]}><Routes><Route path="/vendor/shares/:id" element={<VendorShare />} /><Route path="/login" element={<p>login page</p>} /></Routes></MemoryRouter>);
-  expect(await screen.findByText("login page")).toBeTruthy();
+  render(<MemoryRouter initialEntries={["/vendor/shares/s1"]}><Routes><Route path="/vendor/shares/:id" element={<VendorShare />} /><Route path="/login" element={<LoginStub />} /></Routes></MemoryRouter>);
+  expect(await screen.findByText("login page from /vendor/shares/s1")).toBeTruthy();
 });
 
 const content = (head: Response, get?: Response, extra = {}) => vi.fn(async (url: string, init?: RequestInit) =>

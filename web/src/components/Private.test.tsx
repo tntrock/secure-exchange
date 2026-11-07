@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import Private from "./Private";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -35,4 +35,18 @@ test("matching role renders; 401 goes to login", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
   show("/files");
   expect(await screen.findByText("login page")).toBeTruthy();
+});
+
+test("login redirect carries the visited path as state.from", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+  const Login = () => <p>from {String((useLocation().state as { from?: string } | null)?.from)}</p>;
+  render(
+    <MemoryRouter initialEntries={["/files/x"]}>
+      <Routes>
+        <Route path="/files/x" element={<Private roles={["staff"]}><p>x</p></Private>} />
+        <Route path="/login" element={<Login />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("from /files/x")).toBeTruthy();
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Viewer from "../../components/Viewer";
 import { errKey } from "../recipient/errKey";
@@ -8,6 +8,7 @@ import { api, ApiError, fmtDate, fmtSize, headFile, nav, type RecipientFiles } f
 // One share's files for a signed-in vendor; same behaviour as the recipient files step, under /api/vendor/shares/{id}.
 export default function VendorShare() {
   const { id = "" } = useParams();
+  const from = useLocation().pathname;
   const { t, i18n } = useTranslation();
   const [data, setData] = useState<RecipientFiles | null>(null);
   const [err, setErr] = useState("");
@@ -45,7 +46,7 @@ export default function VendorShare() {
     nav.go(href);
   };
 
-  if (err === "login") return <Navigate to="/login" replace />;
+  if (err === "login") return <Navigate to="/login" replace state={{ from }} />;
   const lng = i18n.language;
   return (
     <>

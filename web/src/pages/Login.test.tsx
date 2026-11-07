@@ -213,3 +213,52 @@ test.each([
   setupOidc({ ldap: false, oidc: false }, `/login?oidc_error=${code}`);
   expect((await screen.findByRole("alert")).textContent).toBe(msg);
 });
+
+test("oidc_error=rate_limited shows the rate-limit message", async () => {
+  setupOidc({ ldap: false, oidc: false }, "/login?oidc_error=rate_limited");
+  expect((await screen.findByRole("alert")).textContent).toBe("嘗試次數過多，請稍後再試");
+});
+
+// sign in with router state {from}; the destination routes render their path
+function setupFrom(from: unknown, ldap: boolean) {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url.endsWith("/methods")) return json(200, { ldap });
+    if (url.endsWith("/login")) return json(200, { mfa_required: false });
+    if (url.endsWith("/ldap")) return json(200, {});
+    return json(200, { role: "staff" });
+  }));
+  void i18n.changeLanguage("en");
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/login", state: { from } }]}>
+      <Routes><Route path="/login" element={<Login />} /><Route path="/files" element={<p>files page</p>} /><Route path="/vendor/shares/abc" element={<p>deep page</p>} /></Routes>
+    </MemoryRouter>,
+  );
+}
+
+test.each([[false], [true]])("sign-in returns to state.from (ldap=%s)", async (ldap) => {
+  setupFrom("/vendor/shares/abc", ldap);
+  if (ldap) {
+    fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "alice" } });
+    fireEvent.change(screen.getAllByLabelText("Password")[1], { target: { value: "pw" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Log in" })[1]);
+  } else {
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@x.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  }
+  expect(await screen.findByText("deep page")).toBeTruthy();
+});
+
+test.each([["//evil.example", false], ["https://evil.example", false], ["/\\evil.example", false], ["//evil.example", true], ["https://evil.example", true]])("unsafe from %s falls back to home (ldap=%s)", async (from, ldap) => {
+  setupFrom(from, ldap);
+  if (ldap) {
+    fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "alice" } });
+    fireEvent.change(screen.getAllByLabelText("Password")[1], { target: { value: "pw" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Log in" })[1]);
+  } else {
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@x.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  }
+  expect(await screen.findByText("files page")).toBeTruthy();
+});

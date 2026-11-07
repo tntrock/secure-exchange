@@ -238,7 +238,7 @@ An upload request lets people without an account send files to you, for example 
 
 ### Creating a request
 
-1. Click "Upload requests" at the top.
+1. Click "Requests" at the top.
 2. Under "New request", fill in:
 
 | Field | Description |

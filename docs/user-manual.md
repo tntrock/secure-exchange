@@ -77,7 +77,7 @@
 
 1. 開啟信中的連結，連結 7 天內有效、只能使用一次；若管理員重新邀請，舊連結即失效。
 2. 設定**密碼**（至少 12 個字元）並再輸入一次確認。
-3. 若系統要求雙因素驗證，頁面會顯示 QR code，用驗證器 App 掃描後輸入 6 位數驗證碼。
+3. 若系統要求雙因素驗證，頁面會顯示 QR code，用驗證器 App 掃描後輸入 6 位數驗證碼（無法掃描時，可在 App 中手動輸入 QR code 下方的金鑰）。
 4. 完成後回到登入頁，以 email 與新密碼登入。
 
 若頁面顯示連結已失效，請聯絡管理員重新邀請。
@@ -89,7 +89,7 @@
 ### 設定雙因素驗證（強烈建議）
 
 1. 在「我的檔案」頁點「雙因素驗證設定」。
-2. 按「開始設定」，用手機上的驗證器 App（例如 Google Authenticator、Microsoft Authenticator、1Password）掃描 QR code。
+2. 按「開始設定」，用手機上的驗證器 App（例如 Google Authenticator、Microsoft Authenticator、1Password）掃描 QR code；無法掃描時，可手動輸入 QR code 下方的金鑰。
 3. 輸入 App 上顯示的 6 位數驗證碼，按「啟用」。
 4. 之後每次登入都需要輸入驗證碼。
 
@@ -354,7 +354,7 @@
 
 1. 你會收到啟用帳號的邀請信，連結 7 天內有效，只能使用一次。
 2. 開啟連結，頁面顯示你的帳號 email 與一個 QR code。
-3. 用手機上的驗證器 App（例如 Google Authenticator、Microsoft Authenticator）掃描 QR code。
+3. 用手機上的驗證器 App（例如 Google Authenticator、Microsoft Authenticator）掃描 QR code；無法掃描時，可手動輸入 QR code 下方的金鑰。
 4. 設定**密碼**（至少 12 個字元）並再輸入一次確認。
 5. 輸入驗證器 App 顯示的 6 位數驗證碼，按「啟用帳號」。
 6. 看到「您的帳號已啟用」後，**請等驗證器 App 換到下一組驗證碼**，再到登入頁登入。剛才用過的驗證碼不能重複使用。

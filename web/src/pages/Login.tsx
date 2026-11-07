@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import QRCode from "qrcode";
+import TotpQr from "../components/TotpQr";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../api";
@@ -41,7 +41,7 @@ export default function Login() {
     try {
       if (!mfa && !qr) {
         const r = await api.login(email, password);
-        if (r.totp_setup_required) setQr(await QRCode.toDataURL((await api.totpSetupPending()).otpauth_url, { margin: 1, width: 220 }));
+        if (r.totp_setup_required) setQr((await api.totpSetupPending()).otpauth_url);
         else if (r.mfa_required) setMfa(true);
         else await home();
       } else if (qr) {
@@ -91,7 +91,7 @@ export default function Login() {
           </>
         ) : (
           <>
-            {qr && <><p>{t("totp.scan")}</p><img src={qr} alt={t("totp.qrAlt")} width={220} height={220} /></>}
+            {qr && <TotpQr url={qr} />}
           <label>
             {t("login.totpCode")}
             <input inputMode="numeric" autoComplete="one-time-code" required autoFocus value={code} onChange={(e) => setCode(e.target.value)} />

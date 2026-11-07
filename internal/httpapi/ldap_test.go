@@ -169,15 +169,19 @@ func TestLDAPLoginErrors(t *testing.T) {
 		err    error
 		status int
 		body   string
+		stage  string
 	}{
-		{ldapauth.ErrDisabled, 401, "invalid_credentials"},
-		{ldapauth.ErrNoEmail, 401, "invalid_credentials"},
-		{ldapauth.ErrUnavailable, 503, "directory_unavailable"},
-		{errors.New("other"), 503, "directory_unavailable"},
+		{ldapauth.ErrDisabled, 401, "invalid_credentials", "ldap_disabled"},
+		{ldapauth.ErrNoEmail, 401, "invalid_credentials", "ldap_no_email"},
+		{ldapauth.ErrUnavailable, 503, "directory_unavailable", "ldap_unavailable"},
+		{errors.New("other"), 503, "directory_unavailable", "ldap_unavailable"},
 	} {
 		f.authErr = c.err
 		if resp, b := e.ldapLogin(t, fmt.Sprint("u", i)); resp.StatusCode != c.status || !strings.Contains(string(b), c.body) {
 			t.Fatal(c.err, resp.StatusCode, string(b))
+		}
+		if d := e.lastDetail(t, audit.ActLoginFail); d["stage"] != c.stage {
+			t.Fatal(c.err, d)
 		}
 	}
 	if d := e.lastDetail(t, audit.ActLoginFail); d["stage"] != "ldap_unavailable" || d["source"] != "ldap" || d["reason"] != nil {
@@ -235,6 +239,9 @@ func TestLDAPLoginLocallyDisabled(t *testing.T) {
 	e.mustLDAPLogin(t, "alice")
 	if _, err := e.pool.Exec(context.Background(), `UPDATE users SET disabled=true WHERE auth_source='ldap'`); err != nil {
 		t.Fatal(err)
+	}
+	if resp, _ := e.do(t, "GET", "/api/me", nil); resp.StatusCode != 401 {
+		t.Fatal("disabled LDAP user kept access", resp.StatusCode)
 	}
 	if resp, b := e.ldapLogin(t, "alice"); resp.StatusCode != 401 || !strings.Contains(string(b), "invalid_credentials") {
 		t.Fatal(resp.StatusCode, string(b))
@@ -366,7 +373,24 @@ func TestRecheckWithLDAPOff(t *testing.T) {
 	if resp.StatusCode != 401 {
 		t.Fatal(resp.StatusCode)
 	}
+	if n := e.sessionCount(t); n != 0 {
+		t.Fatal("ldap session survived", n)
+	}
 	if d := e.lastDetail(t, audit.ActSessionEnd); d["reason"] != "ldap_unavailable" {
 		t.Fatal(d)
+	}
+}
+
+func TestLDAPUserCannotEnrolTOTP(t *testing.T) {
+	e, _ := ldapEnv(t)
+	e.mustLDAPLogin(t, "alice")
+	for _, p := range []string{"/api/me/totp/setup", "/api/me/totp/enable"} {
+		if resp, b := e.do(t, "POST", p, map[string]string{"code": "123456"}); resp.StatusCode != 409 || !strings.Contains(string(b), "external_account") {
+			t.Fatal(p, resp.StatusCode, string(b))
+		}
+	}
+	var noSecret, enabled bool
+	if err := e.pool.QueryRow(context.Background(), `SELECT totp_secret_sealed IS NULL, totp_enabled FROM users WHERE auth_source='ldap'`).Scan(&noSecret, &enabled); err != nil || !noSecret || enabled {
+		t.Fatal(err, noSecret, enabled)
 	}
 }

@@ -218,3 +218,14 @@ func (s *server) touchLogin(r *http.Request, id uuid.UUID) {
 		slog.Error("touch login", "err", err)
 	}
 }
+
+// localOnly refuses externally managed (LDAP) accounts, which have no TOTP of their own here.
+func localOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if auth.UserFrom(r.Context()).AuthSource != "local" {
+			writeJSON(w, http.StatusConflict, errBody("external_account")) // as 7.2 reports account.ErrExternal
+			return
+		}
+		next(w, r)
+	}
+}

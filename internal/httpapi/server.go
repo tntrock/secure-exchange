@@ -160,8 +160,8 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
 	mux.Handle("GET /api/rules", s.requireUser(s.getRules))
 	mux.Handle("PUT /api/admin/rules", s.requireAdmin(s.putRules))
-	mux.Handle("POST /api/me/totp/setup", s.requireAccount(s.totpSetup))
-	mux.Handle("POST /api/me/totp/enable", s.requireAccount(s.totpEnable))
+	mux.Handle("POST /api/me/totp/setup", s.requireAccount(localOnly(s.totpSetup)))
+	mux.Handle("POST /api/me/totp/enable", s.requireAccount(localOnly(s.totpEnable)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not_found")) })
 	mux.Handle("/", webui.Handler())
 	if s.Uploads != nil {

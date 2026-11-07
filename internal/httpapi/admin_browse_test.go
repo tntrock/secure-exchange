@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/tntrock/secure-exchange/internal/audit"
 	"github.com/tntrock/secure-exchange/internal/preview"
@@ -189,4 +190,49 @@ func TestAdminNoDownloadRoute(t *testing.T) {
 	f := e.putFile(t, b.ID, "a.txt", []byte("x"))
 	e.loginAs(t, "adm@x.com", "")
 	wantStatus(t, e, "GET", "/api/admin/files/"+f.String()+"/content", nil, 404, "{\"error\":\"not_found\"}\n")
+}
+
+func TestAdminDirectFetchAuditedOnce(t *testing.T) {
+	e := newEnv(t)
+	adminViewTTL = 300 * time.Millisecond
+	t.Cleanup(func() { adminViewTTL = 30 * time.Minute })
+	e.admin(t)
+	b := e.user(t, "b@x.com")
+	f := e.putFile(t, b.ID, "pic.png", []byte("x"))
+	e.seedPreview(t, f, preview.KindImage, preview.StatusReady, 1)
+	e.loginAs(t, "adm@x.com", "")
+	page := "/api/admin/files/" + f.String() + "/preview/pages/0"
+	wantStatus(t, e, "GET", page, nil, 200, "")
+	ents := e.auditActions(t, audit.ActFileView)
+	if len(ents) != 1 || ents[0].Event.TargetID != f.String() || ents[0].Event.ActorID != e.userID(t, "adm@x.com") || ents[0].Event.Detail["admin"] != true {
+		t.Fatalf("%+v", ents)
+	}
+	wantStatus(t, e, "GET", page, nil, 200, "")
+	if n := len(e.auditActions(t, audit.ActFileView)); n != 1 {
+		t.Fatalf("%d rows after a second fetch", n)
+	}
+	// a fetch after the window has passed is audited again
+	time.Sleep(400 * time.Millisecond)
+	wantStatus(t, e, "GET", page, nil, 200, "")
+	if n := len(e.auditActions(t, audit.ActFileView)); n != 2 {
+		t.Fatalf("%d rows after the window", n)
+	}
+}
+
+func TestAdminPreviewHeadRefused(t *testing.T) {
+	e := newEnv(t)
+	e.admin(t)
+	b := e.user(t, "b@x.com")
+	f := e.putFile(t, b.ID, "pic.png", []byte("x"))
+	e.seedPreview(t, f, preview.KindImage, preview.StatusReady, 1)
+	e.loginAs(t, "adm@x.com", "")
+	for _, p := range []string{"/preview", "/preview/pages/0"} {
+		resp, _ := e.do(t, "HEAD", "/api/admin/files/"+f.String()+p, nil)
+		if resp.StatusCode != 405 || resp.Header.Get("Allow") != "GET" {
+			t.Fatal(p, resp.StatusCode, resp.Header)
+		}
+	}
+	if n := len(e.auditActions(t, audit.ActFileView)); n != 0 {
+		t.Fatalf("%d file.view rows for HEAD", n)
+	}
 }

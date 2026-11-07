@@ -428,3 +428,28 @@ func TestLoginTouchesLastLogin(t *testing.T) {
 		t.Fatal("code step not recorded")
 	}
 }
+
+// A concurrent enrolment that wins between the session check and the enabling update must not become a 500.
+func TestTOTPEnrolLosesRace(t *testing.T) {
+	e := newEnv(t)
+	u := e.user(t, "s@x.com")
+	e.forceTOTP(t, true)
+	e.login(t, "s@x.com", pw)
+	_, b := e.do(t, "POST", "/api/auth/totp/setup", nil)
+	secret := otpSecret(t, otpURL(t, b))
+	good, _ := totp.GenerateCode(secret, time.Now())
+	beforeEnableTOTP = func() { e.pool.Exec(context.Background(), `UPDATE users SET totp_enabled = true WHERE id = $1`, u.ID) }
+	t.Cleanup(func() { beforeEnableTOTP = func() {} })
+	wantStatus(t, e, "POST", "/api/auth/totp/enroll", map[string]string{"code": good}, 401, `{"error":"unauthorized"}`+"\n")
+}
+
+func TestTOTPEnableLosesRace(t *testing.T) {
+	e := newEnv(t)
+	u := e.user(t, "s@x.com")
+	e.loginAs(t, "s@x.com", "")
+	_, b := e.do(t, "POST", "/api/me/totp/setup", nil)
+	good, _ := totp.GenerateCode(otpSecret(t, otpURL(t, b)), time.Now())
+	beforeEnableTOTP = func() { e.pool.Exec(context.Background(), `UPDATE users SET totp_enabled = true WHERE id = $1`, u.ID) }
+	t.Cleanup(func() { beforeEnableTOTP = func() {} })
+	wantStatus(t, e, "POST", "/api/me/totp/enable", map[string]string{"code": good}, 409, `{"error":"totp_already_enabled"}`+"\n")
+}

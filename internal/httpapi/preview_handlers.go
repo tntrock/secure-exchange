@@ -44,20 +44,12 @@ func (s *server) previewRoutes(mux *http.ServeMux) {
 					h(w, r, fid, a)
 				}
 			})
-			// a HEAD would trace, audit and burn like a GET while showing nothing
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == http.MethodHead {
-					w.Header().Set("Allow", "GET")
-					writeJSON(w, http.StatusMethodNotAllowed, errBody("method_not_allowed"))
-					return
-				}
-				inner.ServeHTTP(w, r)
-			})
+			return noHead(inner)
 		}
 	}
 	// admin views any live, scan-clean file, always watermarked with the admin's identity (mark); there is no download route
 	admin := func(h previewHandler) http.Handler {
-		return s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
+		return noHead(s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
 			f, ok := s.liveFile(w, r, nil)
 			if !ok {
 				return
@@ -68,7 +60,7 @@ func (s *server) previewRoutes(mux *http.ServeMux) {
 			}
 			viewHeaders(w)
 			h(w, r.WithContext(context.WithValue(r.Context(), adminViewerKey{}, auth.UserFrom(r.Context()))), f.id, nil)
-		})
+		}))
 	}
 	recip, vendorShare := shared(s.requireRecipient), shared(s.requireVendorShare)
 	for prefix, wrap := range map[string]func(previewHandler) http.Handler{"/api/files/{id}": own, "/api/s/{token}/files/{fid}": recip,
@@ -78,6 +70,18 @@ func (s *server) previewRoutes(mux *http.ServeMux) {
 		mux.Handle("GET "+prefix+"/preview/video.m3u8", wrap(s.previewPlaylist))
 		mux.Handle("GET "+prefix+"/preview/segments/{seg}", wrap(s.previewSegment))
 	}
+}
+
+// noHead refuses HEAD: it would trace, audit and burn like a GET while showing nothing.
+func noHead(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			w.Header().Set("Allow", "GET")
+			writeJSON(w, http.StatusMethodNotAllowed, errBody("method_not_allowed"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // adminViewerKey carries the admin whose view is being served (nil a means owner otherwise).
@@ -116,10 +120,7 @@ func (s *server) sharedFile(w http.ResponseWriter, r *http.Request, a *share.Acc
 }
 
 func (s *server) previewStatus(w http.ResponseWriter, r *http.Request, fid uuid.UUID, _ *share.Access) {
-	if v := adminViewer(r); v != nil { // once per opening; page and segment fetches are not audited
-		s.record(r, audit.Event{ActorType: "user", ActorID: v.ID.String(), Action: audit.ActFileView, TargetType: "file", TargetID: fid.String(),
-			Result: "ok", Detail: map[string]any{"admin": true}})
-	}
+	s.auditAdminView(r, fid, true) // every opening
 	p, err := preview.GetStatus(r.Context(), s.Pool, fid)
 	if errors.Is(err, preview.ErrNoPreview) {
 		writeJSON(w, http.StatusOK, map[string]string{"kind": string(preview.KindNone), "status": string(preview.StatusUnsupported)})
@@ -198,6 +199,7 @@ func (s *server) previewPage(w http.ResponseWriter, r *http.Request, fid uuid.UU
 	if !ok {
 		return
 	}
+	s.auditAdminView(r, fid, false)
 	n, ok := index(w, r.PathValue("n"))
 	if !ok {
 		return
@@ -249,6 +251,7 @@ func (s *server) previewPlaylist(w http.ResponseWriter, r *http.Request, fid uui
 	if _, ok := s.ready(w, r, fid, preview.KindVideo); !ok {
 		return
 	}
+	s.auditAdminView(r, fid, false)
 	items, err := preview.ListItems(r.Context(), s.Pool, fid, "segment")
 	if err != nil {
 		s.viewErr(w, r, fid, err)
@@ -273,6 +276,7 @@ func (s *server) previewSegment(w http.ResponseWriter, r *http.Request, fid uuid
 	if _, ok := s.ready(w, r, fid, preview.KindVideo); !ok {
 		return
 	}
+	s.auditAdminView(r, fid, false)
 	seg, ok := strings.CutSuffix(r.PathValue("seg"), ".ts")
 	if !ok {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
@@ -322,4 +326,36 @@ func (s *server) viewErr(w http.ResponseWriter, r *http.Request, fid uuid.UUID, 
 		slog.Error("preview view", "route", r.Pattern, "file", fid, "err", err)
 	}
 	writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+}
+
+// adminViewTTL is how long an admin's open of a file stays one audited view.
+var adminViewTTL = 30 * time.Minute
+
+// auditAdminView writes file.view for an admin viewing fid. always (the status route, one per opening) writes every
+// time; page, playlist and segment fetches write only when this (admin session, file) was not audited within adminViewTTL.
+// ponytail: the dedupe map is per instance, so several instances may write duplicate rows; move it to a DB table if that matters.
+func (s *server) auditAdminView(r *http.Request, fid uuid.UUID, always bool) {
+	v := adminViewer(r)
+	if v == nil {
+		return
+	}
+	c, _ := r.Cookie(cookieName) // present: requireAdmin passed
+	key := string(auth.TokenHash(c.Value)) + fid.String()
+	now := time.Now()
+	s.adminViews.Lock()
+	seen := now.Before(s.adminViews.at[key])
+	if !seen || always {
+		for k, exp := range s.adminViews.at { // prune
+			if !now.Before(exp) {
+				delete(s.adminViews.at, k)
+			}
+		}
+		s.adminViews.at[key] = now.Add(adminViewTTL)
+	}
+	s.adminViews.Unlock()
+	if seen && !always {
+		return
+	}
+	s.record(r, audit.Event{ActorType: "user", ActorID: v.ID.String(), Action: audit.ActFileView, TargetType: "file", TargetID: fid.String(),
+		Result: "ok", Detail: map[string]any{"admin": true}})
 }

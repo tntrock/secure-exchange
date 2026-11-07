@@ -173,7 +173,12 @@ func (s *server) totpEnable(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, errBody("totp_already_enabled"))
 		return
 	}
+	beforeEnableTOTP()
 	err := s.Users.EnableTOTP(r.Context(), u.ID, in.Code)
+	if errors.Is(err, auth.ErrTOTPAlreadyEnabled) {
+		writeJSON(w, http.StatusConflict, errBody("totp_already_enabled"))
+		return
+	}
 	if errors.Is(err, auth.ErrBadCode) {
 		writeJSON(w, http.StatusBadRequest, errBody("invalid_code"))
 		return

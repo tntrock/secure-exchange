@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,6 +50,10 @@ type server struct {
 	dummyHash    string   // verified against when the email is unknown, to equalise timing
 	accountLimit *limiter // per email (login) / per user (totp)
 	codeLimit    *limiter // recipient code requests per (share token, email)
+	adminViews   struct {
+		sync.Mutex
+		at map[string]time.Time // (session hash, file) -> end of its audit window
+	}
 }
 
 func NewServer(deps Deps) http.Handler {
@@ -58,6 +63,7 @@ func NewServer(deps Deps) http.Handler {
 	}
 	s := &server{Deps: deps, dummyHash: dummy, accountLimit: newLimiter(rate.Every(12*time.Second), 5),
 		codeLimit: newLimiter(rate.Every(200*time.Second), 3)}
+	s.adminViews.at = map[string]time.Time{}
 	return securityHeaders(http.NewCrossOriginProtection().Handler(s.external(s.routes())))
 }
 

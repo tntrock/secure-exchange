@@ -213,7 +213,12 @@ func (s *server) totpEnroll(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	beforeEnableTOTP()
 	err := s.Users.EnableTOTP(r.Context(), u.ID, in.Code)
+	if errors.Is(err, auth.ErrTOTPAlreadyEnabled) { // lost a race with another enrolment
+		writeJSON(w, http.StatusUnauthorized, errBody("unauthorized"))
+		return
+	}
 	if errors.Is(err, auth.ErrBadCode) {
 		s.record(r, audit.Event{Action: audit.ActLoginFail, ActorID: u.ID.String(), Result: "fail", Detail: map[string]any{"stage": "totp_enrol"}})
 		writeJSON(w, http.StatusUnauthorized, errBody("invalid_code"))
@@ -232,3 +237,6 @@ func (s *server) totpEnroll(w http.ResponseWriter, r *http.Request) {
 	s.record(r, audit.Event{Action: audit.ActLoginOK, ActorID: u.ID.String(), Result: "ok", Detail: map[string]any{"stage": "totp_enrol"}})
 	writeJSON(w, http.StatusOK, map[string]bool{"mfa_required": false})
 }
+
+// beforeEnableTOTP lets tests run a concurrent enrolment just before the enabling update.
+var beforeEnableTOTP = func() {}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/mail"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -29,6 +30,14 @@ type SMTPConfig struct {
 // SyslogConfig is the audit forwarder target; an empty Addr disables it.
 type SyslogConfig struct {
 	Addr, Transport, CAFile string // Transport: "udp", "tcp" or "tls"
+}
+
+// LDAPConfig is the AD/LDAP login directory; an empty URL disables it.
+type LDAPConfig struct {
+	URL, CAFile, BindDN, BindPassword, BaseDN string
+	UserFilter, IDAttr, EmailAttr, NameAttr   string
+	AdminGroup                                string
+	TLSInsecure                               bool // skip certificate verification (SX_LDAP_TLS_INSECURE)
 }
 
 type PreviewConfig struct {
@@ -64,6 +73,7 @@ type Config struct {
 	InitAdminPassword string
 	SMTP              SMTPConfig
 	Syslog            SyslogConfig
+	LDAP              LDAPConfig
 	ShareMaxDays      int
 	Preview           PreviewConfig
 	Mark              MarkConfig
@@ -132,6 +142,18 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 			TLS:      get("SX_SMTP_TLS", "starttls"),
 		},
 		Syslog: SyslogConfig{Addr: get("SX_SYSLOG_ADDR", ""), Transport: get("SX_SYSLOG_TRANSPORT", "tls"), CAFile: get("SX_SYSLOG_CA", "")},
+		LDAP: LDAPConfig{
+			URL:          get("SX_LDAP_URL", ""),
+			CAFile:       get("SX_LDAP_CA", ""),
+			BindDN:       get("SX_LDAP_BIND_DN", ""),
+			BindPassword: get("SX_LDAP_BIND_PASSWORD", ""),
+			BaseDN:       get("SX_LDAP_BASE_DN", ""),
+			UserFilter:   get("SX_LDAP_USER_FILTER", "(&(objectClass=user)(|(sAMAccountName={username})(userPrincipalName={username})))"),
+			IDAttr:       get("SX_LDAP_ID_ATTR", "objectGUID"),
+			EmailAttr:    get("SX_LDAP_EMAIL_ATTR", "mail"),
+			NameAttr:     get("SX_LDAP_NAME_ATTR", "displayName"),
+			AdminGroup:   get("SX_LDAP_ADMIN_GROUP", ""),
+		},
 		S3: S3Config{
 			Endpoint:  get("SX_S3_ENDPOINT", ""),
 			Bucket:    get("SX_S3_BUCKET", ""),
@@ -254,6 +276,31 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 				bad("SX_SYSLOG_CA", err)
 			}
 		}
+		if c.LDAP.URL != "" {
+			if u, err := url.Parse(c.LDAP.URL); err != nil || (u.Scheme != "ldaps" && u.Scheme != "ldap") || u.Host == "" {
+				bad("SX_LDAP_URL", fmt.Errorf("%q must be ldaps://host[:port] or ldap://host[:port]", c.LDAP.URL))
+			}
+			for _, kv := range [][2]string{{"SX_LDAP_BIND_DN", c.LDAP.BindDN}, {"SX_LDAP_BIND_PASSWORD", c.LDAP.BindPassword}, {"SX_LDAP_BASE_DN", c.LDAP.BaseDN}} {
+				if kv[1] == "" {
+					errs = append(errs, fmt.Errorf("%s is required when SX_LDAP_URL is set", kv[0]))
+				}
+			}
+			if !strings.Contains(c.LDAP.UserFilter, "{username}") {
+				bad("SX_LDAP_USER_FILTER", errors.New("must contain {username}"))
+			}
+			if c.LDAP.CAFile != "" {
+				if _, err := CertPool(c.LDAP.CAFile); err != nil {
+					bad("SX_LDAP_CA", err)
+				}
+			}
+			if s := get("SX_LDAP_TLS_INSECURE", ""); s != "" {
+				b, err := strconv.ParseBool(s)
+				if err != nil {
+					bad("SX_LDAP_TLS_INSECURE", err)
+				}
+				c.LDAP.TLSInsecure = b
+			}
+		}
 		switch c.SMTP.TLS {
 		case "starttls", "tls":
 		case "none":
@@ -283,15 +330,21 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 // LocalSMTPHost reports whether h may be used with SX_SMTP_TLS=none (unencrypted, local testing only).
 func LocalSMTPHost(h string) bool { return h == "localhost" || h == "127.0.0.1" || h == "mailpit" }
 
-// CertPool loads PEM certificates from path (e.g. SX_SYSLOG_CA).
+// CertPool loads PEM certificates (one or a bundle) or a single DER certificate
+// from path (SX_SYSLOG_CA, SX_LDAP_CA).
 func CertPool(path string) (*x509.CertPool, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	p := x509.NewCertPool()
-	if !p.AppendCertsFromPEM(b) {
-		return nil, fmt.Errorf("%s: no PEM certificates", path)
+	if p.AppendCertsFromPEM(b) {
+		return p, nil
 	}
+	cert, err := x509.ParseCertificate(b)
+	if err != nil {
+		return nil, fmt.Errorf("%s: no PEM or DER certificate", path)
+	}
+	p.AddCert(cert)
 	return p, nil
 }

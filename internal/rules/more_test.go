@@ -71,16 +71,24 @@ func TestRunRetentionStopsOnCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() { s.RunRetention(ctx, f.store, log, time.Hour); close(done) }()
 	deadline := time.Now().Add(10 * time.Second)
-	for !f.gone(id) {
+	// The sweep marks the row deleted before removing the blob, so only poll the row while it runs;
+	// the row/blob invariant (f.gone) is checked once it has stopped.
+	for deleted := false; !deleted; {
 		if time.Now().After(deadline) {
 			t.Fatal("first sweep did not run")
 		}
 		time.Sleep(20 * time.Millisecond)
+		if err := f.pool.QueryRow(context.Background(), `SELECT deleted_at IS NOT NULL FROM files WHERE id=$1`, id).Scan(&deleted); err != nil {
+			t.Fatal(err)
+		}
 	}
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("RunRetention did not stop")
+	}
+	if !f.gone(id) {
+		t.Fatal("file not gone after the sweep")
 	}
 }

@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import i18n from "../../i18n";
 import Audit from "./Audit";
 
-const row = (id: number) => ({ id, at: "2030-01-01T00:00:00Z", actor_type: "user", actor_id: "u1", actor_label: `who${id}@x.com`, ip: "1.2.3.4", user_agent: "", action: "share.create", target_type: "share", target_id: "s1", result: "ok", detail: "" });
+const row = (id: number) => ({ id, at: "2030-01-01T00:00:00Z", actor_type: "user", actor_id: "u1", actor_label: `who${id}@x.com`, ip: "1.2.3.4", user_agent: "", action: "share.create", target_type: "share", target_id: "s1", result: "ok", detail: { share_id: "s1" } });
 const json = (b: unknown) => new Response(JSON.stringify(b));
 
 const setup = (verify: unknown = { checked: 5, bad_id: 0 }) => {
@@ -61,4 +61,9 @@ test("shows error when list fails", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
   render(<MemoryRouter><Audit /></MemoryRouter>);
   expect(await screen.findByRole("alert")).toBeTruthy();
+});
+
+test("object detail is rendered as JSON, not as a React child", async () => {
+  setup();
+  expect(await screen.findByText('{"share_id":"s1"}')).toBeTruthy();
 });

@@ -223,7 +223,7 @@ func GetStatus(ctx context.Context, pool *pgxpool.Pool, enabled bool, now time.T
 	s := Status{Enabled: enabled}
 	err := pool.QueryRow(ctx, `SELECT COALESCE((SELECT max(id) FROM audit_log), 0) - last_id, last_ok_at, failing_since, last_error
 		FROM syslog_cursor WHERE id = 1`).Scan(&s.Pending, &s.LastOKAt, &s.FailingSince, &s.LastError)
-	s.Alert = s.FailingSince != nil && now.Sub(*s.FailingSince) > 15*time.Minute
+	s.Alert = enabled && s.FailingSince != nil && now.Sub(*s.FailingSince) > 15*time.Minute
 	return s, err
 }
 

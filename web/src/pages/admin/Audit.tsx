@@ -48,7 +48,7 @@ export default function Audit() {
             {rows.map((r) => (
               <tr key={r.id}>
                 <td>{new Date(r.at).toLocaleString()}</td><td>{r.actor_label || r.actor_id}</td><td>{r.ip}</td><td>{r.action}</td>
-                <td>{r.target_type}{r.target_id && `:${r.target_id}`}</td><td>{r.result}</td><td>{r.detail}</td>
+                <td>{r.target_type}{r.target_id && `:${r.target_id}`}</td><td>{r.result}</td><td>{Object.keys(r.detail).length > 0 && JSON.stringify(r.detail)}</td>
               </tr>
             ))}
           </tbody>

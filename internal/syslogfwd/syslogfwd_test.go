@@ -484,7 +484,7 @@ func TestGetStatusAlert(t *testing.T) {
 	if err != nil || !s.Enabled || !s.Alert || s.Pending != 2 || s.LastError != "boom" || s.FailingSince == nil || s.LastOKAt != nil {
 		t.Fatalf("status %+v %v", s, err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE syslog_cursor SET failing_since = $1`, now.Add(-14*time.Minute)); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE syslog_cursor SET failing_since = $1`, now.Add(-16*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if s, err := GetStatus(ctx, pool, false, now); err != nil || s.Alert || s.Enabled {

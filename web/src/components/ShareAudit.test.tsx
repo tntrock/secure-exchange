@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import i18n from "../i18n";
 import ShareAudit from "./ShareAudit";
 
-const e = (id: number, label: string, actor_id: string) => ({ id, at: "2030-01-01T00:00:00Z", actor_type: "recipient", actor_id, actor_label: label, ip: "1.1.1.1", user_agent: "", action: "recipient.view", target_type: "share", target_id: "s1", result: "ok", detail: "" });
+const e = (id: number, label: string, actor_id: string) => ({ id, at: "2030-01-01T00:00:00Z", actor_type: "recipient", actor_id, actor_label: label, ip: "1.1.1.1", user_agent: "", action: "recipient.view", target_type: "share", target_id: "s1", result: "ok", detail: { share_id: "s1" } });
 
 beforeEach(() => i18n.changeLanguage("en"));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });

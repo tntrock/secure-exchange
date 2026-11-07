@@ -4,10 +4,15 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/tntrock/secure-exchange/internal/audit"
+	"github.com/tntrock/secure-exchange/internal/auth"
 )
 
 func TestAuditListAdminOnly(t *testing.T) {
@@ -111,4 +116,28 @@ func TestShareAuditOwnerOnly(t *testing.T) {
 	wantStatus(t, e, "GET", "/api/shares/"+id+"/audit", nil, 403, "")
 	e.loginAs(t, "adm@x.com", "")
 	wantStatus(t, e, "GET", "/api/admin/shares/"+id+"/audit", nil, 200, "")
+}
+
+func TestAuditEndpointsStaffForbidden(t *testing.T) {
+	e := newEnv(t)
+	e.user(t, "s@x.com")
+	e.loginAs(t, "s@x.com", "")
+	for _, c := range [][2]string{{"GET", "/api/admin/audit/export"}, {"POST", "/api/admin/audit/verify"}, {"GET", "/api/admin/audit/forwarding"}} {
+		wantStatus(t, e, c[0], c[1], nil, 403, forbiddenBody)
+	}
+}
+
+func TestAuditExportAbortsOnFailure(t *testing.T) {
+	e := newEnv(t)
+	e.admin(t)
+	req := httptest.NewRequest("GET", "/api/admin/audit/export", nil)
+	req = req.WithContext(auth.WithUser(req.Context(), &auth.User{ID: uuid.New()}))
+	var panicked any
+	func() {
+		defer func() { panicked = recover() }()
+		(&server{Deps: e.deps}).auditExport(&failAfter{h: http.Header{}, n: 3}, req) // BOM goes out, the rest fails
+	}()
+	if panicked != any(http.ErrAbortHandler) {
+		t.Fatalf("want abort, got %v", panicked)
+	}
 }

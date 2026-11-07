@@ -120,8 +120,12 @@ func (s *server) auditExport(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	cw.Flush()
+	if err == nil {
+		err = cw.Error()
+	}
 	if err != nil {
 		slog.Error("audit export", "err", err)
+		panic(http.ErrAbortHandler) // a truncated body must not end like a complete one
 	}
 }
 

@@ -76,10 +76,10 @@ export type UserAction = "disable" | "enable" | "reset-totp" | "reinvite";
 
 export interface AuditRow {
   id: number; at: string; actor_type: string; actor_id: string; actor_label: string; ip: string; user_agent: string;
-  action: string; target_type: string; target_id: string; result: string; detail: string;
+  action: string; target_type: string; target_id: string; result: string; detail: Record<string, unknown>;
 }
 export type AuditQuery = { since?: string; until?: string; actor?: string; action?: string; target?: string; before?: number };
-export interface ForwardingStatus { enabled: boolean; pending: number; last_ok_at: string | null; failing_since: string | null; last_error: string | null; alert: boolean }
+export interface ForwardingStatus { enabled: boolean; pending: number; last_ok_at: string | null; failing_since: string | null; last_error: string; alert: boolean }
 export interface NotifyPrefs { first_open: boolean; download: boolean; upload: boolean }
 
 export class ApiError extends Error {

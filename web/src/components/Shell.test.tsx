@@ -41,7 +41,7 @@ test("vendor nav is shared-with-me and upload only", () => {
 });
 
 const fwd = (alert: boolean) => {
-  const f = vi.fn(async (u: string) => new Response(JSON.stringify(u.includes("forwarding") ? { enabled: true, pending: 1, last_ok_at: null, failing_since: null, last_error: null, alert } : {})));
+  const f = vi.fn(async (u: string) => new Response(JSON.stringify(u.includes("forwarding") ? { enabled: true, pending: 1, last_ok_at: null, failing_since: null, last_error: "", alert } : {})));
   vi.stubGlobal("fetch", f);
   return f;
 };

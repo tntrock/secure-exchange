@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, fmtDate } from "../../api";
@@ -15,15 +15,18 @@ export default function AllShares() {
   const [more, setMore] = useState(false);
   const [err, setErr] = useState("");
 
+  const seq = useRef(0); // only the newest request may update state
   const load = useCallback((offset: number) => {
+    const mine = ++seq.current;
     const p = tab === "shares" ? api.adminShares(q, offset) : api.adminRequests(q, offset);
     p.then((r) => {
+      if (mine !== seq.current) return;
       const page = r ?? [];
       setRows((old) => (offset ? [...old, ...page] : page));
       setMore(page.length === PAGE);
-    }, () => setErr(t("app.error")));
+    }, () => { if (mine === seq.current) setErr(t("app.error")); });
   }, [tab, q, t]);
-  useEffect(() => { setErr(""); load(0); }, [load]);
+  useEffect(() => { setErr(""); load(0); return () => { seq.current++; }; }, [load]);
 
   const status = (r: Row) => t(r.revoked ? "share.status.revoked" : r.expired ? "share.status.expired" : "share.status.active");
 

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -39,7 +40,13 @@ func (s *server) adminGetShare(w http.ResponseWriter, r *http.Request) {
 		shareErr(w, err)
 		return
 	}
-	m := shareDetail(sh)
+	rl, err := s.Rules.Get(r.Context())
+	if err != nil {
+		slog.Error("rules", "err", err)
+		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return
+	}
+	m := shareDetail(sh, rl)
 	m["owner_email"] = sh.OwnerEmail
 	writeJSON(w, http.StatusOK, m)
 }

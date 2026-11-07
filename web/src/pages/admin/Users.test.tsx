@@ -126,3 +126,9 @@ test("demoting an admin and disabling ask for confirmation; cancel does nothing"
   await waitFor(() => expect(f).toHaveBeenCalledWith("/api/admin/users/u1/disable", expect.objectContaining({ method: "POST" })));
   expect(conf).toHaveBeenCalledTimes(4);
 });
+
+test("a vendor row with TOTP enabled offers Reset TOTP", async () => {
+  setup([u({ id: "u9", email: "vt@x.com", display_name: "Vt", role: "vendor", status: "active", totp_enabled: true })]);
+  await screen.findByText("vt@x.com");
+  expect(within(rowOf("vt@x.com")).getByRole("button", { name: "Reset TOTP" })).toBeTruthy();
+});

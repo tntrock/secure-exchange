@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -341,5 +342,27 @@ func TestAuthMethodsOIDC(t *testing.T) {
 	if resp, b := e.do(t, "GET", "/api/auth/methods", nil); resp.StatusCode != 200 ||
 		strings.TrimSpace(string(b)) != `{"ldap":false,"oidc":true,"oidc_label":"Sign in with Contoso"}` {
 		t.Fatal(resp.StatusCode, string(b))
+	}
+}
+
+func TestOIDCRateLimitedRedirects(t *testing.T) {
+	e, _ := oidcEnv(t)
+	// exhausting the password-login budget leaves SSO untouched
+	for i := 0; i < 11; i++ {
+		e.login(t, fmt.Sprintf("u%d@x.com", i), "wrong-password-1")
+	}
+	if resp, _ := e.login(t, "z@x.com", "wrong-password-1"); resp.StatusCode != 429 {
+		t.Fatal("login limiter not exhausted", resp.StatusCode)
+	}
+	const rl = "/login?oidc_error=rate_limited"
+	for i := 0; i < 10; i++ {
+		if resp, _ := e.do(t, "GET", "/api/auth/oidc/start", nil); resp.Header.Get("Location") == rl {
+			t.Fatal("start limited early", i)
+		}
+	}
+	for _, p := range []string{"/api/auth/oidc/start", "/api/auth/oidc/callback?code=x&state=y"} {
+		if resp, _ := e.do(t, "GET", p, nil); resp.StatusCode != 302 || resp.Header.Get("Location") != rl {
+			t.Fatal(p, resp.StatusCode, resp.Header.Get("Location"))
+		}
 	}
 }

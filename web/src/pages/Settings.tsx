@@ -26,14 +26,14 @@ export default function Settings() {
         <>
           <h2>{t("settings.notify")}</h2>
           {KEYS.map((k) => (
-            <p key={k}><label><input type="checkbox" checked={p[k]} onChange={(e) => setP({ ...p, [k]: e.target.checked })} /> {t(`settings.${k}`)}</label></p>
+            <p key={k}><label><input type="checkbox" checked={p[k]} onChange={(e) => { setSaved(false); setP({ ...p, [k]: e.target.checked }); }} /> {t(`settings.${k}`)}</label></p>
           ))}
           <p><em>{t("settings.virusNote")}</em></p>
           <button onClick={save}>{t("settings.save")}</button>
           {saved && <p role="status">{t("settings.saved")}</p>}
         </>
       )}
-      {!external && <p><Link to="/settings/totp">{t("settings.totp")}</Link></p>}
+      {external === false && <p><Link to="/settings/totp">{t("settings.totp")}</Link></p>}
     </>
   );
 }

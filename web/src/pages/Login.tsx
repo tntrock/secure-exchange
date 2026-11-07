@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../api";
 import LangSwitch from "../components/LangSwitch";
 
+// only same-origin absolute paths: a crafted `from` like //evil.example must not redirect off-site
+export const safeFrom = (v: unknown): string | null => (typeof v === "string" && v.startsWith("/") && !v.startsWith("//") && !v.startsWith("/\\") && !/[\x00-\x1f\x7f]/.test(v) ? v : null);
+
 export default function Login() {
   const { t } = useTranslation();
   const nav = useNavigate();
+  const from = safeFrom((useLocation().state as { from?: unknown } | null)?.from);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -20,7 +24,7 @@ export default function Login() {
   const [lerr, setLerr] = useState("");
   const [oidc, setOidc] = useState<{ label: string } | null>(null);
   const oerr = useSearchParams()[0].get("oidc_error");
-  const OIDC_MSG: Record<string, string> = { denied: "login.oidcDenied", unavailable: "login.oidcUnavailable", email_conflict: "login.oidcEmailConflict" };
+  const OIDC_MSG: Record<string, string> = { denied: "login.oidcDenied", unavailable: "login.oidcUnavailable", email_conflict: "login.oidcEmailConflict", rate_limited: "login.rateLimited" };
   const oidcMsg = oerr && Object.hasOwn(OIDC_MSG, oerr) ? OIDC_MSG[oerr] : "login.oidcInvalid";
 
   useEffect(() => { api.authMethods().then((m) => { setLdap(!!m?.ldap); setOidc(m?.oidc ? { label: m.oidc_label ?? "" } : null); }, () => {}); }, []);
@@ -29,7 +33,7 @@ export default function Login() {
     setErr(e instanceof ApiError && e.status === 429 ? t("login.rateLimited") : e instanceof ApiError && e.status === 401 ? t(invalidKey) : t("app.error"));
 
   // vendors land on their portal; a failed /api/me falls back to the staff home
-  const home = async () => nav((await api.me().catch(() => null))?.role === "vendor" ? "/vendor/shares" : "/files");
+  const home = async () => nav(from ?? ((await api.me().catch(() => null))?.role === "vendor" ? "/vendor/shares" : "/files"));
 
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -62,7 +66,7 @@ export default function Login() {
     setLerr("");
     try {
       await api.ldapLogin(user, dpw);
-      nav("/files"); // directory users are staff/admin, never vendors
+      nav(from ?? "/files"); // directory users are staff/admin, never vendors
     } catch (e) {
       const s = e instanceof ApiError ? e.status : 0;
       setLerr(s === 503 ? t("login.directoryUnavailable") : s === 409 ? t("login.emailConflict") : s === 429 ? t("login.rateLimited") : s === 401 ? t("login.invalid") : t("app.error"));

@@ -190,3 +190,33 @@ func TestShareEndpointsAnswer500WhenTablesFail(t *testing.T) {
 		t.Fatal("list:", resp.StatusCode, string(b))
 	}
 }
+
+func TestShareDetailShowsEffectiveFlags(t *testing.T) {
+	e := newEnv(t)
+	e.admin(t)
+	b := e.user(t, "b@x.com")
+	f := e.putFile(t, b.ID, "doc.txt", []byte("x"))
+	e.loginAs(t, "b@x.com", "")
+	m := e.mkShare(t, []string{f.String()}, "r@y.com")
+	id := m["id"].(string)
+	if m["allow_download"] != true || m["watermark"] != false || m["forced"] != nil {
+		t.Fatal("no rules:", m)
+	}
+	e.setRules(t, banRules)
+	check := func(label string, got map[string]any) {
+		t.Helper()
+		forced, _ := got["forced"].([]any)
+		if got["allow_download"] != false || got["watermark"] != true || len(forced) != 2 || forced[0] != "download" || forced[1] != "watermark" {
+			t.Fatal(label, got)
+		}
+	}
+	_, body := e.do(t, "GET", "/api/shares/"+id, nil)
+	var got map[string]any
+	json.Unmarshal(body, &got)
+	check("owner", got)
+	e.loginAs(t, "adm@x.com", "")
+	_, body = e.do(t, "GET", "/api/admin/shares/"+id, nil)
+	got = nil
+	json.Unmarshal(body, &got)
+	check("admin", got)
+}

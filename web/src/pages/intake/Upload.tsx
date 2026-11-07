@@ -171,10 +171,11 @@ export default function UploadPage() {
         {step === "upload" && data && (
           <>
             <ul>
-              <li>{t("intake.allowedExts", { exts: exts.length ? exts.join(", ") : t("intake.anyExt") })}</li>
+              {!landing?.none_allowed && <li>{t("intake.allowedExts", { exts: exts.length ? exts.join(", ") : t("intake.anyExt") })}</li>}
               <li>{t("intake.filesLeft", { count: data.files_left })}</li>
               <li>{t("intake.bytesLeft", { size: fmtSize(data.bytes_left, lng) })}</li>
             </ul>
+            {landing?.none_allowed ? <p role="alert">{t("upload.noneAllowed")}</p> : (
             <Uploader
               endpoint={`/api/r/${encodeURIComponent(token)}/uploads/`}
               accept={exts.length ? exts.map((e) => `.${e}`).join(",") : undefined}
@@ -182,6 +183,7 @@ export default function UploadPage() {
               onDone={() => void loadFiles(false)}
               onError={onUploadError}
             />
+            )}
             <h2>{t("intake.yourFiles")}</h2>
             {data.files.length === 0 ? (
               <p>{t("intake.noFiles")}</p>

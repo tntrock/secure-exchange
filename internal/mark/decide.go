@@ -33,15 +33,17 @@ func ImageMIME(head []byte) string {
 	return ""
 }
 
-// Decide picks the mark method for a download. pixels is width×height of an
-// image (0 if unknown or not an image); p == nil means no preview.
-func Decide(name string, head []byte, size int64, pixels int, p *preview.Preview, watermark bool, cfg config.MarkConfig) Plan {
+// Decide picks the mark method for a download. w and h are the dimensions of an
+// image (0 if unknown or not an image); p == nil means no preview. An image with a known side below
+// MinSide cannot carry the invisible mark, so with the visible watermark off it is left as is.
+func Decide(name string, head []byte, size int64, w, h int, p *preview.Preview, watermark bool, cfg config.MarkConfig) Plan {
 	ext := strings.ToLower(filepath.Ext(name))
 	plan := Plan{Method: None, OutName: name}
 	status := preview.StatusUnsupported
 	if p != nil {
 		status = p.Status
 	}
+	pixels := w * h
 	pdf := ext == ".pdf" && bytes.HasPrefix(head, []byte("%PDF-"))
 	switch {
 	case pdf || officeExts[ext]:
@@ -65,6 +67,8 @@ func Decide(name string, head []byte, size int64, pixels int, p *preview.Preview
 		plan.Method = ImageInvisible
 		if watermark {
 			plan.Method = ImageVisible
+		} else if w > 0 && h > 0 && (w < MinSide || h < MinSide) {
+			plan.Method = None
 		}
 	}
 	plan.Degraded = watermark && plan.Method != PDFPages && plan.Method != ImageVisible

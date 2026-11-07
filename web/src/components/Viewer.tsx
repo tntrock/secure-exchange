@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useModal } from "../useModal";
 
 interface PreviewInfo { kind: string; status: string; page_count: number; width?: number; height?: number }
 
@@ -19,13 +20,13 @@ export default function Viewer({ base, onClose, onSessionEnded }: { base: string
   const [msg, setMsg] = useState("");
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(100);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const dlg = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const endedRef = useRef(onSessionEnded);
   endedRef.current = onSessionEnded;
 
-  useEffect(() => { closeRef.current?.focus(); }, []);
+  useModal(dlg, onClose);
 
   // map an HTTP failure to a message; 401 ends the recipient session (staff just see a re-login hint)
   const fail = useRef((status: number, code?: string) => {
@@ -120,8 +121,7 @@ export default function Viewer({ base, onClose, onSessionEnded }: { base: string
 
   const onKey = (e: React.KeyboardEvent) => {
     const k = e.key;
-    if (k === "Escape") onClose();
-    else if (isVideo || !total) return;
+    if (isVideo || !total) return;
     else if (k === "ArrowRight" || k === "PageDown") go(page + 1);
     else if (k === "ArrowLeft" || k === "PageUp") go(page - 1);
     else if (k === "+" || k === "=") zoomBy(ZSTEP);
@@ -131,7 +131,7 @@ export default function Viewer({ base, onClose, onSessionEnded }: { base: string
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={t("viewer.title")} tabIndex={-1} onKeyDown={onKey}
+    <div role="dialog" aria-modal="true" aria-label={t("viewer.title")} ref={dlg} tabIndex={-1} onKeyDown={onKey}
       onContextMenu={(e) => e.preventDefault()}
       style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#222", color: "#eee", display: "flex", flexDirection: "column", userSelect: "none" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 8, background: "#111" }}>
@@ -146,7 +146,7 @@ export default function Viewer({ base, onClose, onSessionEnded }: { base: string
           </>
         )}
         <span style={{ flex: 1 }} />
-        <button ref={closeRef} onClick={onClose}>{t("viewer.close")}</button>
+        <button onClick={onClose}>{t("viewer.close")}</button>
       </div>
       <div ref={scroller} style={{ flex: 1, overflow: "auto", textAlign: "center" }}>
         {msg && <p role="alert" style={{ padding: 24 }}>{t(`viewer.${msg}`)}</p>}

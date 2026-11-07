@@ -67,3 +67,21 @@ test("object detail is rendered as JSON, not as a React child", async () => {
   setup();
   expect(await screen.findByText('{"share_id":"s1"}')).toBeTruthy();
 });
+
+test("stale response from an earlier filter does not overwrite the latest", async () => {
+  const defer = () => { let res!: (r: Response) => void; const p = new Promise<Response>((r) => { res = r; }); return { p, res }; };
+  const d: Record<string, ReturnType<typeof defer>> = { "": defer(), a: defer(), b: defer() };
+  vi.stubGlobal("fetch", vi.fn((u: string) => d[new URL(u, "http://x").searchParams.get("actor") ?? ""].p));
+  render(<MemoryRouter><Audit /></MemoryRouter>);
+  for (const v of ["a", "b"]) {
+    fireEvent.change(screen.getByLabelText(i18n.t("audit.actor")), { target: { value: v } });
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("audit.filter") }));
+  }
+  d.b.res(json({ entries: [row(2)], next_before: 0 }));
+  expect(await screen.findByText("who2@x.com")).toBeTruthy();
+  d[""].res(json({ entries: [row(0)], next_before: 0 })); d.a.res(json({ entries: [row(1)], next_before: 0 }));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(screen.getByText("who2@x.com")).toBeTruthy();
+  expect(screen.queryByText("who1@x.com")).toBeNull();
+  expect(screen.queryByText("who0@x.com")).toBeNull();
+});

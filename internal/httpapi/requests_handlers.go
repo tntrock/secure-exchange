@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -163,8 +164,15 @@ func (s *server) uploaderLanding(w http.ResponseWriter, r *http.Request) {
 		intakeErr(w, err)
 		return
 	}
+	rl, err := s.Rules.Get(r.Context())
+	if err != nil {
+		slog.Error("rules", "err", err)
+		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return
+	}
+	exts, none := effectiveExts(q.AllowedExts, rl.UploadExts)
 	writeJSON(w, http.StatusOK, map[string]any{"owner_name": q.OwnerName, "message": q.Message, "expires_at": ts(&q.ExpiresAt),
-		"max_files": q.MaxFiles, "max_total_bytes": q.MaxTotalBytes, "allowed_exts": q.AllowedExts})
+		"max_files": q.MaxFiles, "max_total_bytes": q.MaxTotalBytes, "allowed_exts": exts, "none_allowed": none})
 }
 
 func (s *server) uploaderCode(w http.ResponseWriter, r *http.Request) {
@@ -313,4 +321,25 @@ func (s *server) requireUploader(next http.HandlerFunc) http.Handler {
 		}
 		next(w, r.WithContext(intake.WithAccess(r.Context(), a)))
 	})
+}
+
+// effectiveExts is what an uploader may send: the request's list and the site's together (both
+// lower-case, no dot; an empty list allows any). none is true when both are set and share nothing.
+func effectiveExts(req, site []string) (exts []string, none bool) {
+	switch {
+	case len(req) == 0 && len(site) == 0:
+		return []string{}, false
+	case len(req) == 0:
+		return slices.Sorted(slices.Values(site)), false
+	case len(site) == 0:
+		return slices.Sorted(slices.Values(req)), false
+	}
+	exts = []string{}
+	for _, e := range req {
+		if slices.Contains(site, e) {
+			exts = append(exts, e)
+		}
+	}
+	slices.Sort(exts)
+	return exts, len(exts) == 0
 }

@@ -35,7 +35,7 @@ export default function TotpSetup() {
   return (
     <>
       <h1>{t("totp.title")}</h1>
-      {external ? (
+      {external === null ? null : external ? (
         <p>{t("totp.external")}</p>
       ) : enabled ? (
         <p>{t("totp.enabled")}</p>

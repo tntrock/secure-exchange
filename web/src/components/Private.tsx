@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Shell from "./Shell";
 import { api, ApiError } from "../api";
@@ -9,6 +9,8 @@ export default function Private({ roles, children }: { roles: string[]; children
   const { t } = useTranslation();
   const [ok, setOk] = useState<boolean | null>(null);
   const [role, setRole] = useState("");
+  const { pathname, search, hash } = useLocation();
+  const from = pathname + search + hash;
   useEffect(() => {
     api.me().then(
       (me) => { setRole(me.role); setOk(true); },
@@ -16,7 +18,7 @@ export default function Private({ roles, children }: { roles: string[]; children
     );
   }, []);
   if (ok === null) return <p>{t("app.loading")}</p>;
-  if (!ok) return <Navigate to="/login" replace />;
+  if (!ok) return <Navigate to="/login" replace state={{ from }} />;
   if (role && !roles.includes(role)) return <Navigate to={role === "vendor" ? "/vendor/shares" : "/files"} replace />;
   return <Shell role={role}>{children}</Shell>;
 }

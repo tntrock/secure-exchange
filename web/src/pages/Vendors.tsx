@@ -8,6 +8,12 @@ const dayStr = (days: number) => {
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 10);
 };
+// The local calendar day of an ISO instant, for <input type="date">.
+const localDay = (iso: string) => {
+  const d = new Date(iso);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+};
 const MAX_DAYS = 1095; // the server's cap on a vendor account's lifetime
 
 // End of the chosen local day, kept inside the server's window (after now+1 day, before now+MAX_DAYS).
@@ -77,7 +83,7 @@ export default function Vendors() {
   const groups = [...new Set(others.map((v) => v.org))].sort();
 
   const actions = (v: VendorInfo) => {
-    if (!v.can_manage) return null;
+    if (!v.can_manage || v.status === "pending" || v.status === "rejected") return null;
     if (editing === v.id) {
       return (
         <>
@@ -89,13 +95,12 @@ export default function Vendors() {
         </>
       );
     }
+    if (v.status === "disabled") return <button onClick={() => act(api.enableVendor(v.id))}>{t("vendors.enable")}</button>;
     return (
       <>
-        {v.status === "disabled"
-          ? <button onClick={() => act(api.enableVendor(v.id))}>{t("vendors.enable")}</button>
-          : <button onClick={() => act(api.disableVendor(v.id))}>{t("vendors.disable")}</button>}{" "}
+        <button onClick={() => act(api.disableVendor(v.id))}>{t("vendors.disable")}</button>{" "}
         {v.status === "invited" && <><button onClick={() => act(api.reinviteVendor(v.id))}>{t("vendors.reinvite")}</button>{" "}</>}
-        <button onClick={() => { setEditing(v.id); setEditDay(v.expires_at.slice(0, 10)); }}>{t("vendors.changeExpiry")}</button>
+        <button onClick={() => { setEditing(v.id); setEditDay(localDay(v.expires_at)); }}>{t("vendors.changeExpiry")}</button>
       </>
     );
   };

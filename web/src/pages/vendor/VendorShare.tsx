@@ -1,28 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Viewer from "../../components/Viewer";
-import { api, ApiError, fmtDate, fmtSize, nav, type RecipientFiles } from "../../api";
-
-// recipient.error.* key for a failed load
-function errKey(e: unknown) {
-  if (e instanceof ApiError) {
-    if (e.status === 401) return "login"; // signed out mid-session
-    if (e.status === 404) return "notFound";
-    if (e.status === 410) return "gone";
-    if (e.status === 403) return e.message === "view_limit" ? "viewLimit" : e.message === "domain_blocked" ? "domain_blocked" : "ipDenied";
-  }
-  return "generic";
-}
+import { errKey } from "../recipient/errKey";
+import { api, ApiError, fmtDate, fmtSize, headFile, nav, type RecipientFiles } from "../../api";
 
 // One share's files for a signed-in vendor; same behaviour as the recipient files step, under /api/vendor/shares/{id}.
 export default function VendorShare() {
   const { id = "" } = useParams();
+  const { pathname, search, hash } = useLocation();
+  const from = pathname + search + hash;
   const { t, i18n } = useTranslation();
   const [data, setData] = useState<RecipientFiles | null>(null);
   const [err, setErr] = useState("");
   const [viewing, setViewing] = useState("");
   const [pendingNote, setPendingNote] = useState(false);
+  const [dlErr, setDlErr] = useState("");
   const base = `/api/vendor/shares/${encodeURIComponent(id)}`;
 
   const load = useCallback(async () => {
@@ -33,7 +26,7 @@ export default function VendorShare() {
       return d;
     } catch (e) {
       setData(null);
-      setErr(errKey(e));
+      setErr(e instanceof ApiError && e.status === 401 ? "login" : errKey(e)); // 401: signed out mid-session
       return null;
     }
   }, [id]);
@@ -41,17 +34,20 @@ export default function VendorShare() {
 
   // re-check access first so a revoked share shows its reason instead of a raw error download
   const download = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return; // let the browser open its own tab/window
     e.preventDefault();
     const href = e.currentTarget.getAttribute("href") ?? "";
     const fid = e.currentTarget.dataset.file;
     setPendingNote(false);
+    setDlErr("");
     const r = await load();
     if (!r) return;
-    if (r.files.find((f) => f.id === fid)?.mark_pending) setPendingNote(true);
-    else nav.go(href);
+    if (r.files.find((f) => f.id === fid)?.mark_pending) { setPendingNote(true); return; }
+    try { await headFile(href); } catch (x) { setDlErr(errKey(x)); return; }
+    nav.go(href);
   };
 
-  if (err === "login") return <Navigate to="/login" replace />;
+  if (err === "login") return <Navigate to="/login" replace state={{ from }} />;
   const lng = i18n.language;
   return (
     <>
@@ -64,6 +60,7 @@ export default function VendorShare() {
           <p>{t("recipient.expires", { at: fmtDate(data.expires_at, lng) })}</p>
           {!data.allow_download && <p>{t("share.viewOnlyNote")}</p>}
           {pendingNote && <p role="alert">{t("share.markPending")}</p>}
+          {dlErr && <p role="alert">{t(`recipient.error.${dlErr}`)}</p>}
           {viewing && <Viewer base={`${base}/files/${encodeURIComponent(viewing)}/preview`} onClose={() => setViewing("")} onSessionEnded={() => { setViewing(""); void load(); }} />}
           <table>
             <tbody>
@@ -74,7 +71,8 @@ export default function VendorShare() {
                   <td>
                     {!f.available ? t("recipient.fileUnavailable") : data.download_forbidden && f.previewable === false ? t("recipient.blockedByAdmin") : (
                       <>
-                        <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>{" "}
+                        {f.previewable !== false && <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>}{" "}
+                        {f.previewable === false && !data.allow_download && t("recipient.noActions")}
                         {data.allow_download && (
                           <a href={`${base}/files/${encodeURIComponent(f.id)}/content`} download data-file={f.id} onClick={download}>{t("files.download")}</a>
                         )}

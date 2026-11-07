@@ -14,6 +14,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/auth"
 	"github.com/tntrock/secure-exchange/internal/mark"
 	"github.com/tntrock/secure-exchange/internal/preview"
+	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/share"
 )
 
@@ -68,9 +69,22 @@ func shareListItem(sh *share.Share) map[string]any {
 	return m
 }
 
-func shareDetail(sh *share.Share) map[string]any {
+// shareDetail reports the flags as a recipient meets them: site rules override the stored ones, and
+// "forced" names the flags they changed.
+func shareDetail(sh *share.Share, rl rules.Rules) map[string]any {
 	m := shareBase(sh)
-	m["message"], m["allow_download"], m["watermark"] = sh.Message, sh.AllowDownload, sh.Watermark
+	dl, wm := sh.AllowDownload && !rl.ForbidDownload, sh.Watermark || rl.ForceWatermark
+	m["message"], m["allow_download"], m["watermark"] = sh.Message, dl, wm
+	if dl != sh.AllowDownload || wm != sh.Watermark {
+		forced := []string{}
+		if dl != sh.AllowDownload {
+			forced = append(forced, "download")
+		}
+		if wm != sh.Watermark {
+			forced = append(forced, "watermark")
+		}
+		m["forced"] = forced
+	}
 	ips := make([]string, len(sh.IPAllow))
 	for i, p := range sh.IPAllow {
 		ips[i] = p.String()
@@ -117,6 +131,13 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// read first: a failure after Create would 500 on a share that already exists and was mailed
+	rl, err := s.Rules.Get(r.Context())
+	if err != nil {
+		slog.Error("rules", "err", err)
+		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return
+	}
 	sh, err := s.Shares.Create(r.Context(), u, share.CreateInput{FileIDs: in.FileIDs, Emails: in.Emails, AllowDownload: in.AllowDownload,
 		Watermark: in.Watermark, ExpiresAt: in.ExpiresAt, MaxViews: in.MaxViews, IPAllow: in.IPAllow, Message: in.Message, VendorIDs: in.VendorIDs})
 	if err != nil {
@@ -124,7 +145,7 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.record(r, s.shareEvent(u, audit.ActShareCreate, sh.ID, map[string]any{"recipient_count": len(sh.Recipients), "file_count": len(sh.Files)}))
-	writeJSON(w, http.StatusCreated, shareDetail(sh))
+	writeJSON(w, http.StatusCreated, shareDetail(sh, rl))
 }
 
 func (s *server) listShares(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +171,13 @@ func (s *server) getShare(w http.ResponseWriter, r *http.Request) {
 		shareErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, shareDetail(sh))
+	rl, err := s.Rules.Get(r.Context())
+	if err != nil {
+		slog.Error("rules", "err", err)
+		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return
+	}
+	writeJSON(w, http.StatusOK, shareDetail(sh, rl))
 }
 
 func (s *server) revokeShare(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +285,7 @@ func (s *server) unmarkable(ctx context.Context, owner uuid.UUID, ids []uuid.UUI
 		if err != nil {
 			return nil, err
 		}
-		if mark.Decide(f.name, head, f.size, 0, f.p, true, s.Mark).Degraded {
+		if mark.Decide(f.name, head, f.size, 0, 0, f.p, true, s.Mark).Degraded {
 			bad = append(bad, f.id)
 		}
 	}

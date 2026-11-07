@@ -3,20 +3,10 @@ import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Viewer from "../../components/Viewer";
 import LangSwitch from "../../components/LangSwitch";
-import { api, ApiError, fmtDate, fmtSize, nav, type RecipientFiles, type RecipientLanding } from "../../api";
+import { errKey } from "./errKey";
+import { api, ApiError, fmtDate, fmtSize, headFile, nav, type RecipientFiles, type RecipientLanding } from "../../api";
 
 type Step = "loading" | "email" | "code" | "files" | "fatal";
-
-function errKey(e: unknown) {
-  if (e instanceof ApiError) {
-    if (e.status === 404) return "notFound";
-    if (e.status === 410) return "gone";
-    if (e.status === 403) return e.message === "view_limit" ? "viewLimit" : e.message === "domain_blocked" ? "domain_blocked" : "ipDenied";
-    if (e.status === 429) return "rateLimited";
-    if (e.status === 401) return e.message === "invalid_code" ? "invalidCode" : "sessionEnded";
-  }
-  return "generic";
-}
 
 // Single page, three states: landing/email -> code -> file list. The token and email live only in memory.
 export default function Access() {
@@ -32,6 +22,7 @@ export default function Access() {
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState("");
   const [pendingNote, setPendingNote] = useState(false);
+  const [dlErr, setDlErr] = useState("");
 
   // reports whether the landing loaded; on failure the fatal reason is already set
   const loadLanding = useCallback(async () => {
@@ -69,14 +60,17 @@ export default function Access() {
 
   // re-check the session first so an ended or revoked one shows its reason instead of a raw error download
   const download = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return; // let the browser open its own tab/window
     e.preventDefault();
     const href = e.currentTarget.getAttribute("href") ?? "";
     const id = e.currentTarget.dataset.file;
     setPendingNote(false);
+    setDlErr("");
     const r = await loadFiles(false);
     if (!r) return;
-    if (r.files.find((f) => f.id === id)?.mark_pending) setPendingNote(true);
-    else nav.go(href);
+    if (r.files.find((f) => f.id === id)?.mark_pending) { setPendingNote(true); return; }
+    try { await headFile(href); } catch (x) { setDlErr(errKey(x)); return; }
+    nav.go(href);
   };
 
   const run = async (fn: () => Promise<void>) => {
@@ -170,6 +164,7 @@ export default function Access() {
             <p>{t("recipient.expires", { at: fmtDate(data.expires_at, lng) })}</p>
             {!data.allow_download && <p>{t("share.viewOnlyNote")}</p>}
             {pendingNote && <p role="alert">{t("share.markPending")}</p>}
+            {dlErr && <p role="alert">{t(`recipient.error.${dlErr}`)}</p>}
             {viewing && (
               <Viewer base={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(viewing)}/preview`}
                 onClose={() => setViewing("")} onSessionEnded={sessionEnded} />
@@ -183,7 +178,8 @@ export default function Access() {
                     <td>
                       {!f.available ? t("recipient.fileUnavailable") : data.download_forbidden && f.previewable === false ? t("recipient.blockedByAdmin") : (
                         <>
-                          <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>{" "}
+                          {f.previewable !== false && <button onClick={() => setViewing(f.id)}>{t("viewer.open")}</button>}{" "}
+                          {f.previewable === false && !data.allow_download && t("recipient.noActions")}
                           {data.allow_download && <a href={`/api/s/${encodeURIComponent(token)}/files/${encodeURIComponent(f.id)}/content`} download data-file={f.id} onClick={download}>
                             {t("files.download")}
                           </a>}

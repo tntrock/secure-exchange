@@ -25,6 +25,8 @@ func vendorErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusForbidden, errBody("forbidden"))
 	case errors.Is(err, vendor.ErrEmailTaken):
 		writeJSON(w, http.StatusConflict, errBody("email_taken"))
+	case errors.Is(err, vendor.ErrBadStatus):
+		writeJSON(w, http.StatusConflict, errBody("bad_status"))
 	case errors.Is(err, vendor.ErrState):
 		writeJSON(w, http.StatusConflict, errBody("wrong_state"))
 	case errors.Is(err, vendor.ErrInviteGone):
@@ -77,7 +79,11 @@ func (s *server) createVendor(w http.ResponseWriter, r *http.Request) {
 		vendorErr(w, err)
 		return
 	}
-	s.record(r, vendorEvent(u, audit.ActVendorCreate, v.ID))
+	ev := vendorEvent(u, audit.ActVendorCreate, v.ID)
+	if v.Reopened {
+		ev.Detail = map[string]any{"reopened": true}
+	}
+	s.record(r, ev)
 	writeJSON(w, http.StatusCreated, vendorBody(v, u))
 }
 

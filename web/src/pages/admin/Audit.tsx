@@ -16,8 +16,10 @@ export default function Audit() {
   const [verify, setVerify] = useState("");
 
   useEffect(() => {
+    let off = false;
     setErr(false);
-    api.auditList({ ...applied, before: cur || undefined }).then((r) => { setRows(r.entries ?? []); setNext(r.next_before); }, () => setErr(true));
+    api.auditList({ ...applied, before: cur || undefined }).then((r) => { if (off) return; setRows(r.entries ?? []); setNext(r.next_before); }, () => { if (!off) setErr(true); });
+    return () => { off = true; };
   }, [applied, cur]);
 
   const field = (k: keyof typeof f, type = "text") => (

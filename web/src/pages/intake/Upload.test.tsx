@@ -231,3 +231,12 @@ test("403 ip_denied on the landing shows the network-location message", async ()
   renderPage();
   expect((await screen.findByRole("alert")).textContent).toBe(i18n.t("intake.error.ipDenied"));
 });
+
+test("when no file type is accepted the picker is replaced by a message", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("/files") ? json(200, mine) : json(200, { ...landing, allowed_exts: [], none_allowed: true }))));
+  const { container } = renderPage();
+  await screen.findByText("old.pdf");
+  expect(screen.getByText(i18n.t("upload.noneAllowed"))).toBeTruthy();
+  expect(container.querySelector("input[type=file]")).toBeNull();
+  expect(screen.queryByText(i18n.t("intake.allowedExts", { exts: i18n.t("intake.anyExt") }))).toBeNull();
+});

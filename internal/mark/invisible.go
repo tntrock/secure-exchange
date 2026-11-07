@@ -14,7 +14,8 @@ const (
 	codeLen       = 10
 	payloadBits   = 64
 	gridN         = 24
-	minSide       = 192
+	// MinSide is the shortest side an image needs to carry the invisible mark.
+	MinSide = 192
 	// qimStep is the QIM step; tuned within the 12-24 range allowed by the plan.
 	qimStep = 16.0
 )
@@ -155,7 +156,7 @@ func EmbedInvisible(img image.Image, code string) *image.RGBA {
 	out := toRGBA(img)
 	w, h := out.Rect.Dx(), out.Rect.Dy()
 	bits, ok := encodePayload(code)
-	if !ok || w < minSide || h < minSide {
+	if !ok || w < MinSide || h < MinSide {
 		return out
 	}
 	y := luma(out)
@@ -190,7 +191,7 @@ func clampU8(v float64) uint8 {
 func ExtractInvisible(img image.Image) (string, bool) {
 	rgba := toRGBA(img)
 	w, h := rgba.Rect.Dx(), rgba.Rect.Dy()
-	if w < minSide || h < minSide {
+	if w < MinSide || h < MinSide {
 		return "", false
 	}
 	y := luma(rgba)

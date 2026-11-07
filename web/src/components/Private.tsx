@@ -9,16 +9,17 @@ export default function Private({ roles, children }: { roles: string[]; children
   const { t } = useTranslation();
   const [ok, setOk] = useState<boolean | null>(null);
   const [role, setRole] = useState("");
+  const [version, setVersion] = useState<string>();
   const { pathname, search, hash } = useLocation();
   const from = pathname + search + hash;
   useEffect(() => {
     api.me().then(
-      (me) => { setRole(me.role); setOk(true); },
+      (me) => { setRole(me.role); setVersion(me.version); setOk(true); },
       (e) => setOk(!(e instanceof ApiError && e.status === 401)),
     );
   }, []);
   if (ok === null) return <p>{t("app.loading")}</p>;
   if (!ok) return <Navigate to="/login" replace state={{ from }} />;
   if (role && !roles.includes(role)) return <Navigate to={role === "vendor" ? "/vendor/shares" : "/files"} replace />;
-  return <Shell role={role}>{children}</Shell>;
+  return <Shell role={role} version={version}>{children}</Shell>;
 }

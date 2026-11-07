@@ -78,7 +78,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: docker build .
+      - run: sh scripts/check-version.sh
+      - run: docker build --target app -t sxapp .
+      - run: docker build --target worker -t sxworker .
+      - run: sh scripts/check-image.sh sxapp sxworker
 
   # //go:build tools tests (LibreOffice/poppler/ffmpeg) inside the worker-test image.
   tools:

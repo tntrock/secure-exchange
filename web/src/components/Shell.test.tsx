@@ -5,7 +5,7 @@ import i18n from "../i18n";
 import Shell from "./Shell";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-const show = (role: string) => render(<MemoryRouter><Shell role={role}>x</Shell></MemoryRouter>);
+const show = (role: string, version?: string) => render(<MemoryRouter><Shell role={role} version={version}>x</Shell></MemoryRouter>);
 
 test("trace link only for admins", () => {
   show("admin");
@@ -72,4 +72,13 @@ test("forwarding failures are ignored; staff never fetch it", async () => {
 test("vendors have no settings link", () => {
   show("vendor");
   expect(screen.queryByRole("link", { name: i18n.t("nav.settings") })).toBeNull();
+});
+
+test("version footer only for admins", () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("{}")));
+  show("admin", "9.9.9");
+  expect(screen.getByText("v9.9.9")).toBeTruthy();
+  cleanup();
+  show("user", "9.9.9");
+  expect(screen.queryByText("v9.9.9")).toBeNull();
 });

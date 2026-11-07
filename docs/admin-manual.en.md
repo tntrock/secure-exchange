@@ -64,11 +64,31 @@ Data storage:
 
 ### 3.1 Prepare the configuration file
 
+The images come from `ghcr.io/tntrock/secure-exchange` and `ghcr.io/tntrock/secure-exchange-worker`; no local build is needed. There are two ways to get the deployment files (the download commands work only once v1.0.0 is published).
+
+**Option A: download from the Release**
+
+```sh
+mkdir secure-exchange && cd secure-exchange && mkdir certs
+B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
+for f in docker-compose.yml env.example Caddyfile clamd.conf; do
+  curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
+done
+sha256sum -c *.sha256
+cp env.example .env
+```
+
+**Option B: git clone and check out the version tag**
+
 ```sh
 git clone https://github.com/tntrock/secure-exchange.git
 cd secure-exchange
+git checkout v1.0.0
+mkdir -p certs
 cp .env.example .env
 ```
+
+`certs/` is mounted read-only into the containers (CA files for LDAP, OIDC and syslog); it may stay empty.
 
 Edit `.env` and fill in at least the following:
 
@@ -87,10 +107,11 @@ Edit `.env` and fill in at least the following:
 ### 3.2 Start
 
 ```sh
+docker compose pull
 docker compose up -d
 ```
 
-The first start builds the images and ClamAV downloads its virus signatures (a few minutes). When it finishes, open `https://<SX_DOMAIN>`.
+The first start pulls the images and ClamAV downloads its virus signatures (a few minutes). When it finishes, open `https://<SX_DOMAIN>`.
 
 ### 3.3 First login
 
@@ -100,7 +121,15 @@ The first start builds the images and ClamAV downloads its virus signatures (a f
 
 ### 3.4 Trying it locally
 
-With `SX_DOMAIN=localhost`, Caddy uses a local CA, so the browser shows a certificate warning and `curl` needs `-k`. The bundled `scripts/smoke.sh` automatically runs a complete end-to-end test (upload, resume, sharing, online viewing, leak tracing, upload requests and virus scanning) in a throwaway environment, and can be used to validate the host environment. It needs Docker, and refuses to run if a `.env` already exists.
+With `SX_DOMAIN=localhost`, Caddy uses a local CA, so the browser shows a certificate warning and `curl` needs `-k`. `scripts/smoke.sh` in a source checkout automatically runs a complete end-to-end test (upload, resume, sharing, online viewing, leak tracing, upload requests and virus scanning) in a throwaway environment, and can be used to validate the host environment. It needs Docker, and refuses to run if a `.env` already exists.
+
+### 3.5 Building from source
+
+For development or local changes, get the source and build the images locally with the overlay (the version is reported as `dev`):
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
 
 ## 4. Configuration reference
 
@@ -796,22 +825,23 @@ Periodically, or when you suspect a key leak, switch to a new master key:
 ## 15. Upgrading
 
 1. Read the release notes on [GitHub Releases](https://github.com/tntrock/secure-exchange/releases), paying attention to new or changed environment variables and migration notes.
-2. Back up the database and get the new code; right after `git pull`, compare the changes to `.env.example` and add any new variables to `.env`:
+2. Back up the database:
 
    ```sh
-   cd secure-exchange
    docker compose exec -T postgres pg_dump -U sx sx > before-upgrade.sql
-   git pull
-   git diff ORIG_HEAD HEAD -- .env.example
    ```
 
-3. Rebuild and start:
+3. Compare the new `.env.example` with your `.env` and add any new variables to `.env` (for example `diff .env.example <new>/.env.example`, or see the release notes).
+4. Switch to the new `docker-compose.yml`: download the new Release's deployment files again (as in 3.1, verifying with `sha256sum -c`), or `git fetch --tags && git checkout <new tag>`; alternatively just change the two image tags in `docker-compose.yml` to the new version.
+5. Pull the new images and start:
 
    ```sh
-   docker compose up -d --build
+   docker compose pull && docker compose up -d
    ```
 
-The database schema is upgraded automatically when the app starts (a lock protects against several instances starting at once). After upgrading, check:
+If you build from source, see [3.5](#35-building-from-source) instead of the steps above.
+
+The database schema is upgraded automatically when the app starts (a lock protects against several instances starting at once). After upgrading, check, and confirm the admin page footer shows the new version number:
 
 ```sh
 docker compose ps
@@ -853,5 +883,5 @@ curl -fsS <SX_BASE_URL>/healthz     # should return ok
 - [ ] `SX_VENDOR_CREATION` is set according to company policy (the default requires administrator approval).
 - [ ] If the company requires every leaked file to be traceable, `SX_UNMARKABLE_POLICY` is set to `block`.
 - [ ] On the "Rules" page, download prohibition / watermark, share lifetime, storage quota and retention days are set according to company policy; if there are fixed partner networks, set the external IP list.
-- [ ] Update regularly with `git pull` and `docker compose up -d --build` to get security fixes.
+- [ ] Update regularly as described in "Upgrading" to get security fixes.
 - [ ] Security issues are reported privately according to [SECURITY.md](../SECURITY.md).

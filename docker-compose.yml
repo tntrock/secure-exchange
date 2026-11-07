@@ -1,6 +1,6 @@
 services:
   app:
-    build: {context: ., target: app}
+    image: ghcr.io/tntrock/secure-exchange:1.0.0
     restart: unless-stopped
     env_file: .env
     environment:
@@ -28,7 +28,7 @@ services:
   # Renders previews of untrusted files (LibreOffice/poppler/ffmpeg). Locked down: no outbound
   # network (backend is internal), read-only root, plaintext only on the /work tmpfs.
   worker:
-    build: {context: ., target: worker}
+    image: ghcr.io/tntrock/secure-exchange-worker:1.0.0
     restart: unless-stopped
     env_file: .env
     environment:

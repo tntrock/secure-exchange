@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end smoke test. Builds and starts a throwaway compose stack (project
-# "sxsmoke", own ports, mailpit via docker-compose.smoke.yml), then: login,
+# "sxsmoke", own ports, mailpit via docker-compose.smoke.yml; images built locally via
+# docker-compose.build.yml, or with SMOKE_PREBUILT=1 the already-present ghcr.io images are used as-is), then: login,
 # resumable (tus) upload of a 210 MiB random file with a simulated interruption,
 # download + sha256 compare, and the one-time share flow (invitation and
 # verification code fetched from the mailpit API, recipient download + sha256), then a .txt
@@ -9,7 +10,7 @@
 # OTP, tus upload of a clean file and EICAR, ClamAV verdicts, gating and notification mails (phase 5).
 # The clamav service downloads signatures on first start, so the scan wait allows 15 minutes.
 # Tears everything down (volumes included) and removes its temporary .env.
-#   scripts/smoke.sh        (refuses to run if a ./.env already exists)
+#   scripts/smoke.sh        (SMOKE_PREBUILT=1 to skip the build; refuses to run if a ./.env already exists)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -22,7 +23,9 @@ ADMIN=admin@example.com
 PASS=smoke-test-passphrase-123
 RCPT=recipient@example.org
 tmp=$(mktemp -d)
-dc() { docker compose -p sxsmoke -f docker-compose.yml -f docker-compose.smoke.yml "$@"; }
+if [ "${SMOKE_PREBUILT:-}" = 1 ]; then BUILD_F=; UP_ARGS=; else BUILD_F="-f docker-compose.build.yml"; UP_ARGS=--build; fi
+# shellcheck disable=SC2086
+dc() { docker compose -p sxsmoke -f docker-compose.yml $BUILD_F -f docker-compose.smoke.yml "$@"; }
 cleanup() { dc down -v >/dev/null 2>&1 || true; rm -rf "$tmp" .env; }
 trap cleanup EXIT
 
@@ -38,7 +41,12 @@ SX_INIT_ADMIN_PASSWORD=$PASS
 SX_SMTP_HOST=unused
 SX_SMTP_FROM=noreply@example.com
 ENV
-dc up -d --build
+if [ "${SMOKE_PREBUILT:-}" = 1 ]; then
+  for img in $(dc config --images | grep ghcr.io/tntrock); do
+    docker image inspect "$img" >/dev/null 2>&1 || { echo "SMOKE_PREBUILT=1 but image $img is not present locally; pull or build it first"; exit 1; }
+  done
+fi
+dc up -d $UP_ARGS
 
 c() { curl -fsSk -b "$tmp/jar" -c "$tmp/jar" -H "Origin: $BASE" "$@"; }
 r() { curl -fsSk -b "$tmp/rjar" -c "$tmp/rjar" -H "Origin: $BASE" "$@"; }

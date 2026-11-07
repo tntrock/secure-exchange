@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Browser end-to-end tests (Playwright, Chromium). Builds and starts a throwaway compose stack
-# (project "sxe2e", own ports, mailpit, Dex + host ClamAV DB dir via docker-compose.e2e.yml), waits
+# (project "sxe2e", own ports, mailpit, Dex + host ClamAV DB dir via docker-compose.e2e.yml; images are
+# built locally via docker-compose.build.yml, not pulled from ghcr.io), waits
 # for it, then runs `npx playwright test` in e2e/ with any arguments passed through:
 #   scripts/e2e.sh                         whole suite
 #   scripts/e2e.sh tests/auth.spec.ts      one file (playwright args work too, e.g. --repeat-each=3)
@@ -17,13 +18,13 @@ BASE=https://localhost:59443
 MAILPIT=http://localhost:59025
 ADMIN=admin@e2e.test
 PASS=$(openssl rand -hex 16)
-dc() { docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml "$@"; }
+dc() { docker compose -p sxe2e -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.e2e.yml "$@"; }
 cleanup() {
   cd "$ROOT" # the tests run from e2e/
   mkdir -p e2e/test-results
   dc logs --no-color >e2e/test-results/compose.log 2>&1 || true
   if [ "${E2E_KEEP:-}" = 1 ]; then
-    echo "E2E_KEEP=1: stack left running; tear down with: docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml down -v && rm -r .env .e2e-dex"
+    echo "E2E_KEEP=1: stack left running; tear down with: docker compose -p sxe2e -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.e2e.yml down -v && rm -r .env .e2e-dex"
     return
   fi
   dc down -v >/dev/null 2>&1 || true

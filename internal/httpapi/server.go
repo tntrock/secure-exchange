@@ -48,6 +48,7 @@ type Deps struct {
 	LDAPRecheck    time.Duration // how often an LDAP session is re-read from the directory (default 15m)
 	OIDC           OIDCProvider  // nil when OIDC login is off
 	OIDCLabel      string        // login button text (SX_OIDC_BUTTON_TEXT), may be empty
+	Version        string        // build version, shown to admins in /api/me
 }
 
 type server struct {

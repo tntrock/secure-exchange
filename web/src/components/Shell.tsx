@@ -4,7 +4,7 @@ import LangSwitch from "./LangSwitch";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
-export default function Shell({ role, children }: { role: string; children: React.ReactNode }) {
+export default function Shell({ role, version, children }: { role: string; version?: string; children: React.ReactNode }) {
   const { t } = useTranslation();
   const nav = useNavigate();
   const [fwdAlert, setFwdAlert] = useState(false);
@@ -40,6 +40,7 @@ export default function Shell({ role, children }: { role: string; children: Reac
       </header>
       {fwdAlert && <p className="error" role="alert">{t("audit.fwdAlert")}</p>}
       <main>{children}</main>
+      {role === "admin" && version && <footer>{t("nav.version", { version })}</footer>}
     </>
   );
 }

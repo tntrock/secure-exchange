@@ -1,0 +1,7 @@
+# Local builds instead of pulling the ghcr.io images (the image names come from docker-compose.yml):
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  app:
+    build: {context: ., target: app, args: {VERSION: dev}}
+  worker:
+    build: {context: ., target: worker, args: {VERSION: dev}}

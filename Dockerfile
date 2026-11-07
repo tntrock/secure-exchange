@@ -12,7 +12,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /src/internal/webui/dist ./internal/webui/dist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/secure-exchange ./cmd/secure-exchange \
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/secure-exchange ./cmd/secure-exchange \
  && mkdir -p /out/data/staging /out/data/blobs
 
 # Preview worker: renders untrusted files with LibreOffice/poppler/ffmpeg. Build with

@@ -239,6 +239,8 @@ networks:
 
 讓員工以公司網域帳號登入。登入頁會多出「網域帳號」表單（只有設定了 `SX_LDAP_URL` 才會出現）。
 
+LDAP／OIDC 的設定**只能寫在 `.env`**，管理介面中沒有對應的設定頁。
+
 **設定**（寫在 `.env`，修改後 `docker compose up -d`；以下僅列重點，完整清單見 `.env.example`）：
 
 | 變數 | 預設 | 說明 |
@@ -266,13 +268,35 @@ SX_LDAP_ADMIN_GROUP=CN=SX-Admins,OU=Groups,DC=corp,DC=example
 
 - 使用者在登入頁輸入網域帳號（`sAMAccountName` 或 UPN）與密碼；系統先以服務帳號找到使用者，再以該使用者的密碼綁定驗證。
 - 帳號在**第一次登入時自動建立**為員工；之後每次登入都會更新 email 與顯示名稱。
-- 網域帳號**不會與本機帳號合併**：即使 email 相同，也是兩個獨立的帳號，網域登入永遠不會進到本機帳號。兩個網域帳號的 email 相同時，第二個會被擋下（`email_conflict`），請在 AD 修正 email。
+- 網域帳號**不會與本機帳號合併**：即使 email 相同，也是兩個獨立的帳號，網域登入永遠不會進到本機帳號。兩個網域帳號的 email 相同時，第二個會被擋下（`email_conflict`），請在 AD 修正 email。若是**舊網域帳號仍占用該 email**（AD 帳號被刪除後重建、或 email 轉給別人），在 AD 修正無效，請見下方疑難排解的兩種處理。
 - **管理員**：屬於 `SX_LDAP_ADMIN_GROUP` 的人為管理員，其他人為員工，每次登入都重新判斷。AD 會計入巢狀群組；其他 LDAP 伺服器只看使用者的 `memberOf` 是否直接包含該群組。判斷管理員時若網域伺服器忙碌或不可用，該次登入會失敗（503），不會被降級。
 - **每 15 分鐘重新檢查**每個登入中的連線：帳號在 AD 已刪除或停用時，該使用者所有連線立即結束。
 - **網域伺服器無法連線時**，重新檢查會結束該連線，所有網域使用者都會被登出、也無法登入，直到伺服器恢復。因此請**務必保留至少一位本機管理員**（`SX_INIT_ADMIN_*` 建立的帳號），否則 AD 故障時無人能管理系統。
 - 網域帳號**沒有 TOTP**，不適用[全站強制雙因素驗證](#全站強制雙因素驗證)；請使用 AD／公司的多因素驗證。使用者自行啟用 TOTP 會被拒絕。
 - 網域帳號的**角色由管理員群組決定**，不能在「使用者」頁變更角色或重設 TOTP。管理員仍可在本機**停用**網域帳號（停用後即使 AD 密碼正確也無法登入）。外部管理員不計入[最後一位管理員](#最後一位管理員)的檢查。
 - 在 AD 停用的帳號，登入時通常顯示為帳號或密碼錯誤（AD 直接拒絕綁定）。
+
+#### 登入失敗與帳號鎖定
+
+網域登入失敗會**直接計入 AD 的帳號鎖定次數**。系統內針對使用者名稱的限流可以被不同寫法繞過（例如 `DOMAIN\u` 與 `u@upn` 視為不同名稱），因此對網際網路開放的站台，請依賴 IP 限流／反向代理的限流，並在 AD 設定帳號鎖定原則。
+
+#### email 被舊網域帳號占用（`email_conflict`）
+
+AD 帳號刪除後重建（`objectGUID` 改變、email 相同），或 email 轉給另一個人時，系統內舊的網域帳號仍占用該 email，每次登入都會得到 409 `email_conflict`；在 AD 修正無效。先到「稽核紀錄」頁找該次 `auth.login.fail`（stage 為 `email_conflict`），「詳細資料」中的 `external_id` 就是新帳號的 objectGUID（十六進位）。以下 SQL 用 `docker compose exec postgres psql -U sx -d sx -c "…"` 執行，`<email>` 換成該 email：
+
+- **同一個人**（復職、帳號重建）：把舊帳號改綁到新的 objectGUID，檔案與分享都保留。
+
+  ```sh
+  docker compose exec postgres psql -U sx -d sx -c \
+    "UPDATE users SET external_id='<新的 external_id>' WHERE auth_source='ldap' AND lower(email)=lower('<email>');"
+  ```
+
+- **該 email 現在屬於另一個人**：釋出 email 並讓舊帳號維持停用，新的人下次登入會建立全新帳號。
+
+  ```sh
+  docker compose exec postgres psql -U sx -d sx -c \
+    "UPDATE users SET email = email || '.retired-' || left(id::text, 8), disabled = true WHERE auth_source='ldap' AND lower(email)=lower('<email>');"
+  ```
 
 #### 憑證
 
@@ -293,7 +317,7 @@ SX_LDAP_ADMIN_GROUP=CN=SX-Admins,OU=Groups,DC=corp,DC=example
 | 症狀 | 處理 |
 |---|---|
 | 登入顯示「網域伺服器暫時無法連線…」，稽核 `auth.login.fail` 的 stage 為 `ldap_unavailable` | 網域伺服器連不上、逾時（10 秒），或憑證驗證失敗。detail 含 `reason: certificate` 者請檢查 `SX_LDAP_CA` 與 `./certs`；否則檢查網路、埠與服務帳號密碼。 |
-| 登入顯示 email 已被另一個網域帳號使用（`email_conflict`） | 兩個 AD 帳號的 email（或 UPN）相同，請在 AD 修正。 |
+| 登入顯示 email 已被另一個網域帳號使用（`email_conflict`） | 兩個 AD 帳號的 email（或 UPN）相同，請在 AD 修正；若是 AD 帳號重建或 email 轉讓，見上方「email 被舊網域帳號占用」的兩種 SQL 處理。 |
 | stage 為 `ldap_no_email` | 該帳號的 `SX_LDAP_EMAIL_ATTR` 與 `userPrincipalName` 都是空的。 |
 | stage 為 `ldap_disabled` | AD 帳號已停用。stage 為 `disabled` 則是管理員在本機停用。 |
 | 使用者突然被登出，稽核 `auth.session.end` 的 reason 為 `ldap_unavailable`／`ldap_gone`／`ldap_error` | 分別是網域伺服器無法連線、帳號在 AD 已刪除或停用、更新帳號資料失敗。關閉 LDAP 時，既有網域連線也會結束。 |

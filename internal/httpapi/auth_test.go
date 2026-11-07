@@ -131,7 +131,7 @@ func TestLoginSuccessNoTOTP(t *testing.T) {
 	resp, body = e.do(t, "GET", "/api/me", nil)
 	var me map[string]any
 	json.Unmarshal(body, &me)
-	if resp.StatusCode != 200 || me["id"] != u.ID.String() || me["email"] != "a@x.com" || me["totp_enabled"] != false {
+	if resp.StatusCode != 200 || me["id"] != u.ID.String() || me["email"] != "a@x.com" || me["totp_enabled"] != false || me["auth_source"] != "local" {
 		t.Fatal(resp.StatusCode, string(body))
 	}
 

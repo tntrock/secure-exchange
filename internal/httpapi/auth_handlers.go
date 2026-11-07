@@ -138,7 +138,7 @@ func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *server) me(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	out := map[string]any{"id": u.ID, "email": u.Email, "display_name": u.DisplayName,
-		"role": u.Role, "totp_enabled": u.TOTPEnabled, "expires_at": u.ExpiresAt}
+		"role": u.Role, "auth_source": u.AuthSource, "totp_enabled": u.TOTPEnabled, "expires_at": u.ExpiresAt}
 	if u.OrgID != nil {
 		var org string
 		if err := s.Pool.QueryRow(r.Context(), `SELECT name FROM vendor_orgs WHERE id=$1`, u.OrgID).Scan(&org); err != nil {

@@ -225,7 +225,7 @@ func (s *Service) Create(ctx context.Context, by *auth.User, in CreateInput) (*V
 
 // askAdmins mails every active admin that a vendor awaits approval.
 func (s *Service) askAdmins(ctx context.Context, tx pgx.Tx, vendorEmail, creator string) error {
-	rows, err := tx.Query(ctx, `SELECT email FROM users WHERE role = 'admin' AND NOT disabled AND approval = 'approved'
+	rows, err := tx.Query(ctx, `SELECT DISTINCT lower(email) FROM users WHERE role = 'admin' AND NOT disabled AND approval = 'approved'
 		AND (expires_at IS NULL OR expires_at > now())`)
 	if err != nil {
 		return err

@@ -156,3 +156,12 @@ test("vendor upload shows source", async () => {
   expect(await screen.findByText(`${i18n.t("files.fromVendor")} al@v.com`)).toBeTruthy();
   expect(screen.getByRole("link", { name: i18n.t("files.fromRequest") }).getAttribute("href")).toBe("/requests/rq1");
 });
+
+test.each([["ldap", false], ["local", true]])("settings link for auth_source %s shown=%s", async (src, shown) => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/me" ? json(200, { id: "u", role: "staff", auth_source: src }) : json(200, null))));
+  renderPage();
+  await screen.findByText("No files yet");
+  await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/me", expect.anything()));
+  await act(async () => {});
+  expect(!!screen.queryByRole("link", { name: "Two-factor settings" })).toBe(shown);
+});

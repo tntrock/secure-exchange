@@ -2,6 +2,7 @@ import { useState } from "react";
 import QRCode from "qrcode";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
+import { useExternal } from "../useExternal";
 
 export default function TotpSetup() {
   const { t } = useTranslation();
@@ -9,6 +10,7 @@ export default function TotpSetup() {
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [enabled, setEnabled] = useState(false);
+  const external = useExternal();
 
   const start = async () => {
     setErr("");
@@ -33,7 +35,9 @@ export default function TotpSetup() {
   return (
     <>
       <h1>{t("totp.title")}</h1>
-      {enabled ? (
+      {external ? (
+        <p>{t("totp.external")}</p>
+      ) : enabled ? (
         <p>{t("totp.enabled")}</p>
       ) : !qr ? (
         <button onClick={start}>{t("totp.start")}</button>

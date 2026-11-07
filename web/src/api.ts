@@ -1,4 +1,4 @@
-export interface Me { id: string; email: string; display_name: string; role: string; totp_enabled: boolean }
+export interface Me { id: string; email: string; display_name: string; role: string; totp_enabled: boolean; auth_source?: string }
 export type MarkMethod = "pdf_pages" | "pdf_meta" | "image_visible" | "image_invisible" | "ooxml_meta" | "odf_meta" | "none";
 export type ScanStatus = "none" | "pending" | "clean" | "infected" | "skipped" | "error";
 export interface FileInfo { id: string; name: string; content_type: string; size: number; sha256: string; created_at: string; preview_status: "pending" | "ready" | "failed" | "unsupported" | "too_large"; preview_kind: string; scan_status: ScanStatus; scan_result: string | null; request_id: string | null; vendor_email: string | null; mark: { watermark: MarkMethod; plain: MarkMethod; degraded: boolean } }

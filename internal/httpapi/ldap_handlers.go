@@ -64,6 +64,7 @@ func (s *server) ldapLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	u, prevRole, err := s.Users.UpsertExternal(r.Context(), "ldap", id.ExternalID, id.Email, id.Name, id.Admin)
 	if errors.Is(err, auth.ErrEmailTaken) {
+		detail["external_id"] = id.ExternalID // lets an admin re-key the old row (see the admin manual)
 		fail("", "email_conflict", http.StatusConflict, "email_conflict")
 		return
 	}
@@ -117,11 +118,15 @@ func (s *server) recheck(r *http.Request, token string, u *auth.User) *auth.User
 	if id.Name == "" {
 		id.Name = u.DisplayName
 	}
-	nu, _, err := s.Users.UpsertExternal(r.Context(), "ldap", u.ExternalID, id.Email, id.Name, id.Admin)
+	nu, prevRole, err := s.Users.UpsertExternal(r.Context(), "ldap", u.ExternalID, id.Email, id.Name, id.Admin)
 	if err != nil {
 		slog.Error("ldap recheck update", "err", err)
 		s.endSession(r, token, u, "ldap_error", false)
 		return nil
+	}
+	if prevRole != "" && prevRole != nu.Role {
+		s.record(r, audit.Event{ActorType: "system", Action: audit.ActUserRole, TargetType: "user", TargetID: nu.ID.String(), Result: "ok",
+			Detail: map[string]any{"source": "ldap", "role_from": prevRole, "role_to": nu.Role, "stage": "recheck"}})
 	}
 	return nu
 }

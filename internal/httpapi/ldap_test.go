@@ -195,7 +195,7 @@ func TestLDAPLoginErrors(t *testing.T) {
 	if resp, b := e.ldapLogin(t, "mallory"); resp.StatusCode != 409 || !strings.Contains(string(b), "email_conflict") {
 		t.Fatal(resp.StatusCode, string(b))
 	}
-	if d := e.lastDetail(t, audit.ActLoginFail); d["stage"] != "email_conflict" {
+	if d := e.lastDetail(t, audit.ActLoginFail); d["stage"] != "email_conflict" || d["external_id"] != "c3" {
 		t.Fatal(d)
 	}
 
@@ -327,6 +327,9 @@ func TestRecheckDemotes(t *testing.T) {
 	if err := e.pool.QueryRow(context.Background(), `SELECT role, email, display_name FROM users WHERE external_id='b2'`).Scan(&role, &email, &name); err != nil ||
 		role != "staff" || email != "boss@x.test" || name != "Boss" {
 		t.Fatal(role, email, name, err)
+	}
+	if d := e.lastDetail(t, audit.ActUserRole); d["role_from"] != "admin" || d["role_to"] != "staff" || d["stage"] != "recheck" || d["source"] != "ldap" {
+		t.Fatal(d)
 	}
 }
 

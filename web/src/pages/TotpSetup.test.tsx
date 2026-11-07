@@ -47,3 +47,10 @@ test("wrong code shows the error and stays on the form", async () => {
   expect((await screen.findByRole("alert")).textContent).toBe("Invalid code or setup failed");
   expect(screen.queryByText("Two-factor authentication is enabled")).toBeNull();
 });
+
+test("domain accounts see a message instead of the start button", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(200, { id: "u", role: "staff", auth_source: "ldap" })));
+  render(<TotpSetup />);
+  expect(await screen.findByText(i18n.t("totp.external"))).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Start setup" })).toBeNull();
+});

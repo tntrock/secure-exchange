@@ -64,11 +64,31 @@
 
 ### 3.1 準備設定檔
 
+映像檔取自 `ghcr.io/tntrock/secure-exchange` 與 `ghcr.io/tntrock/secure-exchange-worker`，不需在本機建置。取得部署檔有兩種方式（下載指令在 v1.0.0 發布後才有效）。
+
+**方式 A：從 Release 下載**
+
+```sh
+mkdir secure-exchange && cd secure-exchange && mkdir certs
+B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
+for f in docker-compose.yml .env.example Caddyfile clamd.conf; do
+  curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
+done
+sha256sum -c *.sha256
+cp .env.example .env
+```
+
+**方式 B：git clone 後切到版本標籤**
+
 ```sh
 git clone https://github.com/tntrock/secure-exchange.git
 cd secure-exchange
+git checkout v1.0.0
+mkdir -p certs
 cp .env.example .env
 ```
+
+`certs/` 會唯讀掛載進容器（放 LDAP、OIDC、syslog 的 CA 檔），用不到時可留空。
 
 編輯 `.env`，至少填好下列項目：
 
@@ -87,10 +107,11 @@ cp .env.example .env
 ### 3.2 啟動
 
 ```sh
+docker compose pull
 docker compose up -d
 ```
 
-第一次啟動會建置映像檔，並由 ClamAV 下載病毒碼（數分鐘）。完成後開啟 `https://<SX_DOMAIN>`。
+第一次啟動會拉取映像檔，並由 ClamAV 下載病毒碼（數分鐘）。完成後開啟 `https://<SX_DOMAIN>`。
 
 ### 3.3 首次登入
 
@@ -101,6 +122,14 @@ docker compose up -d
 ### 3.4 本機試用
 
 `SX_DOMAIN=localhost` 時 Caddy 使用本機 CA，瀏覽器會出現憑證警告，`curl` 需加 `-k`。專案附的 `scripts/smoke.sh` 會在一個用完即丟的環境自動跑一次完整的端對端測試（上傳、續傳、分享、線上檢視、溯源、上傳請求與病毒掃描），可用來驗證主機環境。它需要 Docker，且在已有 `.env` 時會拒絕執行。
+
+### 3.5 從原始碼建置
+
+開發或自行修改程式時，取得原始碼後以 overlay 在本機建置映像檔（會把版本標為 `dev`）：
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
 
 ## 4. 設定參考
 
@@ -796,22 +825,23 @@ docker compose exec postgres psql -U sx -d sx -c \
 ## 15. 升級
 
 1. 閱讀 [GitHub Releases](https://github.com/tntrock/secure-exchange/releases) 的版本說明，留意新增或變更的環境變數與遷移注意事項。
-2. 備份資料庫並取得新版程式碼；`git pull` 之後立即比對 `.env.example` 的變動，把新增的變數補進 `.env`：
+2. 備份資料庫：
 
    ```sh
-   cd secure-exchange
    docker compose exec -T postgres pg_dump -U sx sx > before-upgrade.sql
-   git pull
-   git diff ORIG_HEAD HEAD -- .env.example
    ```
 
-3. 重新建置並啟動：
+3. 比對新版 `.env.example` 與你的 `.env`，把新增的變數補進 `.env`（例如 `diff .env.example <新版>/.env.example`，或看版本說明）。
+4. 換成新版的 `docker-compose.yml`：重新下載新版 Release 的部署檔（做法同 3.1，`sha256sum -c` 驗證），或 `git fetch --tags && git checkout <新版標籤>`；也可以只把 `docker-compose.yml` 裡兩個映像標籤改成新版本。
+5. 拉取新映像並啟動：
 
    ```sh
-   docker compose up -d --build
+   docker compose pull && docker compose up -d
    ```
 
-資料庫結構會在 app 啟動時自動升級（多個實例同時啟動時有鎖保護）。升級後請檢查：
+從原始碼建置者請改看 [3.5](#35-從原始碼建置)，不要用上面的步驟。
+
+資料庫結構會在 app 啟動時自動升級（多個實例同時啟動時有鎖保護）。升級後請檢查，並確認管理員頁面頁尾顯示新版本號：
 
 ```sh
 docker compose ps
@@ -853,5 +883,5 @@ curl -fsS <SX_BASE_URL>/healthz     # 應回傳 ok
 - [ ] 依公司政策決定 `SX_VENDOR_CREATION`（預設需管理員核准）。
 - [ ] 若公司要求所有外流檔案都必須可追蹤，將 `SX_UNMARKABLE_POLICY` 設為 `block`。
 - [ ] 到「規則」頁依公司政策設定禁止下載／浮水印、分享期限、儲存配額與保存天數；若有固定的合作網段，可設定外部 IP 清單。
-- [ ] 定期以 `git pull` 與 `docker compose up -d --build` 更新，以取得安全修正。
+- [ ] 定期依「升級」一節更新，以取得安全修正。
 - [ ] 發現安全問題請依 [SECURITY.md](../SECURITY.md) 私下回報。

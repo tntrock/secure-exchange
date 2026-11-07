@@ -30,14 +30,39 @@
 
 ## 快速部署
 
-需要 Docker（含 Compose），以及指向本主機的網域名稱（開放 80/443 埠）。Caddy 會自動申請 TLS 憑證。
+需要 Docker（含 Compose），以及指向本主機的網域名稱（開放 80/443 埠）。Caddy 會自動申請 TLS 憑證。映像檔取自 `ghcr.io/tntrock/secure-exchange`（app 與 worker），不需在本機建置。
+
+**方式 A：從 Release 下載部署檔**（v1.0.0 發布後才有效）
 
 ```sh
+mkdir secure-exchange && cd secure-exchange && mkdir certs
+B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
+for f in docker-compose.yml .env.example Caddyfile clamd.conf; do
+  curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
+done
+sha256sum -c *.sha256
 cp .env.example .env
+```
+
+**方式 B：git clone 後切到版本標籤**
+
+```sh
+git clone https://github.com/tntrock/secure-exchange.git && cd secure-exchange
+git checkout v1.0.0
+mkdir -p certs
+cp .env.example .env
+```
+
+`certs/` 會唯讀掛載進容器（放 LDAP／OIDC／syslog 的 CA 檔），用不到時可留空。接著：
+
+```sh
 # 編輯 .env：SX_DOMAIN、POSTGRES_PASSWORD、SX_MASTER_KEYS、初始管理員
 openssl rand -base64 32      # 輸出值填入 SX_MASTER_KEYS=1:<金鑰>
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
+
+要從原始碼建置（開發或自行修改）時，改用 overlay：`docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`。
 
 開啟 `https://<SX_DOMAIN>`，以 `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD` 登入。本機試用可設 `SX_DOMAIN=localhost`（使用 Caddy 本機 CA，`curl` 請加 `-k`）。`scripts/smoke.sh` 會在用完即丟的環境做上傳／續傳／下載／分享／線上檢視的端對端檢查（需 Docker；已有 `.env` 時拒絕執行）。
 
@@ -239,7 +264,7 @@ CI 以獨立的 `tools` job 執行這些測試。
 
 ### 端對端測試（瀏覽器）
 
-`e2e/` 是 Playwright（僅 Chromium）瀏覽器測試。`scripts/e2e.sh` 會建置並啟動一套用完即丟的 compose 環境（專案名稱 `sxe2e`，HTTPS `:59443`、mailpit `:59025`、OIDC 測試用的 Dex `:59556`），等待服務就緒後執行測試，結束時（含失敗與 Ctrl-C）刪除環境、資料卷與暫時的 `.env`：
+`e2e/` 是 Playwright（僅 Chromium）瀏覽器測試。`scripts/e2e.sh` 會（套用 `docker-compose.build.yml`）從原始碼建置並啟動一套用完即丟的 compose 環境（專案名稱 `sxe2e`，HTTPS `:59443`、mailpit `:59025`、OIDC 測試用的 Dex `:59556`），等待服務就緒後執行測試，結束時（含失敗與 Ctrl-C）刪除環境、資料卷與暫時的 `.env`：
 
 ```sh
 (cd e2e && npm ci && npx playwright install chromium)   # 第一次；Linux 改用 npx playwright install --with-deps chromium

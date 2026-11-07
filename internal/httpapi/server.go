@@ -43,6 +43,7 @@ type Deps struct {
 	FontFile       string // TTF for burned-in video watermarks (SX_FONT_FILE)
 	Mark           config.MarkConfig
 	CodeDelay      time.Duration // recipient /code and /verify answer no sooner than this after the request starts (P10)
+	SyslogEnabled  bool          // a syslog forwarder is running (reported by /api/admin/audit/forwarding)
 }
 
 type server struct {
@@ -118,6 +119,12 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/r/{token}/verify", recipIP(s.uploaderVerify))
 	mux.Handle("GET /api/r/{token}/files", s.requireUploader(s.listUploaderFiles))
 	mux.HandleFunc("POST /api/r/{token}/logout", s.uploaderLogout)
+	mux.Handle("GET /api/admin/audit", s.requireAdmin(s.auditList))
+	mux.Handle("GET /api/admin/audit/export", s.requireAdmin(s.auditExport))
+	mux.Handle("POST /api/admin/audit/verify", s.requireAdmin(s.auditVerify))
+	mux.Handle("GET /api/admin/audit/forwarding", s.requireAdmin(s.auditForwarding))
+	mux.Handle("GET /api/shares/{id}/audit", s.requireUser(s.shareAudit(false)))
+	mux.Handle("GET /api/admin/shares/{id}/audit", s.requireAdmin(s.shareAudit(true)))
 	mux.Handle("GET /api/admin/shares", s.requireAdmin(s.adminListShares))
 	mux.Handle("GET /api/admin/shares/{id}", s.requireAdmin(s.adminGetShare))
 	mux.Handle("POST /api/admin/shares/{id}/revoke", s.requireAdmin(s.adminRevokeShare))

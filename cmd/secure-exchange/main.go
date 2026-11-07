@@ -110,6 +110,7 @@ func serve(ctx context.Context) error {
 		Vendors:        vendor.NewService(pool, users, sessions, outbox, cfg.BaseURL, cfg.VendorCreation, siteRules),
 		Accounts:       account.New(pool, users, sessions, outbox, siteRules, cfg.BaseURL),
 		Rules:          siteRules,
+		SyslogEnabled:  cfg.Syslog.Addr != "",
 		TrustedProxies: cfg.TrustedProxies, SessionTTL: cfg.SessionTTL, CodeDelay: 300 * time.Millisecond,
 		FontFile: cfg.FontFile, Mark: cfg.Mark,
 		Uploads: upload.NewHandler(pool, keys, store, auditLog, cfg.StagingDir, cfg.MaxFileSize, cfg.TrustedProxies, cfg.Preview, siteRules),

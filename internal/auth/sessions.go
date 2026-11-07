@@ -32,7 +32,6 @@ func TokenHash(token string) []byte {
 }
 
 // Create returns a new 256-bit base64url token; only its hash is stored.
-// ponytail: expired rows are never purged; add a periodic DELETE when the table grows.
 func (s *Sessions) Create(ctx context.Context, userID uuid.UUID, mfaPassed bool, ip, ua string, ttl time.Duration) (string, error) {
 	b := make([]byte, 32)
 	rand.Read(b) // never fails (Go ≥ 1.24)

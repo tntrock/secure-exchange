@@ -1,6 +1,6 @@
 # Override used by scripts/e2e.sh (Playwright browser tests): catch-all mail server, a ClamAV
-# signature directory on the host (CI caches it), and a Caddyfile that keeps X-Forwarded-For from
-# the client so each test gets its own rate-limit bucket (see e2e/Caddyfile).
+# signature directory on the host (CI caches it), a Caddyfile that keeps X-Forwarded-For from
+# the client so each test gets its own rate-limit bucket (see e2e/Caddyfile), and Dex as OIDC IdP.
 #   docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml up
 services:
   mailpit:
@@ -8,13 +8,34 @@ services:
     ports:
       - "59025:8025" # API / web UI on the host
     networks: [sx]
+  # Issuer https://dex.localhost:59556/dex: the app resolves the alias on sx, the host browser
+  # reaches the published port (Chromium maps *.localhost to loopback). e2e.sh writes .e2e-dex/.
+  dex:
+    image: ghcr.io/dexidp/dex:v2.46.1
+    command: ["dex", "serve", "/etc/dex/e2e.yaml"]
+    environment:
+      SX_OIDC_CLIENT_SECRET: ${SX_OIDC_CLIENT_SECRET:?set by scripts/e2e.sh}
+    volumes:
+      - ./e2e/dex/config.yaml:/etc/dex/e2e.yaml:ro
+      - ./.e2e-dex:/etc/dex/tls:ro
+    ports:
+      - "59556:59556"
+    networks:
+      sx:
+        aliases: [dex.localhost]
   app:
     environment:
+      # the browser reaches Caddy on 59443: OIDC redirect URI (and mail links) must carry the port
+      SX_BASE_URL: https://localhost:59443
       SX_SMTP_HOST: mailpit
       SX_SMTP_PORT: "1025"
       SX_SMTP_TLS: none
+    volumes:
+      - ./.e2e-dex/tls.crt:/etc/secure-exchange/dex-ca.pem:ro
     depends_on:
       mailpit:
+        condition: service_started
+      dex:
         condition: service_started
   clamav:
     volumes:

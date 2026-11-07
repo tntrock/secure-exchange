@@ -36,7 +36,7 @@ export function extractCode(text: string): string {
 }
 
 // extractLink returns path?query of the first URL in the mail whose path matches `path`. Mail links carry
-// SX_BASE_URL (https://localhost, no port), so pass the result to page.goto and let baseURL fill in the port.
+// SX_BASE_URL (the e2e stack sets https://localhost:59443); pass the result to page.goto (baseURL supplies the origin).
 export function extractLink(text: string, path: RegExp): string {
   for (const s of text.match(/https?:\/\/\S+/g) ?? []) {
     const u = new URL(s);

@@ -236,7 +236,7 @@ CI runs them in a separate `tools` job.
 
 ### End-to-end tests
 
-`e2e/` holds Playwright browser tests (Chromium only). `scripts/e2e.sh` builds and starts a throwaway compose stack (project `sxe2e`, HTTPS `:59443`, mailpit `:59025`), waits for it, runs the tests, and on exit (failure and Ctrl-C included) removes the stack, its volumes and its temporary `.env`:
+`e2e/` holds Playwright browser tests (Chromium only). `scripts/e2e.sh` builds and starts a throwaway compose stack (project `sxe2e`, HTTPS `:59443`, mailpit `:59025`, Dex for the OIDC test `:59556`), waits for it, runs the tests, and on exit (failure and Ctrl-C included) removes the stack, its volumes and its temporary `.env`:
 
 ```sh
 (cd e2e && npm ci && npx playwright install chromium)   # once
@@ -244,7 +244,7 @@ scripts/e2e.sh                                          # all; arguments go to p
 E2E_KEEP=1 scripts/e2e.sh tests/auth.spec.ts            # leave the stack up afterwards for debugging
 ```
 
-Needs Docker, Node.js and `openssl`; refuses to run if a `.env` exists. ClamAV signatures are kept in `.e2e-clamav/`; the first run downloads a few hundred MB. Open the traces of failed tests with `cd e2e && npx playwright show-report` (or `npx playwright show-trace test-results/<test>/trace.zip`); app and worker logs are in `e2e/test-results/compose.log`. The test stack's Caddy trusts the `X-Forwarded-For` the tests send so that each test gets its own rate-limit budget (e2e only). There is no LDAP end-to-end test (the Go tests cover it against a stub).
+Needs Docker, Node.js and `openssl`; refuses to run if a `.env` exists. ClamAV signatures are kept in `.e2e-clamav/`; the first run downloads a few hundred MB. Open the traces of failed tests with `cd e2e && npx playwright show-report` (or `npx playwright show-trace test-results/<test>/trace.zip`); app and worker logs are in `e2e/test-results/compose.log`. The test stack's Caddy trusts the `X-Forwarded-For` the tests send so that each test gets its own rate-limit budget (e2e only). OIDC sign-in is tested against Dex (`https://dex.localhost:59556/dex`, self-signed cert in the temporary `.e2e-dex/`). There is no LDAP end-to-end test (the Go tests cover it against a stub).
 
 ## Security
 

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Browser end-to-end tests (Playwright, Chromium). Builds and starts a throwaway compose stack
-# (project "sxe2e", own ports, mailpit + host ClamAV DB dir via docker-compose.e2e.yml), waits
+# (project "sxe2e", own ports, mailpit, Dex + host ClamAV DB dir via docker-compose.e2e.yml), waits
 # for it, then runs `npx playwright test` in e2e/ with any arguments passed through:
 #   scripts/e2e.sh                         whole suite
 #   scripts/e2e.sh tests/auth.spec.ts      one file (playwright args work too, e.g. --repeat-each=3)
 #   E2E_KEEP=1 scripts/e2e.sh ...          leave the stack and .env up afterwards for debugging
 # Refuses to run if a ./.env already exists. On exit the app/worker logs go to
-# e2e/test-results/compose.log, then the stack (volumes included) and its temporary .env are removed.
+# e2e/test-results/compose.log, then the stack (volumes included), its temporary .env and the
+# Dex cert dir .e2e-dex/ are removed.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -20,18 +21,24 @@ dc() { docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml "
 cleanup() {
   cd "$ROOT" # the tests run from e2e/
   mkdir -p e2e/test-results
-  dc logs --no-color app worker >e2e/test-results/compose.log 2>&1 || true
+  dc logs --no-color app worker dex >e2e/test-results/compose.log 2>&1 || true
   if [ "${E2E_KEEP:-}" = 1 ]; then
-    echo "E2E_KEEP=1: stack left running; tear down with: docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml down -v && rm .env"
+    echo "E2E_KEEP=1: stack left running; tear down with: docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml down -v && rm -r .env .e2e-dex"
     return
   fi
   dc down -v >/dev/null 2>&1 || true
   rm -f .env
+  rm -rf .e2e-dex
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM # run the EXIT trap on Ctrl-C too
 
 mkdir -p .e2e-clamav
+# throwaway self-signed cert for the Dex issuer (dex.localhost); the app trusts it via SX_OIDC_CA
+rm -rf .e2e-dex && mkdir .e2e-dex
+MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=dex.localhost \
+  -addext subjectAltName=DNS:dex.localhost -keyout .e2e-dex/tls.key -out .e2e-dex/tls.crt 2>/dev/null
+chmod 644 .e2e-dex/tls.key # read by the non-root dex user; test-only key
 cat >.env <<ENV
 SX_DOMAIN=localhost
 SX_HTTP_PORT=59080
@@ -43,6 +50,11 @@ SX_INIT_ADMIN_EMAIL=$ADMIN
 SX_INIT_ADMIN_PASSWORD=$PASS
 SX_SMTP_HOST=unused
 SX_SMTP_FROM=noreply@e2e.test
+SX_OIDC_ISSUER=https://dex.localhost:59556/dex
+SX_OIDC_CLIENT_ID=sx-e2e
+SX_OIDC_CLIENT_SECRET=$(openssl rand -hex 24)
+SX_OIDC_CA=/etc/secure-exchange/dex-ca.pem
+SX_OIDC_BUTTON_TEXT=Sign in with Dex
 ENV
 dc up -d --build
 

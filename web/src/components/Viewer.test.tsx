@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import i18n from "../i18n";
@@ -32,6 +33,24 @@ test("pages: renders img per page, keys page and zoom, Esc closes", async () => 
   expect(screen.getByText("125%")).toBeTruthy();
   fireEvent.keyDown(dlg, { key: "Escape" });
   expect(onClose).toHaveBeenCalled();
+});
+
+test("Escape closes even when focus is outside; focus returns to the opener", async () => {
+  stub(200, { kind: "pages", status: "ready", page_count: 1 });
+  function Host() {
+    const [open, setOpen] = useState(false);
+    return <><button onClick={() => setOpen(true)}>View</button>{open && <Viewer base="/b" onClose={() => setOpen(false)} />}</>;
+  }
+  render(<Host />);
+  const view = screen.getByText("View");
+  view.focus();
+  fireEvent.click(view);
+  await screen.findAllByRole("img");
+  expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+  (document.activeElement as HTMLElement).blur();
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(view);
 });
 
 test("video: hls.js loads the m3u8", async () => {

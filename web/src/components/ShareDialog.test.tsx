@@ -80,6 +80,17 @@ test("Cancel calls onClose; network failure shows the generic error", async () =
   expect((screen.getByRole("button", { name: i18n.t("share.submit") }) as HTMLButtonElement).disabled).toBe(false);
 });
 
+test("is a named modal dialog and Escape closes it", () => {
+  const onClose = vi.fn();
+  vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("offline"))));
+  render(<MemoryRouter><ShareDialog fileIds={["f1"]} onClose={onClose} /></MemoryRouter>);
+  const dlg = screen.getByRole("dialog", { name: i18n.t("share.title") });
+  expect(dlg.getAttribute("aria-modal")).toBe("true");
+  expect(dlg.contains(document.activeElement)).toBe(true);
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(onClose).toHaveBeenCalled();
+});
+
 function setupWith(edit: () => void, fetchImpl: () => Promise<Response>) {
   const f = vi.fn((_u: string, _i?: RequestInit) => fetchImpl());
   vi.stubGlobal("fetch", f);

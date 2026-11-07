@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useModal } from "../useModal";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, type FileInfo } from "../api";
@@ -22,6 +23,9 @@ function NameList({ items }: { items: FileInfo[] }) {
 export default function ShareDialog({ fileIds, files = [], onClose, notReady = false }: { fileIds: string[]; files?: FileInfo[]; onClose: () => void; notReady?: boolean }) {
   const { t, i18n } = useTranslation();
   const nav = useNavigate();
+  const dlg = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useModal(dlg, onClose);
   const [emails, setEmails] = useState("");
   const [vendorIds, setVendorIds] = useState<string[]>([]);
   const [allowDownload, setAllowDownload] = useState(false);
@@ -90,9 +94,9 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
   };
 
   return (
-    <div className="modal" role="dialog" aria-label={t("share.title")}>
+    <div className="modal" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={dlg}>
       <form onSubmit={submit}>
-        <h2>{t("share.title")}</h2>
+        <h2 id={titleId}>{t("share.title")}</h2>
         {err && !err.field && <p className="error" role="alert">{err.msg}</p>}
         {blocked.length > 0 && <NameList items={files.filter((f) => blocked.includes(f.id))} />}
         {fieldErr("file_ids")}

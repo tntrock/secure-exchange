@@ -172,12 +172,12 @@ func TestShareEndToEnd(t *testing.T) {
 		action, actorType string
 		n                 int
 	}{{audit.ActShareCreate, "user", 1}, {audit.ActShareOTPVerify, "recipient", 3}, {audit.ActDownload, "recipient", 1}, {audit.ActShareRevoke, "user", 1}} {
-		ents, err := log.List(ctx, audit.Filter{Action: want.action})
+		ents, _, err := log.List(ctx, audit.Filter{ActionPrefix: want.action})
 		if err != nil || len(ents) != want.n || ents[0].Event.ActorType != want.actorType {
 			t.Fatalf("audit %s: %v %+v", want.action, err, ents)
 		}
 	}
-	if bad, err := log.Verify(ctx); err != nil || bad != 0 {
+	if _, bad, err := log.Verify(ctx); err != nil || bad != 0 {
 		t.Fatalf("audit chain: bad=%d err=%v", bad, err)
 	}
 

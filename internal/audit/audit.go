@@ -7,6 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -55,6 +57,10 @@ const (
 	ActUserReinvite  = "user.reinvite"
 	ActUserActivate  = "user.activate"
 
+	ActAuditExport = "audit.export"
+	ActAuditVerify = "audit.verify"
+	ActNotifyPrefs = "user.notify_prefs"
+
 	ActRulesUpdate     = "rules.update"
 	ActRetentionDelete = "file.retention_delete"
 )
@@ -67,17 +73,19 @@ type Event struct {
 }
 
 type Entry struct {
-	ID       int64
-	At       time.Time
-	Event    Event
-	PrevHash []byte
-	Hash     []byte
+	ID         int64
+	At         time.Time
+	Event      Event
+	PrevHash   []byte
+	Hash       []byte
+	ActorLabel string
 }
 
 type Filter struct {
-	ActorID, Action string
-	Since, Until    time.Time
-	Limit           int
+	Actor, ActionPrefix, Target string
+	Since, Until                time.Time
+	BeforeID                    int64
+	Limit                       int
 }
 
 type Log struct{ pool *pgxpool.Pool }
@@ -155,72 +163,152 @@ func (l *Log) Append(ctx context.Context, e Event) error {
 	return tx.Commit(ctx)
 }
 
-const cols = `id, at, actor_type, actor_id, ip, user_agent, action, target_type, target_id, result, detail, prev_hash, hash`
+const (
+	selectCols = `a.id, a.at, a.actor_type, a.actor_id, a.ip, a.user_agent, a.action, a.target_type, a.target_id, a.result, a.detail, a.prev_hash, a.hash,
+		COALESCE(u.email, sr.email, ru.email, '')`
+	fromJoins = ` FROM audit_log a
+		LEFT JOIN users u ON u.id::text = a.actor_id
+		LEFT JOIN share_recipients sr ON sr.id::text = a.actor_id
+		LEFT JOIN request_uploaders ru ON ru.id::text = a.actor_id`
+)
 
 func scan(rows pgx.Rows) (Entry, error) {
 	var en Entry
 	var raw []byte
 	e := &en.Event
 	if err := rows.Scan(&en.ID, &en.At, &e.ActorType, &e.ActorID, &e.IP, &e.UserAgent, &e.Action,
-		&e.TargetType, &e.TargetID, &e.Result, &raw, &en.PrevHash, &en.Hash); err != nil {
+		&e.TargetType, &e.TargetID, &e.Result, &raw, &en.PrevHash, &en.Hash, &en.ActorLabel); err != nil {
 		return en, err
 	}
 	en.At = en.At.UTC()
 	return en, json.Unmarshal(raw, &e.Detail)
 }
 
-// Verify recomputes the chain in id order; returns the first bad id, or 0 if intact.
-func (l *Log) Verify(ctx context.Context) (int64, error) {
-	rows, err := l.pool.Query(ctx, `SELECT `+cols+` FROM audit_log ORDER BY id`)
+// Verify recomputes the chain in id order; returns rows checked and the first bad id (0 if intact).
+func (l *Log) Verify(ctx context.Context) (checked, badID int64, err error) {
+	rows, err := l.pool.Query(ctx, `SELECT `+selectCols+fromJoins+` ORDER BY a.id`)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer rows.Close()
 	prev := make([]byte, 32)
 	for rows.Next() {
 		en, err := scan(rows)
 		if err != nil {
-			return 0, err
+			return checked, 0, err
 		}
+		checked++
 		detail, err := json.Marshal(en.Event.Detail)
 		if err != nil {
-			return 0, err
+			return checked, 0, err
 		}
 		if !bytes.Equal(en.PrevHash, prev) || !bytes.Equal(en.Hash, chain(prev, canonical(en.At, en.Event, detail))) {
-			return en.ID, nil
+			return checked, en.ID, nil
 		}
 		prev = en.Hash
 	}
-	return 0, rows.Err()
+	return checked, 0, rows.Err()
 }
 
-func (l *Log) List(ctx context.Context, f Filter) ([]Entry, error) {
-	if f.Limit <= 0 {
-		f.Limit = 100
+// where builds the shared filter predicate (BeforeID/Limit are handled by callers).
+func where(f Filter) (string, []any) {
+	var conds []string
+	var args []any
+	add := func(cond string, v any) {
+		args = append(args, v)
+		conds = append(conds, strings.ReplaceAll(cond, "$n", "$"+strconv.Itoa(len(args))))
 	}
-	// zero Since/Until are passed as NULL (no bound).
-	var since, until *time.Time
+	if f.Actor != "" {
+		// ponytail: actor email filter seq-scans; resolve email→ids first if audit_log grows past ~10M rows
+		add(`(a.actor_id = $n OR lower(COALESCE(u.email, sr.email, ru.email, a.actor_id)) = lower($n))`, f.Actor)
+	}
+	if f.ActionPrefix != "" {
+		add(`starts_with(a.action, $n)`, f.ActionPrefix)
+	}
+	if f.Target != "" {
+		add(`(a.target_id = $n OR a.detail->>'share_id' = $n)`, f.Target)
+	}
 	if !f.Since.IsZero() {
-		since = &f.Since
+		add(`a.at >= $n`, f.Since)
 	}
 	if !f.Until.IsZero() {
-		until = &f.Until
+		add(`a.at < $n`, f.Until)
 	}
-	rows, err := l.pool.Query(ctx, `SELECT `+cols+` FROM audit_log
-		WHERE ($1 = '' OR actor_id = $1) AND ($2 = '' OR action = $2)
-		AND ($3::timestamptz IS NULL OR at >= $3) AND ($4::timestamptz IS NULL OR at < $4)
-		ORDER BY id DESC LIMIT $5`, f.ActorID, f.Action, since, until, f.Limit)
-	if err != nil {
-		return nil, err
+	if len(conds) == 0 {
+		return "", nil
 	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+func collect(rows pgx.Rows, fn func(Entry) error) error {
 	defer rows.Close()
-	var out []Entry
 	for rows.Next() {
 		en, err := scan(rows)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		out = append(out, en)
+		if err := fn(en); err != nil {
+			return err
+		}
 	}
-	return out, rows.Err()
+	return rows.Err()
+}
+
+// List returns entries newest first; nextBeforeID is 0 when there is no further page.
+func (l *Log) List(ctx context.Context, f Filter) (out []Entry, nextBeforeID int64, err error) {
+	if f.Limit <= 0 {
+		f.Limit = 100
+	}
+	if f.Limit > 500 {
+		f.Limit = 500
+	}
+	w, args := where(f)
+	if f.BeforeID > 0 {
+		args = append(args, f.BeforeID)
+		if w == "" {
+			w = " WHERE"
+		} else {
+			w += " AND"
+		}
+		w += " a.id < $" + strconv.Itoa(len(args))
+	}
+	args = append(args, f.Limit+1)
+	rows, err := l.pool.Query(ctx, `SELECT `+selectCols+fromJoins+w+` ORDER BY a.id DESC LIMIT $`+strconv.Itoa(len(args)), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := collect(rows, func(en Entry) error { out = append(out, en); return nil }); err != nil {
+		return nil, 0, err
+	}
+	if len(out) > f.Limit {
+		out = out[:f.Limit]
+		nextBeforeID = out[len(out)-1].ID
+	}
+	return out, nextBeforeID, nil
+}
+
+// Each streams matching entries in ascending id order, ignoring BeforeID and Limit.
+func (l *Log) Each(ctx context.Context, f Filter, fn func(Entry) error) error {
+	w, args := where(f)
+	rows, err := l.pool.Query(ctx, `SELECT `+selectCols+fromJoins+w+` ORDER BY a.id`, args...)
+	if err != nil {
+		return err
+	}
+	return collect(rows, fn)
+}
+
+// Querier is satisfied by *pgxpool.Pool and pgx.Tx.
+type Querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// After returns up to limit entries with id > afterID, ascending.
+func After(ctx context.Context, q Querier, afterID int64, limit int) ([]Entry, error) {
+	rows, err := q.Query(ctx, `SELECT `+selectCols+fromJoins+` WHERE a.id > $1 ORDER BY a.id LIMIT $2`, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	var out []Entry
+	err = collect(rows, func(en Entry) error { out = append(out, en); return nil })
+	return out, err
 }

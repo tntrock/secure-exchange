@@ -287,7 +287,7 @@ func TestAuditOnLogin(t *testing.T) {
 	e.login(t, "au@x.com", pw)
 	ctx := context.Background()
 	for _, act := range []string{audit.ActLoginFail, audit.ActLoginOK} {
-		got, err := e.audit.List(ctx, audit.Filter{Action: act})
+		got, _, err := e.audit.List(ctx, audit.Filter{ActionPrefix: act})
 		if err != nil || len(got) != 1 {
 			t.Fatalf("%s: %d %v", act, len(got), err)
 		}
@@ -295,7 +295,7 @@ func TestAuditOnLogin(t *testing.T) {
 			t.Fatal(got[0].Event)
 		}
 	}
-	if bad, err := e.audit.Verify(ctx); err != nil || bad != 0 {
+	if _, bad, err := e.audit.Verify(ctx); err != nil || bad != 0 {
 		t.Fatal(bad, err)
 	}
 }
@@ -325,7 +325,7 @@ func TestAuditFieldsTruncated(t *testing.T) {
 		t.Fatal(code)
 	}
 	ctx := context.Background()
-	got, err := e.audit.List(ctx, audit.Filter{Action: audit.ActLoginFail})
+	got, _, err := e.audit.List(ctx, audit.Filter{ActionPrefix: audit.ActLoginFail})
 	if err != nil || len(got) != 1 {
 		t.Fatal(len(got), err)
 	}
@@ -361,7 +361,7 @@ func TestRecordSurvivesCanceledRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	s.record(httptest.NewRequest("DELETE", "/", nil).WithContext(ctx), audit.Event{Action: audit.ActDelete, Result: "ok"})
-	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDelete}); err != nil || len(ents) != 1 {
+	if ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDelete}); err != nil || len(ents) != 1 {
 		t.Fatalf("audit: %v %d", err, len(ents))
 	}
 }

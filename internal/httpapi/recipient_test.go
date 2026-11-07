@@ -80,7 +80,7 @@ func (e *env) recipVerify(t *testing.T, token, email string) *http.Response {
 
 func (e *env) auditOne(t *testing.T, action string) audit.Event {
 	t.Helper()
-	ents, err := e.audit.List(context.Background(), audit.Filter{Action: action, Limit: 5})
+	ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: action, Limit: 5})
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("%s: %v %+v", action, err, ents)
 	}
@@ -152,7 +152,7 @@ func TestRecipientHappyPath(t *testing.T) {
 	if ev := e.auditOne(t, audit.ActShareOTPRequest); ev.ActorType != "recipient" || ev.ActorID != "r@y.com" || ev.Result != "ok" || ev.TargetID != id {
 		t.Fatalf("%+v", ev)
 	}
-	ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActShareOTPVerify, Limit: 5})
+	ents, _, _ := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActShareOTPVerify, Limit: 5})
 	if len(ents) != 2 || ents[0].Event.Result != "ok" || ents[1].Event.Result != "fail" || ents[0].Event.ActorID != "r@y.com" || ents[0].Event.TargetID != id {
 		t.Fatalf("%+v", ents)
 	}
@@ -178,7 +178,7 @@ func TestRecipientUnknownEmailUniform(t *testing.T) {
 	if r1.StatusCode != 200 || r1.StatusCode != r2.StatusCode || string(b1) != string(b2) || string(b1) != `{"sent":true}`+"\n" {
 		t.Fatal(r1.StatusCode, string(b1), r2.StatusCode, string(b2))
 	}
-	ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActShareOTPRequest, Limit: 5})
+	ents, _, _ := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActShareOTPRequest, Limit: 5})
 	if len(ents) != 2 || ents[0].Event.Result != "ignored" || ents[0].Event.ActorID != "eve@y.com" || ents[1].Event.Result != "ok" {
 		t.Fatalf("%+v", ents)
 	}

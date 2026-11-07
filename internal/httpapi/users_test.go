@@ -59,7 +59,7 @@ func (e *env) invite(t *testing.T, email string) string {
 
 func (e *env) auditActions(t *testing.T, action string) []audit.Entry {
 	t.Helper()
-	got, err := e.audit.List(context.Background(), audit.Filter{Action: action})
+	got, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: action})
 	if err != nil {
 		t.Fatal(err)
 	}

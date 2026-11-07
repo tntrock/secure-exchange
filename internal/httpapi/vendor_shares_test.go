@@ -158,7 +158,7 @@ func TestVendorSameFileTwoSharesTracedApart(t *testing.T) {
 	if n != 2 || codes != 2 || shares != 2 {
 		t.Fatalf("traces %d, codes %d, shares %d", n, codes, shares)
 	}
-	ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActFileView, Limit: 5})
+	ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActFileView, Limit: 5})
 	if err != nil || len(ents) != 2 || ents[0].Event.Detail["share_id"] == ents[1].Event.Detail["share_id"] {
 		t.Fatal(err, ents)
 	}

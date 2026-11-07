@@ -336,7 +336,7 @@ func TestRecipientPreviewHeadNotAllowed(t *testing.T) {
 	if n := e.traces(t, f); n != 0 {
 		t.Fatalf("%d traces", n)
 	}
-	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActFileView, Limit: 5}); err != nil || len(ents) != 0 {
+	if ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActFileView, Limit: 5}); err != nil || len(ents) != 0 {
 		t.Fatal(err, ents)
 	}
 }

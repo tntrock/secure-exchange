@@ -17,7 +17,7 @@ func TestAuditChainVerifies(t *testing.T) {
 	pool := testdb.New(t)
 	l := New(pool)
 	ctx := context.Background()
-	if bad, err := l.Verify(ctx); err != nil || bad != 0 {
+	if _, bad, err := l.Verify(ctx); err != nil || bad != 0 {
 		t.Fatalf("empty: %d %v", bad, err)
 	}
 	for i := 0; i < 3; i++ {
@@ -30,10 +30,10 @@ func TestAuditChainVerifies(t *testing.T) {
 	if err := l.Append(ctx, e); err != nil {
 		t.Fatal(err)
 	}
-	if bad, err := l.Verify(ctx); err != nil || bad != 0 {
+	if _, bad, err := l.Verify(ctx); err != nil || bad != 0 {
 		t.Fatalf("verify: %d %v", bad, err)
 	}
-	got, err := l.List(ctx, Filter{Action: ActLoginOK, Limit: 2})
+	got, _, err := l.List(ctx, Filter{ActionPrefix: ActLoginOK, Limit: 2})
 	if err != nil || len(got) != 2 {
 		t.Fatalf("list: %d %v", len(got), err)
 	}
@@ -58,7 +58,7 @@ func TestAuditDetectsTamper(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE audit_log SET result='fail' WHERE id=$1`, id); err != nil {
 		t.Fatal(err)
 	}
-	if bad, err := l.Verify(ctx); err != nil || bad != id {
+	if _, bad, err := l.Verify(ctx); err != nil || bad != id {
 		t.Fatalf("want %d got %d %v", id, bad, err)
 	}
 }
@@ -78,7 +78,7 @@ func TestAuditConcurrentAppends(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	if bad, err := l.Verify(ctx); err != nil || bad != 0 {
+	if _, bad, err := l.Verify(ctx); err != nil || bad != 0 {
 		t.Fatalf("verify: %d %v", bad, err)
 	}
 	var n int

@@ -54,7 +54,7 @@ func TestCreateShareAPI(t *testing.T) {
 	if len(l) != 1 || l[0]["file_count"] != float64(1) || l[0]["recipient_count"] != float64(2) || l[0]["view_count"] != float64(0) {
 		t.Fatal(string(b))
 	}
-	ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActShareCreate, Limit: 5})
+	ents, _, _ := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActShareCreate, Limit: 5})
 	if len(ents) != 1 || ents[0].Event.TargetType != "share" || ents[0].Event.TargetID != m["id"] ||
 		ents[0].Event.Detail["recipient_count"] != float64(2) || ents[0].Event.Detail["file_count"] != float64(1) {
 		t.Fatalf("%+v", ents)
@@ -142,12 +142,12 @@ func TestRevokeAndRecipientAPI(t *testing.T) {
 		t.Fatal(string(b))
 	}
 	for act, n := range map[string]int{audit.ActShareRevoke: 1, audit.ActShareRecipientAdd: 1, audit.ActShareRecipientRevoke: 1} {
-		ents, _ := e.audit.List(context.Background(), audit.Filter{Action: act, Limit: 5})
+		ents, _, _ := e.audit.List(context.Background(), audit.Filter{ActionPrefix: act, Limit: 5})
 		if len(ents) != n || ents[0].Event.TargetType != "share" || ents[0].Event.TargetID != id {
 			t.Fatal(act, ents)
 		}
 	}
-	ents, _ := e.audit.List(context.Background(), audit.Filter{Action: audit.ActShareRecipientRevoke, Limit: 5})
+	ents, _, _ := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActShareRecipientRevoke, Limit: 5})
 	if ents[0].Event.Detail["recipient_id"] != rid {
 		t.Fatal(ents[0].Event.Detail)
 	}

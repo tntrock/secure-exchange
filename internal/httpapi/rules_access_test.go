@@ -182,7 +182,7 @@ func newReq(url string, body []byte, xff string) (*http.Request, error) {
 // wantReasons asserts the failure events of action carry exactly these values for key (any order).
 func wantReasons(t *testing.T, e *env, action, key string, want ...string) {
 	t.Helper()
-	ents, err := e.audit.List(context.Background(), audit.Filter{Action: action, Limit: 50})
+	ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: action, Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -82,7 +82,7 @@ func (e *env) delivered(t *testing.T, fid uuid.UUID, body []byte, method mark.Me
 	for range 100 {
 		rows := e.dlTraces(t, fid)
 		d = rows[len(rows)-1]
-		ents, err = e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 1})
+		ents, _, err = e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDownload, Limit: 1})
 		if d.method == string(method) && bytes.Equal(d.sum, sum[:]) && d.size != nil && *d.size == int64(len(body)) &&
 			err == nil && len(ents) == 1 && ents[0].Event.Detail["trace_code"] == d.code && ents[0].Event.Detail["mark"] == string(method) &&
 			ents[0].Event.Detail["status"] == float64(200) && ents[0].Event.ActorType == "recipient" {
@@ -579,7 +579,7 @@ func TestMarkedWriteErrorAborts(t *testing.T) {
 	if len(rows) != 1 || rows[0].method != "image_visible" || rows[0].sum != nil {
 		t.Fatal("dead client fell back:", rows)
 	}
-	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 5}); err != nil || len(ents) != 0 {
+	if ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDownload, Limit: 5}); err != nil || len(ents) != 0 {
 		t.Fatal(err, ents)
 	}
 }
@@ -624,7 +624,7 @@ func TestMarkBuildSlots(t *testing.T) {
 	if rows := e.dlTraces(t, f); len(rows) != 0 {
 		t.Fatal(rows)
 	}
-	if ents, err := e.audit.List(context.Background(), audit.Filter{Action: audit.ActDownload, Limit: 5}); err != nil || len(ents) != 0 {
+	if ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDownload, Limit: 5}); err != nil || len(ents) != 0 {
 		t.Fatal(err, ents)
 	}
 

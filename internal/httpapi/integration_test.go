@@ -131,12 +131,12 @@ func TestEndToEnd(t *testing.T) {
 
 	ctx := context.Background()
 	for action, want := range map[string]int{audit.ActUpload: 1, audit.ActDownload: 2, audit.ActDelete: 1} {
-		ents, err := log.List(ctx, audit.Filter{Action: action})
+		ents, _, err := log.List(ctx, audit.Filter{ActionPrefix: action})
 		if err != nil || len(ents) != want || ents[0].Event.TargetID != id {
 			t.Fatalf("audit %s: %v %d", action, err, len(ents))
 		}
 	}
-	if bad, err := log.Verify(ctx); err != nil || bad != 0 {
+	if _, bad, err := log.Verify(ctx); err != nil || bad != 0 {
 		t.Fatalf("audit chain: bad=%d err=%v", bad, err)
 	}
 }

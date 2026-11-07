@@ -73,6 +73,9 @@ func (s *server) recipientDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev := audit.Event{ActorType: "recipient", ActorID: a.Recipient.ID.String(), Detail: map[string]any{"share_id": a.Share.ID.String()}}
+	if a.Recipient.VendorID != nil {
+		ev.ActorType, ev.ActorID = "vendor", a.Recipient.VendorID.String()
+	}
 	st := 0
 	if plan.Method != mark.None {
 		if r.Method == http.MethodHead {

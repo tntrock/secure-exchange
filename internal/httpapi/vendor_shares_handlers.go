@@ -5,16 +5,22 @@ import (
 	"net/http"
 
 	"github.com/tntrock/secure-exchange/internal/auth"
+	"github.com/tntrock/secure-exchange/internal/share"
 )
 
 // listVendorShares is the signed-in vendor's "shared with me" list.
 func (s *server) listVendorShares(w http.ResponseWriter, r *http.Request) {
-	shs, err := s.Shares.VendorShares(r.Context(), auth.UserFrom(r.Context()).ID)
+	u := auth.UserFrom(r.Context())
+	rl, err := s.Rules.Get(r.Context())
 	if err != nil {
 		recipientErr(w, err)
 		return
 	}
-	rl, err := s.Rules.Get(r.Context())
+	if !rl.DomainAllowed(u.Email) {
+		recipientErr(w, share.ErrDomainBlocked)
+		return
+	}
+	shs, err := s.Shares.VendorShares(r.Context(), u.ID)
 	if err != nil {
 		recipientErr(w, err)
 		return

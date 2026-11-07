@@ -192,8 +192,12 @@ func (s *server) mark(r *http.Request, a *share.Access, fid uuid.UUID, n int) (p
 		if a.Share.Watermark {
 			d["trace_code"] = code
 		}
-		s.record(r, audit.Event{ActorType: "recipient", ActorID: a.Recipient.ID.String(), Action: audit.ActFileView,
-			TargetType: "file", TargetID: fid.String(), Result: "ok", Detail: d})
+		ev := audit.Event{ActorType: "recipient", ActorID: a.Recipient.ID.String(), Action: audit.ActFileView,
+			TargetType: "file", TargetID: fid.String(), Result: "ok", Detail: d}
+		if a.Recipient.VendorID != nil {
+			ev.ActorType, ev.ActorID = "vendor", a.Recipient.VendorID.String()
+		}
+		s.record(r, ev)
 	}
 	return preview.Mark{Email: a.Recipient.Email, IP: ip, At: time.Now().UTC(), Code: code}, a.Share.Watermark, nil
 }

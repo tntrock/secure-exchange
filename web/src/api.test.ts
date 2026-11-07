@@ -4,7 +4,7 @@ import { api, ApiError, fmtDate, fmtSize } from "./api";
 afterEach(() => vi.unstubAllGlobals());
 
 const stub = (res: Response) => {
-  const f = vi.fn(async (_u: string, _i?: RequestInit) => res);
+  const f = vi.fn(async (_u: string, _i?: RequestInit) => res.clone());
   vi.stubGlobal("fetch", f);
   return f;
 };
@@ -63,4 +63,29 @@ test("fmtDate formats in the given language", () => {
   const s = "2030-01-02T03:04:00Z";
   expect(fmtDate(s, "en")).toBe(new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(s)));
   expect(fmtDate(s, "en")).toContain("2030");
+});
+
+test("audit helpers build URLs and skip empty filters", async () => {
+  const f = stub(new Response(JSON.stringify({ entries: [], next_before: 0 })));
+  await api.auditList({ actor: "a b", action: "", before: 5 });
+  expect(f.mock.calls[0][0]).toBe("/api/admin/audit?actor=a+b&before=5");
+  await api.auditList({});
+  expect(f.mock.calls[1][0]).toBe("/api/admin/audit");
+  expect(api.auditExportURL({ action: "share.", before: 5 })).toBe("/api/admin/audit/export?action=share.");
+  expect(api.auditExportURL({})).toBe("/api/admin/audit/export");
+});
+
+test("audit, share audit and notification endpoints", async () => {
+  const f = stub(new Response(JSON.stringify({})));
+  await api.auditVerify();
+  await api.auditForwarding();
+  await api.shareAudit("s/1", true);
+  await api.shareAudit("s1", false);
+  await api.getNotifyPrefs();
+  expect(f.mock.calls.map((c) => `${c[1]?.method} ${c[0]}`)).toEqual([
+    "POST /api/admin/audit/verify", "GET /api/admin/audit/forwarding", "GET /api/admin/shares/s%2F1/audit", "GET /api/shares/s1/audit", "GET /api/me/notifications",
+  ]);
+  const g = stub(new Response(null, { status: 204 }));
+  await api.putNotifyPrefs({ first_open: true, download: false, upload: true });
+  expect(g.mock.calls[0][1]?.method).toBe("PUT");
 });

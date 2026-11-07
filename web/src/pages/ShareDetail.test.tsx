@@ -147,6 +147,7 @@ test("admin mode: admin endpoints, owner email, no add form, revoke, view withou
     </MemoryRouter>,
   );
   await screen.findByText(/boss@x.com/);
+  expect(screen.getByText(i18n.t("allShares.adminNote"))).toBeTruthy();
   expect(f).toHaveBeenCalledWith("/api/admin/shares/s1", expect.anything());
   expect(screen.queryByText(i18n.t("share.addRecipients"))).toBeNull();
   expect(screen.queryByRole("button", { name: i18n.t("share.revoke") })).toBeNull();

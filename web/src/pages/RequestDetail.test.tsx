@@ -71,6 +71,7 @@ test("admin mode: admin endpoints, owner email, no copy, revoke, view", async ()
   vi.stubGlobal("confirm", () => true);
   render(<MemoryRouter initialEntries={["/admin/requests/r1"]}><Routes><Route path="/admin/requests/:id" element={<RequestDetail admin />} /></Routes></MemoryRouter>);
   await screen.findByText(/boss@x.com/);
+  expect(screen.getByText(i18n.t("allShares.adminNote"))).toBeTruthy();
   expect(f).toHaveBeenCalledWith("/api/admin/requests/r1", expect.anything());
   expect(screen.queryByRole("button", { name: i18n.t("requests.copy") })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: i18n.t("requests.revoke") }));

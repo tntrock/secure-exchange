@@ -46,6 +46,7 @@ export default function RequestDetail({ admin = false }: { admin?: boolean }) {
       <h1>{t("requests.detailTitle")}</h1>
       {err && <p className="error" role="alert">{err}</p>}
       {admin && <p>{t("allShares.owner")}: {d.owner_email}</p>}
+      {admin && <p><em>{t("allShares.adminNote")}</em></p>}
       <ul>
         {!admin && <li>{t("requests.link")}: <code>{d.url}</code>{" "}<button onClick={copy}>{copied ? t("requests.copied") : t("requests.copy")}</button></li>}
         <li>{t("requests.createdAt")}: {date(d.created_at)}</li>

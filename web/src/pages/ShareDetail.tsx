@@ -41,6 +41,7 @@ export default function ShareDetail({ admin = false }: { admin?: boolean }) {
       <h1>{t("share.detailTitle")}</h1>
       {err && <p className="error" role="alert">{err}</p>}
       {admin && <p>{t("allShares.owner")}: {d.owner_email}</p>}
+      {admin && <p><em>{t("allShares.adminNote")}</em></p>}
       <h2>{t("share.settings")}</h2>
       <ul>
         <li>{t("share.createdAt")}: {date(d.created_at)}</li>

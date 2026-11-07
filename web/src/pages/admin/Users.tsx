@@ -37,8 +37,8 @@ export default function Users() {
     void act(api.adminCreateUser(email.trim(), name.trim(), role).then(() => { setEmail(""); setName(""); }));
   };
 
-  const btn = (u: UserInfo, a: UserAction, label: string, ask = false) => (
-    <button disabled={busy} onClick={() => (!ask || confirm(t("users.confirmReset", { email: u.email }))) && act(api.adminUserAction(u.id, a))}>{t(label)}</button>
+  const btn = (u: UserInfo, a: UserAction, label: string, ask = "") => (
+    <button disabled={busy} onClick={() => (!ask || confirm(t(ask, { email: u.email }))) && act(api.adminUserAction(u.id, a))}>{t(label)}</button>
   );
 
   const roleSelect = (value: string, label: string, onChange: (v: string) => void) => (
@@ -78,15 +78,15 @@ export default function Users() {
             <tr key={u.id}>
               <td>{u.email}</td><td>{u.display_name}</td>
               <td>{u.auth_source === "local" && u.role !== "vendor"
-                ? roleSelect(u.role, `${t("users.role")}: ${u.email}`, (v) => void act(api.adminSetRole(u.id, v)))
+                ? roleSelect(u.role, `${t("users.role")}: ${u.email}`, (v) => (u.role === "admin" && v === "staff" && !confirm(t("users.confirmDemote", { email: u.email }))) || void act(api.adminSetRole(u.id, v)))
                 : t(`users.roles.${u.role}`)}</td>
               <td>{t(`users.sources.${u.auth_source}`, { defaultValue: u.auth_source })}</td>
               <td>{t(`users.status.${u.status}`)}</td>
               <td>{t(u.totp_enabled ? "users.yes" : "users.no")}</td>
               <td>{u.last_login_at ? fmtDate(u.last_login_at, i18n.language) : t("users.never")}</td>
               <td>
-                {u.status === "disabled" ? btn(u, "enable", "users.enable") : btn(u, "disable", "users.disable")}{" "}
-                {u.totp_enabled && btn(u, "reset-totp", "users.resetTotp", true)}{" "}
+                {u.status === "disabled" ? btn(u, "enable", "users.enable") : btn(u, "disable", "users.disable", "users.confirmDisable")}{" "}
+                {u.totp_enabled && btn(u, "reset-totp", "users.resetTotp", "users.confirmReset")}{" "}
                 {u.status === "invited" && u.role !== "vendor" && btn(u, "reinvite", "users.reinvite")}
               </td>
             </tr>

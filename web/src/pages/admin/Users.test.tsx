@@ -22,7 +22,7 @@ function setup(rows: object[] = ROWS, post: () => Response = () => new Response(
 }
 const rowOf = (email: string) => screen.getByText(email).closest("tr")!;
 
-beforeEach(() => i18n.changeLanguage("en"));
+beforeEach(() => { i18n.changeLanguage("en"); vi.spyOn(window, "confirm").mockReturnValue(true); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 test("table shows the columns and rows", async () => {
@@ -82,7 +82,7 @@ test("reinvite only when invited; disable and enable by status", async () => {
 
 test.each([
   ["last_admin", "Cannot disable or demote the last local administrator"],
-  ["external_account", "Accounts from an external login source cannot be changed here"],
+  ["external_account", "The role and two-factor authentication of external-login accounts come from the external source and cannot be changed here"],
   ["email_taken", "This email address is already in use"],
   ["wrong_state", "That action is not allowed in the account's current state"],
 ])("409 %s shows its message", async (code, msg) => {
@@ -108,4 +108,21 @@ test("no Reinvite on an invited vendor row", async () => {
   setup([u({ id: "u7", email: "iv@x.com", role: "vendor", status: "invited" })]);
   await screen.findByText("iv@x.com");
   expect(within(rowOf("iv@x.com")).queryByRole("button", { name: "Reinvite" })).toBeNull();
+});
+
+test("demoting an admin and disabling ask for confirmation; cancel does nothing", async () => {
+  const f = setup([u({ role: "admin" })]);
+  await screen.findByText("a@x.com");
+  const conf = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true).mockReturnValueOnce(false).mockReturnValueOnce(true);
+  const posts = (m: string) => f.mock.calls.filter((c) => c[1]?.method === m).length;
+  const sel = () => within(rowOf("a@x.com")).getByRole("combobox");
+  fireEvent.change(sel(), { target: { value: "staff" } });
+  expect(posts("PATCH")).toBe(0);
+  fireEvent.change(sel(), { target: { value: "staff" } });
+  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/admin/users/u1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ role: "staff" }) })));
+  fireEvent.click(within(rowOf("a@x.com")).getByRole("button", { name: "Disable" }));
+  expect(posts("POST")).toBe(0);
+  fireEvent.click(within(rowOf("a@x.com")).getByRole("button", { name: "Disable" }));
+  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/admin/users/u1/disable", expect.objectContaining({ method: "POST" })));
+  expect(conf).toHaveBeenCalledTimes(4);
 });

@@ -123,17 +123,7 @@ docker compose up -d
 | `SX_SESSION_TTL` | `12h` | 登入狀態有效時間 |
 | `SX_TRUSTED_PROXIES` | （compose 自動設定） | 信任哪些反向代理的 `X-Forwarded-For` |
 
-**主機 HTTPS 埠不是 443 時**：compose 以 `https://${SX_DOMAIN}` 設定 app 與 worker 的 `SX_BASE_URL`，不含 `SX_HTTPS_PORT`，信件連結與 OIDC 回呼網址會缺少埠號。compose 檔中 `environment` 的值優先於 `.env`，因此**在 `.env` 設定 `SX_BASE_URL` 無效**；請建立 `docker-compose.override.yml` 覆寫：
-
-```yaml
-services:
-  app:
-    environment:
-      SX_BASE_URL: https://files.example.com:8443
-  worker:
-    environment:
-      SX_BASE_URL: https://files.example.com:8443
-```
+**主機 HTTPS 埠不是 443 時**：compose 預設以 `https://${SX_DOMAIN}` 設定 app 與 worker 的 `SX_BASE_URL`，不含 `SX_HTTPS_PORT`，信件連結與 OIDC 回呼網址會缺少埠號。請在 `.env` 加上 `SX_BASE_URL=https://<網域>:<埠>`（例如 `https://files.example.com:8443`），compose 會改用這個值。
 
 （直接執行執行檔而非 compose 時，則在環境中設定 `SX_BASE_URL`。）
 

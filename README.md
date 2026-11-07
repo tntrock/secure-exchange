@@ -41,7 +41,7 @@ docker compose up -d --build
 
 開啟 `https://<SX_DOMAIN>`，以 `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD` 登入。本機試用可設 `SX_DOMAIN=localhost`（使用 Caddy 本機 CA，`curl` 請加 `-k`）。`scripts/smoke.sh` 會在用完即丟的環境做上傳／續傳／下載／分享／線上檢視的端對端檢查（需 Docker；已有 `.env` 時拒絕執行）。
 
-主機 HTTPS 埠不是 443（`SX_HTTPS_PORT`）時，compose 組出的 `SX_BASE_URL` 不含埠號，連結與 OIDC 回呼網址會錯誤；請依管理員手冊「設定參考」建立 `docker-compose.override.yml`，把 app 與 worker 的 `SX_BASE_URL` 覆寫為 `https://<網域>:<埠>`（在 `.env` 設定無效，compose 內建值優先）。
+主機 HTTPS 埠不是 443（`SX_HTTPS_PORT`）時，請在 `.env` 設定 `SX_BASE_URL=https://<網域>:<埠>`，否則信件連結與 OIDC 回呼網址會缺少埠號。
 
 所有設定皆為環境變數；每個 `SX_*` 設定都在 `.env.example` 中說明。
 

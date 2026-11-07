@@ -613,6 +613,18 @@ docker compose exec postgres psql -U sx -d sx -c \
   "SELECT scan_status, count(*) FROM files WHERE deleted_at IS NULL GROUP BY scan_status;"
 ```
 
+### 容器資源限制與網路
+
+| 容器 | 記憶體（無 swap） | 其他 |
+|---|---|---|
+| app | 4 GiB | 程序數上限 512 |
+| worker | 6 GiB | 2 CPU、程序數上限 512 |
+| clamav | 4 GiB | — |
+
+- app 的 4 GiB 依據：「加標記」下載（PDF 中繼資料、圖片）會把整個檔案載入記憶體，最多同時 2 個；圖片在預設上限（`SX_MARK_MAX_BYTES` 256 MiB、`SX_MARK_MAX_PIXELS` 5,000 萬像素）下每個約需 1.5 GiB，故 2 × 1.5 GiB + 512 MiB，取整為 4 GiB。調高這兩項上限時請一併調高 `mem_limit`。
+- 兩個加標記名額都被占滿時，其餘下載最多等待 2 分鐘，逾時回應 503（`busy`，`Retry-After: 30`），不會留下下載紀錄。
+- 網路：`scan`（內部網路，無對外路由）只連接 worker 與 clamav。clamav 不再位於 `backend`，無法連到 PostgreSQL 或 app；只有 worker 會連線 clamd，app 不需要。
+
 ## 10. 線上預覽 worker
 
 worker 會用 LibreOffice、poppler 與 FFmpeg 處理不受信任的檔案，因此被嚴格隔離：

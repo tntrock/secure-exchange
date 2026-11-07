@@ -179,6 +179,14 @@ func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow,
 	mr := &markedResponse{w: w, name: plan.OutName}
 	out := io.MultiWriter(mr, sum)
 	if err := s.writeMarked(ctx, out, w, f, rs, plan.Method, p, m); err != nil {
+		if errors.Is(err, errMarkBusy) { // no slot in time: nothing was sent or delivered
+			if _, err := s.Pool.Exec(context.WithoutCancel(ctx), `DELETE FROM download_traces WHERE code = $1`, code); err != nil {
+				slog.Error("drop unused download trace", "code", code, "err", err)
+			}
+			w.Header().Set("Retry-After", "30")
+			writeJSON(w, http.StatusServiceUnavailable, errBody("busy"))
+			return http.StatusServiceUnavailable
+		}
 		if mr.n == 0 && ctx.Err() != nil { // the client left before anything was sent (e.g. waiting for a slot)
 			if _, err := s.Pool.Exec(context.WithoutCancel(ctx), `DELETE FROM download_traces WHERE code = $1`, code); err != nil {
 				slog.Error("drop unused download trace", "code", code, "err", err)
@@ -209,6 +217,11 @@ func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow,
 
 // markSlots bounds the in-memory marked builds (pdf_meta, image_*) running at once.
 var markSlots = make(chan struct{}, 2)
+
+// markWait is how long a marked download waits for a slot before answering 503 busy.
+var markWait = 2 * time.Minute
+
+var errMarkBusy = errors.New("mark slots busy")
 
 // writeMarked writes f marked with m to cw (the response). pdf_pages and the zip methods stream; the others are
 // built in memory first so they can carry a Content-Length.
@@ -258,6 +271,8 @@ func buildMarked(ctx context.Context, rs io.ReadSeeker, method mark.Method, m pr
 		defer func() { <-markSlots }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-time.After(markWait):
+		return nil, errMarkBusy
 	}
 	if _, err := rs.Seek(0, io.SeekStart); err != nil {
 		return nil, err

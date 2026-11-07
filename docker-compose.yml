@@ -17,6 +17,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Marked downloads build up to 2 files in memory (image: ~1.5 GiB each at the default limits):
+    # 2 x 1.5 GiB + 512 MiB headroom, rounded up. No swap.
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 512
     networks: [sx, backend]
 
   # Renders previews of untrusted files (LibreOffice/poppler/ffmpeg). Locked down: no outbound
@@ -47,7 +52,7 @@ services:
       clamav:
         condition: service_started
     # backend only. With external S3, also attach a network that can reach it (see README).
-    networks: [backend]
+    networks: [backend, scan]
 
   # Virus scanner for external uploads. Needs the internet for signature updates (freshclam),
   # so it sits on its own egress network, never on sx (whose subnet is a trusted proxy range).
@@ -61,7 +66,7 @@ services:
       - /tmp:size=1200m,mode=1777 # clamd spools INSTREAM data here: scanned plaintext stays in RAM
     mem_limit: 4g
     memswap_limit: 4g
-    networks: [backend, updates]
+    networks: [scan, updates] # not on backend: only the worker can reach clamd
 
   postgres:
     image: postgres:17
@@ -104,5 +109,7 @@ networks:
       config:
         - subnet: 172.30.0.0/24
   updates: {}
+  scan:
+    internal: true # worker <-> clamd only; clamav sits off backend (no route to postgres)
   backend:
     internal: true # no route out: the worker cannot reach the internet

@@ -708,3 +708,35 @@ func TestRecipientDownloadFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// TestMarkSlotWaitTimesOut: with every slot held, a marked download gives up after markWait with
+// 503 busy + Retry-After, leaving no trace row and no audit entry.
+func TestMarkSlotWaitTimesOut(t *testing.T) {
+	_, pngBytes := testPage()
+	e, f, tok := markShare(t, "a.png", pngBytes, true)
+	for range cap(markSlots) {
+		markSlots <- struct{}{}
+	}
+	defer func() {
+		for range cap(markSlots) {
+			<-markSlots
+		}
+	}()
+	old := markWait
+	markWait = 50 * time.Millisecond
+	defer func() { markWait = old }()
+
+	rec := httptest.NewRecorder()
+	if p := e.direct(t, tok, f, rec); p != nil {
+		t.Fatal(p)
+	}
+	if rec.Code != 503 || rec.Header().Get("Retry-After") != "30" || strings.TrimSpace(rec.Body.String()) != `{"error":"busy"}` {
+		t.Fatal(rec.Code, rec.Header(), rec.Body)
+	}
+	if rows := e.dlTraces(t, f); len(rows) != 0 {
+		t.Fatal(rows)
+	}
+	if ents, _, err := e.audit.List(context.Background(), audit.Filter{ActionPrefix: audit.ActDownload, Limit: 5}); err != nil || len(ents) != 0 {
+		t.Fatal(err, ents)
+	}
+}

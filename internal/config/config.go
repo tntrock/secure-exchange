@@ -321,7 +321,7 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 		}
 		if c.OIDC.Issuer != "" {
 			if u, err := url.Parse(c.OIDC.Issuer); err != nil || u.Scheme != "https" || u.Host == "" {
-				bad("SX_OIDC_ISSUER", fmt.Errorf("%q must be https://host/...", c.OIDC.Issuer))
+				bad("SX_OIDC_ISSUER", fmt.Errorf("%q must be an https:// URL", c.OIDC.Issuer))
 			}
 			for _, kv := range [][2]string{{"SX_OIDC_CLIENT_ID", c.OIDC.ClientID}, {"SX_OIDC_CLIENT_SECRET", c.OIDC.ClientSecret}} {
 				if kv[1] == "" {

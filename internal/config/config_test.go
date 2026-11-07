@@ -1,6 +1,14 @@
 package config
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"math/big"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -271,5 +279,61 @@ func TestVendorCreation(t *testing.T) {
 	m["SX_VENDOR_CREATION"] = "bogus"
 	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_VENDOR_CREATION") {
 		t.Fatal(err)
+	}
+}
+
+func writeCA(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(p, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestLoadSyslog(t *testing.T) {
+	m := required()
+	c, err := Load(env(m))
+	if err != nil || c.Syslog != (SyslogConfig{Transport: "tls"}) {
+		t.Fatalf("default: %+v %v", c.Syslog, err)
+	}
+	m["SX_SYSLOG_ADDR"] = "siem:6514"
+	m["SX_SYSLOG_CA"] = writeCA(t)
+	if c, err := Load(env(m)); err != nil || c.Syslog.Addr != "siem:6514" || c.Syslog.CAFile != m["SX_SYSLOG_CA"] {
+		t.Fatalf("tls+ca: %+v %v", c, err)
+	}
+	m["SX_SYSLOG_TRANSPORT"] = "udp"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SYSLOG_CA") {
+		t.Fatalf("CA with udp: %v", err)
+	}
+	delete(m, "SX_SYSLOG_CA")
+	if c, err := Load(env(m)); err != nil || c.Syslog.Transport != "udp" {
+		t.Fatalf("udp: %+v %v", c, err)
+	}
+	m["SX_SYSLOG_TRANSPORT"] = "bogus"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SYSLOG_TRANSPORT") {
+		t.Fatalf("bad transport: %v", err)
+	}
+	m["SX_SYSLOG_TRANSPORT"] = "tls"
+	m["SX_SYSLOG_CA"] = filepath.Join(t.TempDir(), "missing.pem")
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SYSLOG_CA") {
+		t.Fatalf("missing CA: %v", err)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.pem")
+	if err := os.WriteFile(bad, []byte("not pem"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m["SX_SYSLOG_CA"] = bad
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SYSLOG_CA") {
+		t.Fatalf("bad CA: %v", err)
 	}
 }

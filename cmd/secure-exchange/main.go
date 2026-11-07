@@ -26,6 +26,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/scan"
 	"github.com/tntrock/secure-exchange/internal/share"
 	"github.com/tntrock/secure-exchange/internal/sxcrypto"
+	"github.com/tntrock/secure-exchange/internal/syslogfwd"
 	"github.com/tntrock/secure-exchange/internal/upload"
 	"github.com/tntrock/secure-exchange/internal/vendor"
 )
@@ -98,6 +99,10 @@ func serve(ctx context.Context) error {
 		return fmt.Errorf("seed rules: %w", err)
 	}
 	go siteRules.RunRetention(ctx, store, auditLog, time.Hour)
+	if cfg.Syslog.Addr != "" {
+		host, _ := os.Hostname()
+		go (&syslogfwd.Forwarder{Pool: pool, Cfg: cfg.Syslog, Host: host}).Run(ctx)
+	}
 	handler := httpapi.NewServer(httpapi.Deps{
 		Users: users, Sessions: sessions, Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),

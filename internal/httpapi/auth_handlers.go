@@ -138,7 +138,7 @@ func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *server) me(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	out := map[string]any{"id": u.ID, "email": u.Email, "display_name": u.DisplayName,
-		"role": u.Role, "totp_enabled": u.TOTPEnabled, "expires_at": u.ExpiresAt}
+		"role": u.Role, "auth_source": u.AuthSource, "totp_enabled": u.TOTPEnabled, "expires_at": u.ExpiresAt}
 	if u.OrgID != nil {
 		var org string
 		if err := s.Pool.QueryRow(r.Context(), `SELECT name FROM vendor_orgs WHERE id=$1`, u.OrgID).Scan(&org); err != nil {
@@ -216,5 +216,16 @@ func UserAgent(r *http.Request) string { return Truncate(r.UserAgent(), maxUALen
 func (s *server) touchLogin(r *http.Request, id uuid.UUID) {
 	if err := s.Users.TouchLogin(r.Context(), id); err != nil {
 		slog.Error("touch login", "err", err)
+	}
+}
+
+// localOnly refuses externally managed (LDAP) accounts, which have no TOTP of their own here.
+func localOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if auth.UserFrom(r.Context()).AuthSource != "local" {
+			writeJSON(w, http.StatusConflict, errBody("external_account")) // as 7.2 reports account.ErrExternal
+			return
+		}
+		next(w, r)
 	}
 }

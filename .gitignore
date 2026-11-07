@@ -12,3 +12,8 @@ internal/webui/dist/*
 web/*.tsbuildinfo
 web/coverage/
 .claude/worktrees/
+
+# CA certificates for LDAP/AD (certs/.gitkeep and README only)
+certs/*
+!certs/.gitkeep
+!certs/README.md

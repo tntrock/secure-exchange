@@ -3,11 +3,14 @@
   "login": {
     "title": "登入", "email": "電子郵件", "password": "密碼", "submit": "登入",
     "totpTitle": "雙因素驗證", "totpCode": "驗證碼（6 位數）", "totpSubmit": "驗證",
+    "domainTitle": "網域帳號", "username": "帳號",
+    "directoryUnavailable": "網域伺服器暫時無法連線，請稍後再試或改用本機帳號",
+    "emailConflict": "這個網域帳號的 email 已被另一個網域帳號使用，請聯絡管理員",
     "invalid": "帳號或密碼錯誤", "invalidCode": "驗證碼錯誤", "rateLimited": "嘗試次數過多，請稍後再試"
   },
   "totp": {
     "title": "設定雙因素驗證", "scan": "請用驗證器 App 掃描 QR code，再輸入產生的 6 位數驗證碼。",
-    "qrAlt": "雙因素驗證 QR code", "start": "開始設定", "code": "驗證碼", "enable": "啟用", "enabled": "雙因素驗證已啟用", "failed": "驗證碼錯誤或無法設定"
+    "qrAlt": "雙因素驗證 QR code", "start": "開始設定", "code": "驗證碼", "enable": "啟用", "enabled": "雙因素驗證已啟用", "failed": "驗證碼錯誤或無法設定", "external": "網域帳號的雙因素驗證由公司的登入系統負責"
   },
   "files": {
     "title": "我的檔案", "empty": "尚無檔案", "name": "名稱", "size": "大小", "created": "上傳時間",

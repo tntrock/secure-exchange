@@ -536,3 +536,17 @@ func TestCreateDomainRule(t *testing.T) {
 		t.Fatalf("allowed domain: %v", err)
 	}
 }
+
+// a local and an LDAP admin sharing an address are asked once, not twice
+func TestApprovalMailDedupesSharedAdminEmail(t *testing.T) {
+	e := setup(t, "approval")
+	if _, _, err := e.users.UpsertExternal(context.Background(), "ldap", "g1", "ADM@x.com", "Dom", true); err != nil {
+		t.Fatal(err)
+	}
+	before := len(e.mails())
+	e.create(e.staff, "vend@y.com")
+	got := e.mails()[before:]
+	if len(got) != 1 || !strings.EqualFold(got[0].To, "adm@x.com") {
+		t.Fatalf("approval mails: %+v", got)
+	}
+}

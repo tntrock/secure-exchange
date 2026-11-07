@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
 	"os"
@@ -335,5 +336,140 @@ func TestLoadSyslog(t *testing.T) {
 	m["SX_SYSLOG_CA"] = bad
 	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "SX_SYSLOG_CA") {
 		t.Fatalf("bad CA: %v", err)
+	}
+}
+
+func ldapEnv() map[string]string {
+	m := required()
+	m["SX_LDAP_URL"] = "ldaps://dc.corp:636"
+	m["SX_LDAP_BIND_DN"] = "CN=svc,DC=corp"
+	m["SX_LDAP_BIND_PASSWORD"] = "pw"
+	m["SX_LDAP_BASE_DN"] = "DC=corp"
+	return m
+}
+
+func TestLoadLDAP(t *testing.T) {
+	m := required()
+	m["SX_LDAP_USER_FILTER"] = "no placeholder" // ignored: empty URL means disabled
+	m["SX_LDAP_TLS_INSECURE"] = "maybe"
+	if c, err := Load(env(m)); err != nil || c.LDAP.URL != "" {
+		t.Fatalf("disabled: %+v %v", c, err)
+	}
+
+	m = ldapEnv()
+	c, err := Load(env(m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := LDAPConfig{URL: "ldaps://dc.corp:636", BindDN: "CN=svc,DC=corp", BindPassword: "pw", BaseDN: "DC=corp",
+		UserFilter: "(&(objectClass=user)(|(sAMAccountName={username})(userPrincipalName={username})))",
+		IDAttr:     "objectGUID", EmailAttr: "mail", NameAttr: "displayName"}
+	if c.LDAP != want {
+		t.Fatalf("defaults: %+v", c.LDAP)
+	}
+
+	m["SX_LDAP_URL"] = "ldap://dc.corp"
+	m["SX_LDAP_CA"] = writeCA(t)
+	m["SX_LDAP_TLS_INSECURE"] = "true"
+	m["SX_LDAP_USER_FILTER"] = "(uid={username})"
+	m["SX_LDAP_ID_ATTR"] = "entryUUID"
+	m["SX_LDAP_EMAIL_ATTR"] = "email"
+	m["SX_LDAP_NAME_ATTR"] = "cn"
+	m["SX_LDAP_ADMIN_GROUP"] = "CN=Admins,DC=corp"
+	if c, err = Load(env(m)); err != nil {
+		t.Fatal(err)
+	}
+	want = LDAPConfig{URL: "ldap://dc.corp", CAFile: m["SX_LDAP_CA"], BindDN: "CN=svc,DC=corp", BindPassword: "pw", BaseDN: "DC=corp",
+		UserFilter: "(uid={username})", IDAttr: "entryUUID", EmailAttr: "email", NameAttr: "cn", AdminGroup: "CN=Admins,DC=corp", TLSInsecure: true}
+	if c.LDAP != want {
+		t.Fatalf("custom: %+v", c.LDAP)
+	}
+
+	for _, tc := range []struct{ k, v, want string }{
+		{"SX_LDAP_URL", "http://dc.corp", "SX_LDAP_URL"},
+		{"SX_LDAP_URL", "ldaps://", "SX_LDAP_URL"},
+		{"SX_LDAP_URL", "ldap://%zz", "SX_LDAP_URL"},
+		{"SX_LDAP_BIND_DN", "", "SX_LDAP_BIND_DN"},
+		{"SX_LDAP_BIND_PASSWORD", "", "SX_LDAP_BIND_PASSWORD"},
+		{"SX_LDAP_BASE_DN", "", "SX_LDAP_BASE_DN"},
+		{"SX_LDAP_USER_FILTER", "(uid=x)", "SX_LDAP_USER_FILTER"},
+		{"SX_LDAP_TLS_INSECURE", "maybe", "SX_LDAP_TLS_INSECURE"},
+		{"SX_LDAP_CA", filepath.Join(t.TempDir(), "missing.pem"), "SX_LDAP_CA"},
+	} {
+		m := ldapEnv()
+		m[tc.k] = tc.v
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s=%q: %v", tc.k, tc.v, err)
+		}
+	}
+	m = ldapEnv()
+	m["SX_LDAP_BIND_PASSWORD"] = "  p w  "
+	if c, err := Load(env(m)); err != nil || c.LDAP.BindPassword != "  p w  " {
+		t.Fatalf("password trimmed: %+v %v", c, err)
+	}
+	// the worker does not validate LDAP settings
+	m = ldapEnv()
+	m["SX_LDAP_URL"] = "http://x"
+	if _, err := LoadWorker(env(m)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func certFile(t *testing.T, name string, b []byte) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestCertPoolPEMBundleAndDER(t *testing.T) {
+	mk := func(cn string, parent *x509.Certificate, parentKey *ecdsa.PrivateKey) (*x509.Certificate, *ecdsa.PrivateKey) {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: cn},
+			NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+			IsCA: parent == nil, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSNames: []string{cn}}
+		signer, signKey := tmpl, key
+		if parent != nil {
+			signer, signKey = parent, parentKey
+		}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, signer, &key.PublicKey, signKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := x509.ParseCertificate(der)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c, key
+	}
+	ca1, _ := mk("ca1", nil, nil)
+	ca2, key2 := mk("ca2", nil, nil)
+	leaf, _ := mk("leaf.test", ca2, key2)
+	pemOf := func(c *x509.Certificate) []byte {
+		return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw})
+	}
+
+	p, err := CertPool(certFile(t, "bundle.pem", append(pemOf(ca1), pemOf(ca2)...)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: p, DNSName: "leaf.test"}); err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	p, err = CertPool(certFile(t, "ca.cer", ca2.Raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: p, DNSName: "leaf.test"}); err != nil {
+		t.Fatalf("der: %v", err)
+	}
+	if _, err := CertPool(certFile(t, "junk", []byte("garbage"))); err == nil {
+		t.Fatal("garbage accepted")
 	}
 }

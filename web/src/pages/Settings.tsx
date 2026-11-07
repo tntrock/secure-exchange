@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, type NotifyPrefs } from "../api";
+import { useExternal } from "../useExternal";
 
 const KEYS = ["first_open", "download", "upload"] as const;
 
@@ -10,6 +11,7 @@ export default function Settings() {
   const [p, setP] = useState<NotifyPrefs | null>(null);
   const [err, setErr] = useState(false);
   const [saved, setSaved] = useState(false);
+  const external = useExternal();
   useEffect(() => { api.getNotifyPrefs().then(setP, () => setErr(true)); }, []);
   const save = () => {
     setSaved(false);
@@ -31,7 +33,7 @@ export default function Settings() {
           {saved && <p role="status">{t("settings.saved")}</p>}
         </>
       )}
-      <p><Link to="/settings/totp">{t("settings.totp")}</Link></p>
+      {!external && <p><Link to="/settings/totp">{t("settings.totp")}</Link></p>}
     </>
   );
 }

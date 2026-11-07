@@ -20,6 +20,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/db"
 	"github.com/tntrock/secure-exchange/internal/httpapi"
 	"github.com/tntrock/secure-exchange/internal/intake"
+	"github.com/tntrock/secure-exchange/internal/ldapauth"
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/preview"
 	"github.com/tntrock/secure-exchange/internal/rules"
@@ -103,7 +104,19 @@ func serve(ctx context.Context) error {
 		host, _ := os.Hostname()
 		go (&syslogfwd.Forwarder{Pool: pool, Cfg: cfg.Syslog, Host: host}).Run(ctx)
 	}
+	var dir httpapi.Directory // stays a nil interface when LDAP is off
+	if cfg.LDAP.URL != "" {
+		if cfg.LDAP.TLSInsecure {
+			slog.Warn("SX_LDAP_TLS_INSECURE is on: LDAP server certificates are not verified")
+		}
+		d, err := ldapauth.New(cfg.LDAP)
+		if err != nil {
+			return fmt.Errorf("ldap: %w", err)
+		}
+		dir = d
+	}
 	handler := httpapi.NewServer(httpapi.Deps{
+		LDAP:  dir,
 		Users: users, Sessions: sessions, Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),
 		Requests:       intake.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),

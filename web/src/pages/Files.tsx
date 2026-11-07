@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useExternal } from "../useExternal";
 import { api, fmtDate, fmtSize, type FileInfo } from "../api";
 import Uploader from "../components/Uploader";
 import ShareDialog from "../components/ShareDialog";
@@ -17,6 +18,7 @@ export default function Files() {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [dlg, setDlg] = useState(false);
   const [viewing, setViewing] = useState("");
+  const external = useExternal();
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (!n.delete(id)) n.add(id); return n; });
 
   const refresh = useCallback(() => {
@@ -43,7 +45,7 @@ export default function Files() {
   return (
     <>
       <h1>{t("files.title")}</h1>
-      <p><Link to="/settings/totp">{t("files.settings")}</Link></p>
+      {!external && <p><Link to="/settings/totp">{t("files.settings")}</Link></p>}
       <Uploader onDone={refresh} />
       {sel.size > 0 && <p><button onClick={() => setDlg(true)}>{t("share.create")} ({t("share.selected", { count: sel.size })})</button></p>}
       {dlg && <ShareDialog fileIds={[...sel]} files={files.filter((f) => sel.has(f.id))} notReady={files.some((f) => sel.has(f.id) && f.preview_status !== "ready")} onClose={() => setDlg(false)} />}

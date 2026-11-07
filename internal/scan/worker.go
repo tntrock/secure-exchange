@@ -181,7 +181,7 @@ func (w *Worker) finish(ctx context.Context, f *file, status, result string) err
 	case "infected":
 		subject, body = mail.NotifyInfected(f.uploader, f.name, result, url)
 		_, adminBody = mail.NotifyInfected(f.uploader, f.name, result, "")
-		rows, err := tx.Query(ctx, `SELECT email FROM users WHERE role = 'admin' AND NOT disabled ORDER BY email`)
+		rows, err := tx.Query(ctx, `SELECT DISTINCT lower(email) AS e FROM users WHERE role = 'admin' AND NOT disabled ORDER BY e`)
 		if err != nil {
 			return err
 		}

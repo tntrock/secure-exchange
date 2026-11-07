@@ -44,6 +44,8 @@ type Deps struct {
 	Mark           config.MarkConfig
 	CodeDelay      time.Duration // recipient /code and /verify answer no sooner than this after the request starts (P10)
 	SyslogEnabled  bool          // a syslog forwarder is running (reported by /api/admin/audit/forwarding)
+	LDAP           Directory     // nil when LDAP login is off
+	LDAPRecheck    time.Duration // how often an LDAP session is re-read from the directory (default 15m)
 }
 
 type server struct {
@@ -65,6 +67,9 @@ func NewServer(deps Deps) http.Handler {
 	s := &server{Deps: deps, dummyHash: dummy, accountLimit: newLimiter(rate.Every(12*time.Second), 5),
 		codeLimit: newLimiter(rate.Every(200*time.Second), 3)}
 	s.adminViews.at = map[string]time.Time{}
+	if s.LDAPRecheck == 0 {
+		s.LDAPRecheck = 15 * time.Minute
+	}
 	return securityHeaders(http.NewCrossOriginProtection().Handler(s.external(s.routes())))
 }
 
@@ -75,6 +80,8 @@ func (s *server) routes() *http.ServeMux {
 
 	mux.Handle("POST /api/auth/login", perIP(http.HandlerFunc(s.login)))
 	mux.Handle("POST /api/auth/totp", perIP(http.HandlerFunc(s.totp)))
+	mux.Handle("POST /api/auth/ldap", perIP(http.HandlerFunc(s.ldapLogin)))
+	mux.HandleFunc("GET /api/auth/methods", s.authMethods)
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
 	mux.Handle("POST /api/auth/totp/setup", http.HandlerFunc(s.totpSetupPending))
 	mux.Handle("POST /api/auth/totp/enroll", http.HandlerFunc(s.totpEnroll))
@@ -153,8 +160,8 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/admin/trace", perIP(s.requireAdmin(s.trace)))
 	mux.Handle("GET /api/rules", s.requireUser(s.getRules))
 	mux.Handle("PUT /api/admin/rules", s.requireAdmin(s.putRules))
-	mux.Handle("POST /api/me/totp/setup", s.requireAccount(s.totpSetup))
-	mux.Handle("POST /api/me/totp/enable", s.requireAccount(s.totpEnable))
+	mux.Handle("POST /api/me/totp/setup", s.requireAccount(localOnly(s.totpSetup)))
+	mux.Handle("POST /api/me/totp/enable", s.requireAccount(localOnly(s.totpEnable)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not_found")) })
 	mux.Handle("/", webui.Handler())
 	if s.Uploads != nil {

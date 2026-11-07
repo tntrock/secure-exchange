@@ -177,6 +177,10 @@ networks:
 
 `SX_SYSLOG_ADDR`、`SX_SYSLOG_TRANSPORT`、`SX_SYSLOG_CA` 見[轉送到 SIEM](#111-轉送到-siemsyslog)。
 
+### 網域登入（LDAP/AD）
+
+`SX_LDAP_*` 見[網域帳號（LDAP/AD）](#網域帳號ldapad)。
+
 ### 電子郵件
 
 見[電子郵件](#12-電子郵件)。
@@ -209,7 +213,7 @@ networks:
 | 重設 TOTP | 見下方「員工遺失雙因素驗證裝置」與[廠商遺失驗證器裝置](#廠商遺失驗證器裝置)。 |
 | 重新邀請 | 僅適用於狀態為「已邀請」的員工，寄出新連結並讓舊連結失效。 |
 
-初始管理員仍由 `SX_INIT_ADMIN_*` 環境變數在第一次啟動時建立。LDAP 與 OIDC 單一登入尚未提供設定介面；外部登入來源（LDAP、OIDC）的帳號仍可在這裡停用與啟用；但角色與雙因素驗證由外部來源決定，不能在這裡變更角色或重設 TOTP。
+初始管理員仍由 `SX_INIT_ADMIN_*` 環境變數在第一次啟動時建立。LDAP 網域登入見[網域帳號（LDAP/AD）](#網域帳號ldapad)；OIDC 單一登入尚未提供。外部登入來源（LDAP、OIDC）的帳號仍可在這裡停用與啟用；但角色與雙因素驗證由外部來源決定，不能在這裡變更角色或重設 TOTP。
 
 ### 員工遺失雙因素驗證裝置
 
@@ -230,6 +234,93 @@ networks:
 - 管理員只能**線上檢視**檔案，一律加上浮水印（顯示管理員自己的身分，追蹤碼為 `ADMIN`），不提供下載。
 - 每次開啟檔案都會寫入稽核紀錄 `file.view`。
 - 擁有者帳號被停用後，其所有分享與上傳請求立即失效：收件人與上傳者看到的是已過期或不存在，包括已經開啟中的連線。
+
+### 網域帳號（LDAP/AD）
+
+讓員工以公司網域帳號登入。登入頁會多出「網域帳號」表單（只有設定了 `SX_LDAP_URL` 才會出現）。
+
+LDAP／OIDC 的設定**只能寫在 `.env`**，管理介面中沒有對應的設定頁。
+
+**設定**（寫在 `.env`，修改後 `docker compose up -d`；以下僅列重點，完整清單見 `.env.example`）：
+
+| 變數 | 預設 | 說明 |
+|---|---|---|
+| `SX_LDAP_URL` | 空（關閉） | `ldaps://host:636` 或 `ldap://host:389`。`ldap://` 一律先以 StartTLS 加密才會綁定，無法設定明文登入。 |
+| `SX_LDAP_BIND_DN`、`SX_LDAP_BIND_PASSWORD`、`SX_LDAP_BASE_DN` | 無 | 設定 URL 後必填：用來查詢使用者的服務帳號與搜尋起點。服務帳號只需唯讀權限。 |
+| `SX_LDAP_CA` | 系統根憑證 | 驗證網域伺服器用的根憑證檔路徑，見下方「憑證」。 |
+| `SX_LDAP_USER_FILTER` | `(&(objectClass=user)(\|(sAMAccountName={username})(userPrincipalName={username})))` | 必須含 `{username}`，會代入（已跳脫的）登入輸入。 |
+| `SX_LDAP_ID_ATTR`、`SX_LDAP_EMAIL_ATTR`、`SX_LDAP_NAME_ATTR` | `objectGUID`、`mail`、`displayName` | 帳號唯一識別、email、顯示名稱的屬性。email 為空時改用 `userPrincipalName`；兩者皆空則無法登入。 |
+| `SX_LDAP_ADMIN_GROUP` | 空 | 管理員群組的 DN；留空表示沒有人會因 LDAP 成為管理員。 |
+| `SX_LDAP_TLS_INSECURE` | `false` | 略過憑證驗證，**不建議**，見下方「憑證」。 |
+
+AD 範例：
+
+```
+SX_LDAP_URL=ldaps://dc01.corp.example:636
+SX_LDAP_CA=/etc/secure-exchange/certs/ad-root.cer
+SX_LDAP_BIND_DN=CN=svc-sx,OU=Service,DC=corp,DC=example
+SX_LDAP_BIND_PASSWORD=<服務帳號密碼>
+SX_LDAP_BASE_DN=DC=corp,DC=example
+SX_LDAP_ADMIN_GROUP=CN=SX-Admins,OU=Groups,DC=corp,DC=example
+```
+
+**運作方式**
+
+- 使用者在登入頁輸入網域帳號（`sAMAccountName` 或 UPN）與密碼；系統先以服務帳號找到使用者，再以該使用者的密碼綁定驗證。
+- 帳號在**第一次登入時自動建立**為員工；之後每次登入都會更新 email 與顯示名稱。
+- 網域帳號**不會與本機帳號合併**：即使 email 相同，也是兩個獨立的帳號，網域登入永遠不會進到本機帳號。兩個網域帳號的 email 相同時，第二個會被擋下（`email_conflict`），請在 AD 修正 email。若是**舊網域帳號仍占用該 email**（AD 帳號被刪除後重建、或 email 轉給別人），在 AD 修正無效，請見下方疑難排解的兩種處理。
+- **管理員**：屬於 `SX_LDAP_ADMIN_GROUP` 的人為管理員，其他人為員工，每次登入都重新判斷。AD 會計入巢狀群組；其他 LDAP 伺服器只看使用者的 `memberOf` 是否直接包含該群組。判斷管理員時若網域伺服器忙碌或不可用，該次登入會失敗（503），不會被降級。
+- **每 15 分鐘重新檢查**每個登入中的連線：帳號在 AD 已刪除或停用時，該使用者所有連線立即結束。
+- **網域伺服器無法連線時**，重新檢查會結束該連線，所有網域使用者都會被登出、也無法登入，直到伺服器恢復。因此請**務必保留至少一位本機管理員**（`SX_INIT_ADMIN_*` 建立的帳號），否則 AD 故障時無人能管理系統。
+- 網域帳號**沒有 TOTP**，不適用[全站強制雙因素驗證](#全站強制雙因素驗證)；請使用 AD／公司的多因素驗證。使用者自行啟用 TOTP 會被拒絕。
+- 網域帳號的**角色由管理員群組決定**，不能在「使用者」頁變更角色或重設 TOTP。管理員仍可在本機**停用**網域帳號（停用後即使 AD 密碼正確也無法登入）。外部管理員不計入[最後一位管理員](#最後一位管理員)的檢查。
+- 在 AD 停用的帳號，登入時通常顯示為帳號或密碼錯誤（AD 直接拒絕綁定）。
+
+#### 登入失敗與帳號鎖定
+
+網域登入失敗會**直接計入 AD 的帳號鎖定次數**。系統內針對使用者名稱的限流可以被不同寫法繞過（例如 `DOMAIN\u` 與 `u@upn` 視為不同名稱），因此對網際網路開放的站台，請依賴 IP 限流／反向代理的限流，並在 AD 設定帳號鎖定原則。
+
+#### email 被舊網域帳號占用（`email_conflict`）
+
+AD 帳號刪除後重建（`objectGUID` 改變、email 相同），或 email 轉給另一個人時，系統內舊的網域帳號仍占用該 email，每次登入都會得到 409 `email_conflict`；在 AD 修正無效。先到「稽核紀錄」頁找該次 `auth.login.fail`（stage 為 `email_conflict`），「詳細資料」中的 `external_id` 就是新帳號的 objectGUID（十六進位）。以下 SQL 用 `docker compose exec postgres psql -U sx -d sx -c "…"` 執行，`<email>` 換成該 email：
+
+- **同一個人**（復職、帳號重建）：把舊帳號改綁到新的 objectGUID，檔案與分享都保留。
+
+  ```sh
+  docker compose exec postgres psql -U sx -d sx -c \
+    "UPDATE users SET external_id='<新的 external_id>' WHERE auth_source='ldap' AND lower(email)=lower('<email>');"
+  ```
+
+- **該 email 現在屬於另一個人**：釋出 email 並讓舊帳號維持停用，新的人下次登入會建立全新帳號。
+
+  ```sh
+  docker compose exec postgres psql -U sx -d sx -c \
+    "UPDATE users SET email = email || '.retired-' || left(id::text, 8), disabled = true WHERE auth_source='ldap' AND lower(email)=lower('<email>');"
+  ```
+
+#### 憑證
+
+建議的作法：
+
+1. 在 Windows 匯出 AD 的根 CA 憑證：開啟 MMC，加入「憑證」嵌入式管理單元，找到根 CA 憑證，右鍵「所有工作」→「匯出」；格式選「Base-64 編碼 X.509 (.CER)」或「DER 編碼二進位 X.509 (.CER)」皆可。或在 CA 伺服器執行 `certutil -ca.cert ad-root.cer`。
+2. 把檔案複製到專案的 `./certs` 目錄（`docker-compose.yml` 會以唯讀方式掛載到容器的 `/etc/secure-exchange/certs`）。
+3. 在 `.env` 設定 `SX_LDAP_CA=/etc/secure-exchange/certs/ad-root.cer`，再 `docker compose up -d`。
+
+若網域控制站使用**自簽憑證**，可直接把該憑證當作 `SX_LDAP_CA` 使用，作法相同。可放多張憑證（PEM 合併檔）。
+
+`SX_LDAP_TLS_INSECURE=true` 會**完全略過憑證驗證**（連線仍加密，但不驗證對方身分）。風險：網路路徑上的任何人都能冒充網域控制站，取得使用者輸入的網域密碼。請優先使用 `SX_LDAP_CA`，此開關只作為暫時措施；啟用期間每次啟動都會在記錄中出現 WARN。
+
+登入失敗的稽核紀錄若帶有 `reason: certificate`，代表 CA 設定錯誤或缺少（而不是網域控制站當機）。
+
+#### 疑難排解
+
+| 症狀 | 處理 |
+|---|---|
+| 登入顯示「網域伺服器暫時無法連線…」，稽核 `auth.login.fail` 的 stage 為 `ldap_unavailable` | 網域伺服器連不上、逾時（10 秒），或憑證驗證失敗。detail 含 `reason: certificate` 者請檢查 `SX_LDAP_CA` 與 `./certs`；否則檢查網路、埠與服務帳號密碼。 |
+| 登入顯示 email 已被另一個網域帳號使用（`email_conflict`） | 兩個 AD 帳號的 email（或 UPN）相同，請在 AD 修正；若是 AD 帳號重建或 email 轉讓，見上方「email 被舊網域帳號占用」的兩種 SQL 處理。 |
+| stage 為 `ldap_no_email` | 該帳號的 `SX_LDAP_EMAIL_ATTR` 與 `userPrincipalName` 都是空的。 |
+| stage 為 `ldap_disabled` | AD 帳號已停用。stage 為 `disabled` 則是管理員在本機停用。 |
+| 使用者突然被登出，稽核 `auth.session.end` 的 reason 為 `ldap_unavailable`／`ldap_gone`／`ldap_error` | 分別是網域伺服器無法連線、帳號在 AD 已刪除或停用、更新帳號資料失敗。關閉 LDAP 時，既有網域連線也會結束。 |
 
 ## 6. 廠商帳號管理
 
@@ -594,6 +685,8 @@ curl -fsS https://<SX_DOMAIN>/healthz     # 應回傳 ok
 升級前請閱讀版本說明，留意新增或變更的環境變數（與 `.env.example` 比對）。
 
 > 升級到 7.3 時，遷移 0009 會為稽核紀錄建立索引：大型安裝首次啟動可能需要數分鐘，期間需寫入稽核的操作會等待。請以單一實例升級。
+
+> 升級到 7.4 時，遷移 0010 會把 email 的唯一索引改為「每個來源各自唯一」（本機與網域帳號可各有相同 email，但永遠不合併），並在 sessions 加上 `checked_at` 欄位。需要新的設定請見[網域帳號（LDAP/AD）](#網域帳號ldapad)。
 
 ## 16. 監控與疑難排解
 

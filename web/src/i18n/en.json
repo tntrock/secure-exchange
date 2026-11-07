@@ -3,11 +3,14 @@
   "login": {
     "title": "Log in", "email": "Email", "password": "Password", "submit": "Log in",
     "totpTitle": "Two-factor authentication", "totpCode": "Code (6 digits)", "totpSubmit": "Verify",
+    "domainTitle": "Domain account", "username": "Username",
+    "directoryUnavailable": "The domain server is temporarily unreachable. Try again later or use a local account",
+    "emailConflict": "This domain account's email is already used by another domain account. Contact an administrator",
     "invalid": "Invalid email or password", "invalidCode": "Invalid code", "rateLimited": "Too many attempts, try again later"
   },
   "totp": {
     "title": "Set up two-factor authentication", "scan": "Scan the QR code with an authenticator app, then enter the 6-digit code.",
-    "qrAlt": "Two-factor authentication QR code", "start": "Start setup", "code": "Code", "enable": "Enable", "enabled": "Two-factor authentication is enabled", "failed": "Invalid code or setup failed"
+    "qrAlt": "Two-factor authentication QR code", "start": "Start setup", "code": "Code", "enable": "Enable", "enabled": "Two-factor authentication is enabled", "failed": "Invalid code or setup failed", "external": "Two-factor authentication for domain accounts is handled by your company sign-in system"
   },
   "files": {
     "title": "My files", "empty": "No files yet", "name": "Name", "size": "Size", "created": "Uploaded",

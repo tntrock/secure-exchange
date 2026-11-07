@@ -480,3 +480,19 @@ func TestMeNotificationsAPI(t *testing.T) {
 	wantStatus(t, e, "GET", "/api/me/notifications", nil, 403, forbiddenBody)
 	wantStatus(t, e, "PUT", "/api/me/notifications", map[string]bool{"first_open": true, "download": true, "upload": true}, 403, forbiddenBody)
 }
+
+func TestMeVersionAdminOnly(t *testing.T) {
+	e := newEnv(t, func(d *Deps) { d.Version = "9.9.9" })
+	e.admin(t)
+	e.user(t, "s@x.com")
+	e.loginAs(t, "adm@x.com", "")
+	_, b := e.do(t, "GET", "/api/me", nil)
+	if !strings.Contains(string(b), `"version":"9.9.9"`) {
+		t.Fatal(string(b))
+	}
+	e.loginAs(t, "s@x.com", "")
+	_, b = e.do(t, "GET", "/api/me", nil)
+	if strings.Contains(string(b), "version") {
+		t.Fatal(string(b))
+	}
+}

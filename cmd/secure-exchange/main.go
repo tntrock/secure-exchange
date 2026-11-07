@@ -35,7 +35,11 @@ import (
 	"github.com/tntrock/secure-exchange/internal/vendor"
 )
 
+// version is set at build time: -ldflags "-X main.version=1.0.0".
+var version = "dev"
+
 func main() {
+	slog.Info("secure-exchange", "version", version)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	code := run(ctx, os.Args[1:])
 	stop()
@@ -128,7 +132,7 @@ func serve(ctx context.Context) error {
 		oidcp = p
 	}
 	handler := httpapi.NewServer(httpapi.Deps{
-		LDAP: dir,
+		LDAP: dir, Version: version,
 		OIDC: oidcp, OIDCLabel: cfg.OIDC.ButtonText,
 		Users: users, Sessions: sessions, Audit: auditLog,
 		Pool: pool, Keys: keys, Store: store, Shares: share.NewService(pool, outbox, keys, cfg.BaseURL, siteRules),

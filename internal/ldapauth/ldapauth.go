@@ -6,6 +6,7 @@ package ldapauth
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -27,6 +28,9 @@ var (
 	ErrGone               = errors.New("ldap: account missing or disabled")
 	// ErrUnavailable wraps every network, TLS or directory-side failure.
 	ErrUnavailable = errors.New("ldap: directory unavailable")
+	// ErrCertificate additionally marks an ErrUnavailable caused by an untrusted
+	// server certificate (wrong or missing SX_LDAP_CA).
+	ErrCertificate = errors.New("ldapauth: server certificate not trusted")
 )
 
 // timeout bounds every LDAP network operation; a var so tests can shorten it.
@@ -91,11 +95,35 @@ func tlsConfig(cfg config.LDAPConfig, host string) (*tls.Config, error) {
 
 func unavailable(err error) error { return fmt.Errorf("%w: %w", ErrUnavailable, err) }
 
+// dialFailed wraps a connect/handshake/StartTLS failure, marking certificate
+// verification failures with ErrCertificate too.
+func dialFailed(err error) error {
+	if !isCertError(err) {
+		return unavailable(err)
+	}
+	return fmt.Errorf("%w: %w: %w", ErrUnavailable, ErrCertificate, err)
+}
+
+func isCertError(err error) bool {
+	var (
+		cve *tls.CertificateVerificationError
+		ua  x509.UnknownAuthorityError
+		he  x509.HostnameError
+		ci  x509.CertificateInvalidError
+	)
+	if errors.As(err, &cve) || errors.As(err, &ua) || errors.As(err, &he) || errors.As(err, &ci) {
+		return true
+	}
+	// go-ldap's StartTLS flattens the handshake error with %v
+	s := err.Error()
+	return strings.Contains(s, "x509:") || strings.Contains(s, "failed to verify certificate")
+}
+
 // session dials, binds as the service account and runs fn.
 func (d *Directory) session(ctx context.Context, fn func(conn) error) error {
 	c, err := d.dial(ctx)
 	if err != nil {
-		return unavailable(err)
+		return dialFailed(err)
 	}
 	defer func() { _ = c.Close() }()
 	if err := c.Bind(d.cfg.BindDN, d.cfg.BindPassword); err != nil {

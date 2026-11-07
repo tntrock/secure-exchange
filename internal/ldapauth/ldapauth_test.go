@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -19,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/go-ldap/ldap/v3"
 
 	"github.com/tntrock/secure-exchange/internal/config"
@@ -226,7 +228,7 @@ func TestAdminInChainUnsupported(t *testing.T) {
 func TestUnavailable(t *testing.T) {
 	cause := errors.New("dial tcp: refused")
 	d := &Directory{cfg: testCfg(), dial: func(context.Context) (conn, error) { return nil, cause }}
-	if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrUnavailable) || !errors.Is(err, cause) {
+	if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrUnavailable) || !errors.Is(err, cause) || errors.Is(err, ErrCertificate) {
 		t.Fatal(err)
 	}
 	d, _ = fake(&fakeConn{searchErr: netErr})
@@ -396,7 +398,7 @@ func TestTLSSelfSignedWithCA(t *testing.T) {
 	}
 	_, err = d.Authenticate(context.Background(), "a", "pw")
 	var cve *tls.CertificateVerificationError
-	if !errors.Is(err, ErrUnavailable) || !errors.As(err, &cve) {
+	if !errors.Is(err, ErrUnavailable) || !errors.Is(err, ErrCertificate) || !errors.As(err, &cve) {
 		t.Fatalf("no CA: %v", err)
 	}
 
@@ -415,5 +417,83 @@ func TestTLSSelfSignedWithCA(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		_ = cn.Close()
+	}
+}
+
+func TestDialRefusedIsNotCertificate(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	cfg := testCfg()
+	cfg.URL = "ldaps://" + addr
+	d, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrCertificate) {
+		t.Fatal(err)
+	}
+}
+
+// TestStartTLSUntrustedCert: the server accepts StartTLS, then presents a
+// certificate the client does not trust.
+func TestStartTLSUntrustedCert(t *testing.T) {
+	shortTimeout(t)
+	cert, _ := selfSigned(t)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		c, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		req, err := ber.ReadPacket(c)
+		if err != nil || len(req.Children) < 1 {
+			return
+		}
+		resp := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Response")
+		resp.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, req.Children[0].Value, "MessageID"))
+		ext := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ldap.ApplicationExtendedResponse, nil, "Extended Response")
+		ext.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, 0, "resultCode"))
+		ext.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "matchedDN"))
+		ext.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "diagnosticMessage"))
+		resp.AppendChild(ext)
+		if _, err := c.Write(resp.Bytes()); err != nil {
+			return
+		}
+		_ = tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}}).Handshake()
+	}()
+	cfg := testCfg()
+	cfg.URL = "ldap://" + l.Addr().String()
+	d, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrUnavailable) || !errors.Is(err, ErrCertificate) {
+		t.Fatal(err)
+	}
+}
+
+func TestIsCertError(t *testing.T) {
+	for _, err := range []error{
+		x509.HostnameError{Certificate: &x509.Certificate{}, Host: "dc"},
+		x509.CertificateInvalidError{Reason: x509.Expired},
+		x509.UnknownAuthorityError{},
+		errors.New("TLS handshake failed (tls: failed to verify certificate: something)"),
+		errors.New("TLS handshake failed (x509: certificate signed by unknown authority)"),
+	} {
+		if !isCertError(fmt.Errorf("wrapped: %w", err)) {
+			t.Errorf("not a cert error: %v", err)
+		}
+	}
+	if isCertError(errors.New("connection refused")) {
+		t.Error("refusal classified as certificate")
 	}
 }

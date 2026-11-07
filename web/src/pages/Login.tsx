@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -14,6 +14,12 @@ export default function Login() {
   const [mfa, setMfa] = useState(false);
   const [qr, setQr] = useState(""); // forced TOTP enrolment
   const [err, setErr] = useState("");
+  const [ldap, setLdap] = useState(false);
+  const [user, setUser] = useState("");
+  const [dpw, setDpw] = useState("");
+  const [lerr, setLerr] = useState("");
+
+  useEffect(() => { api.authMethods().then((m) => setLdap(!!m?.ldap), () => {}); }, []);
 
   const fail = (e: unknown, invalidKey: string) =>
     setErr(e instanceof ApiError && e.status === 429 ? t("login.rateLimited") : e instanceof ApiError && e.status === 403 && e.message === "ip_denied" ? t("recipient.error.ipDenied") : e instanceof ApiError && e.status === 401 ? t(invalidKey) : t("app.error"));
@@ -39,6 +45,18 @@ export default function Login() {
       }
     } catch (e) {
       fail(e, mfa || qr ? "login.invalidCode" : "login.invalid");
+    }
+  };
+
+  const submitLdap = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setLerr("");
+    try {
+      await api.ldapLogin(user, dpw);
+      nav("/files"); // directory users are staff/admin, never vendors
+    } catch (e) {
+      const s = e instanceof ApiError ? e.status : 0;
+      setLerr(s === 503 ? t("login.directoryUnavailable") : s === 409 ? t("login.emailConflict") : s === 429 ? t("login.rateLimited") : s === 401 ? t("login.invalid") : t("app.error"));
     }
   };
 
@@ -70,6 +88,23 @@ export default function Login() {
         {err && <p className="error" role="alert">{err}</p>}
         <button type="submit">{mfa || qr ? t("login.totpSubmit") : t("login.submit")}</button>
       </form>
+      {ldap && !mfa && !qr && (
+        <>
+          <h2>{t("login.domainTitle")}</h2>
+          <form onSubmit={submitLdap}>
+            <label>
+              {t("login.username")}
+              <input type="text" autoComplete="username" required value={user} onChange={(e) => setUser(e.target.value)} />
+            </label>
+            <label>
+              {t("login.password")}
+              <input type="password" autoComplete="current-password" required value={dpw} onChange={(e) => setDpw(e.target.value)} />
+            </label>
+            {lerr && <p className="error" role="alert">{lerr}</p>}
+            <button type="submit">{t("login.submit")}</button>
+          </form>
+        </>
+      )}
     </main>
   );
 }

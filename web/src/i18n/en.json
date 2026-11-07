@@ -3,6 +3,9 @@
   "login": {
     "title": "Log in", "email": "Email", "password": "Password", "submit": "Log in",
     "totpTitle": "Two-factor authentication", "totpCode": "Code (6 digits)", "totpSubmit": "Verify",
+    "domainTitle": "Domain account", "username": "Username",
+    "directoryUnavailable": "The domain server is temporarily unreachable. Try again later or use a local account",
+    "emailConflict": "This domain account's email is already used by another domain account. Contact an administrator",
     "invalid": "Invalid email or password", "invalidCode": "Invalid code", "rateLimited": "Too many attempts, try again later"
   },
   "totp": {

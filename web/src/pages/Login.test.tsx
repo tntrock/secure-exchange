@@ -121,3 +121,50 @@ test("forced enrolment shows the QR, wrong code errors, right code navigates", a
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
   expect(await screen.findByText("files page")).toBeTruthy();
 });
+
+function setupLdap(ldap: Response | "off" | "fail") {
+  const f = vi.fn(async (url: string) => {
+    if (url.endsWith("/methods")) { if (ldap === "fail") throw new TypeError("offline"); return json(200, { ldap: ldap !== "off" }); }
+    if (url.endsWith("/ldap")) return ldap as Response;
+    return json(200, { role: "staff" });
+  });
+  vi.stubGlobal("fetch", f);
+  void i18n.changeLanguage("zh-TW");
+  render(<MemoryRouter initialEntries={["/login"]}><Routes><Route path="/login" element={<Login />} /><Route path="/files" element={<p>files page</p>} /></Routes></MemoryRouter>);
+  return f;
+}
+
+async function submitLdap() {
+  fireEvent.change(await screen.findByLabelText("帳號"), { target: { value: "alice" } });
+  const pw = screen.getAllByLabelText("密碼")[1];
+  fireEvent.change(pw, { target: { value: "pw" } });
+  fireEvent.click(screen.getAllByRole("button", { name: "登入" })[1]);
+}
+
+test("ldap on: domain form posts to /api/auth/ldap and navigates to files", async () => {
+  const f = setupLdap(json(200, { mfa_required: false, totp_setup_required: false }));
+  expect(await screen.findByRole("heading", { name: "網域帳號" })).toBeTruthy();
+  expect((await screen.findByLabelText("帳號") as HTMLInputElement).autocomplete).toBe("username");
+  await submitLdap();
+  expect(await screen.findByText("files page")).toBeTruthy();
+  expect(f).toHaveBeenCalledWith("/api/auth/ldap", expect.objectContaining({ body: JSON.stringify({ username: "alice", password: "pw" }) }));
+});
+
+test.each(["off", "fail"] as const)("ldap %s: only the local form shows", async (mode) => {
+  const f = setupLdap(mode);
+  await screen.findByLabelText("電子郵件");
+  await vi.waitFor(() => expect(f).toHaveBeenCalledWith("/api/auth/methods", expect.anything()));
+  await new Promise((r) => setTimeout(r, 0));
+  expect(screen.queryByRole("heading", { name: "網域帳號" })).toBeNull();
+});
+
+test.each([
+  [503, "網域伺服器暫時無法連線，請稍後再試或改用本機帳號"],
+  [409, "這個網域帳號的 email 已被另一個網域帳號使用，請聯絡管理員"],
+  [401, "帳號或密碼錯誤"],
+  [429, "嘗試次數過多，請稍後再試"],
+])("ldap failure %i shows its message", async (status, msg) => {
+  setupLdap(json(status, { error: "x" }));
+  await submitLdap();
+  expect((await screen.findByRole("alert")).textContent).toBe(msg);
+});

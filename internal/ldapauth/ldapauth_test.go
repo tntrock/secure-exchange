@@ -214,14 +214,43 @@ func TestAdminNestedInChain(t *testing.T) {
 }
 
 func TestAdminInChainUnsupported(t *testing.T) {
-	d, _ := fake(&fakeConn{entries: []*ldap.Entry{entryA(nil)}, chainErr: ldap.NewError(ldap.LDAPResultInappropriateMatching, errors.New("no rule"))})
-	if id, err := d.Authenticate(context.Background(), "a", "pw"); err != nil || id.Admin {
-		t.Fatalf("%+v %v", id, err)
+	for _, code := range []uint16{ldap.LDAPResultInappropriateMatching, ldap.LDAPResultUndefinedAttributeType, ldap.LDAPResultUnwillingToPerform} {
+		d, _ := fake(&fakeConn{entries: []*ldap.Entry{entryA(nil)}, chainErr: ldap.NewError(code, errors.New("no rule"))})
+		if id, err := d.Authenticate(context.Background(), "a", "pw"); err != nil || id.Admin {
+			t.Fatalf("code %d: %+v %v", code, id, err)
+		}
 	}
-	// a connection error during the in-chain search fails the login
-	d, _ = fake(&fakeConn{entries: []*ldap.Entry{entryA(nil)}, chainErr: netErr})
-	if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
+	// any other failure of the in-chain search fails the login
+	for _, err := range []error{netErr, ldap.NewError(ldap.LDAPResultBusy, errors.New("busy")), ldap.NewError(ldap.LDAPResultTimeLimitExceeded, errors.New("slow"))} {
+		d, _ := fake(&fakeConn{entries: []*ldap.Entry{entryA(nil)}, chainErr: err})
+		if _, got := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(got, ErrUnavailable) {
+			t.Fatalf("%v: %v", err, got)
+		}
+	}
+}
+
+func TestNewErrors(t *testing.T) {
+	for _, u := range []string{"ldap://%zz", "ldapi://x", "cldap://x", "ldaps://", "http://x"} {
+		cfg := testCfg()
+		cfg.URL = u
+		if _, err := New(cfg); err == nil {
+			t.Errorf("%q accepted", u)
+		}
+	}
+	cfg := testCfg()
+	cfg.CAFile = filepath.Join(t.TempDir(), "missing.pem")
+	if _, err := New(cfg); err == nil {
+		t.Fatal("missing CA accepted")
+	}
+}
+
+func TestDefaultPort(t *testing.T) {
+	for _, u := range []string{"ldaps://127.0.0.1", "ldap://127.0.0.1"} {
+		cfg := testCfg()
+		cfg.URL = u
+		if _, err := New(cfg); err != nil {
+			t.Fatalf("%q: %v", u, err)
+		}
 	}
 }
 
@@ -269,19 +298,6 @@ func TestLookup(t *testing.T) {
 	d, _ = fake(&fakeConn{entries: []*ldap.Entry{entryA(nil)}, chainErr: netErr})
 	if _, err := d.Lookup(context.Background(), "01ab"); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
-	}
-}
-
-func TestNewErrors(t *testing.T) {
-	cfg := testCfg()
-	cfg.URL = "ldap://%zz"
-	if _, err := New(cfg); err == nil {
-		t.Fatal("bad URL accepted")
-	}
-	cfg = testCfg()
-	cfg.CAFile = filepath.Join(t.TempDir(), "missing.pem")
-	if _, err := New(cfg); err == nil {
-		t.Fatal("missing CA accepted")
 	}
 }
 
@@ -427,27 +443,53 @@ func TestDialRefusedIsNotCertificate(t *testing.T) {
 	}
 	addr := l.Addr().String()
 	l.Close()
+	for _, scheme := range []string{"ldaps://", "ldap://"} {
+		cfg := testCfg()
+		cfg.URL = scheme + addr
+		d, err := New(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrCertificate) {
+			t.Fatalf("%s: %v", scheme, err)
+		}
+	}
+}
+
+// TestStartTLSWithCA: StartTLS to a server whose certificate is the configured CA.
+func TestStartTLSWithCA(t *testing.T) {
+	shortTimeout(t)
+	cert, pemBytes := selfSigned(t)
 	cfg := testCfg()
-	cfg.URL = "ldaps://" + addr
+	cfg.CAFile = writeFile(t, pemBytes)
+	cfg.URL = "ldap://" + startTLSServer(t, func(c net.Conn) {
+		tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}})
+		if tc.Handshake() == nil {
+			_, _ = io.Copy(io.Discard, tc)
+		}
+	})
 	d, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrCertificate) {
+	c, err := d.dial(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
+	_ = c.Close()
 }
 
 // TestStartTLSUntrustedCert: the server accepts StartTLS, then presents a
 // certificate the client does not trust.
-func TestStartTLSUntrustedCert(t *testing.T) {
-	shortTimeout(t)
-	cert, _ := selfSigned(t)
+// startTLSServer accepts one connection, answers its StartTLS request with
+// success, then hands the raw connection to after.
+func startTLSServer(t *testing.T, after func(net.Conn)) string {
+	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	t.Cleanup(func() { l.Close() })
 	go func() {
 		c, err := l.Accept()
 		if err != nil {
@@ -468,16 +510,48 @@ func TestStartTLSUntrustedCert(t *testing.T) {
 		if _, err := c.Write(resp.Bytes()); err != nil {
 			return
 		}
-		_ = tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}}).Handshake()
+		after(c)
 	}()
+	return l.Addr().String()
+}
+
+// TestStartTLSUntrustedCert: the server accepts StartTLS, then presents a
+// certificate the client does not trust.
+func TestStartTLSUntrustedCert(t *testing.T) {
+	shortTimeout(t)
+	cert, _ := selfSigned(t)
 	cfg := testCfg()
-	cfg.URL = "ldap://" + l.Addr().String()
+	cfg.URL = "ldap://" + startTLSServer(t, func(c net.Conn) {
+		_ = tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}}).Handshake()
+	})
 	d, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrUnavailable) || !errors.Is(err, ErrCertificate) {
 		t.Fatal(err)
+	}
+}
+
+// TestStartTLSHandshakeStall: the server accepts StartTLS and then never
+// starts the handshake; the dial must give up after the timeout.
+func TestStartTLSHandshakeStall(t *testing.T) {
+	shortTimeout(t)
+	cfg := testCfg()
+	cfg.URL = "ldap://" + startTLSServer(t, func(c net.Conn) {
+		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_, _ = io.Copy(io.Discard, c) // until the client closes
+	})
+	d, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if _, err := d.Authenticate(context.Background(), "a", "pw"); !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrCertificate) {
+		t.Fatal(err)
+	}
+	if el := time.Since(start); el > 3*time.Second {
+		t.Fatalf("took %v", el)
 	}
 }
 

@@ -30,7 +30,7 @@ var (
 	ErrUnavailable = errors.New("ldap: directory unavailable")
 	// ErrCertificate additionally marks an ErrUnavailable caused by an untrusted
 	// server certificate (wrong or missing SX_LDAP_CA).
-	ErrCertificate = errors.New("ldapauth: server certificate not trusted")
+	ErrCertificate = errors.New("ldap: server certificate not trusted")
 )
 
 // timeout bounds every LDAP network operation; a var so tests can shorten it.
@@ -61,22 +61,44 @@ func New(cfg config.LDAPConfig) (*Directory, error) {
 	if err != nil {
 		return nil, err
 	}
+	port := map[string]string{"ldaps": "636", "ldap": "389"}[u.Scheme]
+	if port == "" || u.Hostname() == "" { // other schemes (ldapi, cldap) would bind in plaintext
+		return nil, fmt.Errorf("%q must be ldaps://host[:port] or ldap://host[:port]", cfg.URL)
+	}
+	if u.Port() != "" {
+		port = u.Port()
+	}
+	addr := net.JoinHostPort(u.Hostname(), port)
 	tc, err := tlsConfig(cfg, u.Hostname())
 	if err != nil {
 		return nil, err
 	}
-	return &Directory{cfg: cfg, dial: func(context.Context) (conn, error) {
-		c, err := ldap.DialURL(cfg.URL, ldap.DialWithTLSConfig(tc), ldap.DialWithDialer(&net.Dialer{Timeout: timeout}))
+	return &Directory{cfg: cfg, dial: func(ctx context.Context) (conn, error) {
+		nd := &net.Dialer{Timeout: timeout}
+		if u.Scheme == "ldaps" { // the dialer timeout covers the handshake
+			tlc, err := (&tls.Dialer{NetDialer: nd, Config: tc}).DialContext(ctx, "tcp", addr)
+			if err != nil {
+				return nil, err
+			}
+			c := ldap.NewConn(tlc, true)
+			c.Start()
+			c.SetTimeout(timeout)
+			return c, nil
+		}
+		nc, err := nd.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			return nil, err
 		}
+		// go-ldap's StartTLS handshake has no deadline of its own
+		_ = nc.SetDeadline(time.Now().Add(timeout))
+		c := ldap.NewConn(nc, false)
+		c.Start()
 		c.SetTimeout(timeout)
-		if u.Scheme == "ldap" { // never bind in plaintext
-			if err := c.StartTLS(tc); err != nil {
-				_ = c.Close()
-				return nil, err
-			}
+		if err := c.StartTLS(tc); err != nil { // never bind in plaintext
+			_ = c.Close()
+			return nil, err
 		}
+		_ = nc.SetDeadline(time.Time{})
 		return c, nil
 	}}, nil
 }
@@ -167,11 +189,10 @@ func (d *Directory) identity(c conn, e *ldap.Entry) (Identity, error) {
 	}
 	r, err := c.Search(ldap.NewSearchRequest(e.DN, ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, int(timeout.Seconds()), false,
 		"(memberOf:"+inChain+":="+ldap.EscapeFilter(g)+")", []string{"1.1"}, nil))
-	var le *ldap.Error
 	switch {
 	case err == nil:
 		id.Admin = len(r.Entries) > 0
-	case errors.As(err, &le) && le.ResultCode != ldap.ErrorNetwork:
+	case ldap.IsErrorAnyOf(err, ldap.LDAPResultInappropriateMatching, ldap.LDAPResultUndefinedAttributeType, ldap.LDAPResultUnwillingToPerform):
 		// the server lacks the in-chain rule (non-AD): direct membership only
 	default:
 		return Identity{}, unavailable(err)

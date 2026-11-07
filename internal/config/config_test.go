@@ -402,6 +402,11 @@ func TestLoadLDAP(t *testing.T) {
 			t.Errorf("%s=%q: %v", tc.k, tc.v, err)
 		}
 	}
+	m = ldapEnv()
+	m["SX_LDAP_BIND_PASSWORD"] = "  p w  "
+	if c, err := Load(env(m)); err != nil || c.LDAP.BindPassword != "  p w  " {
+		t.Fatalf("password trimmed: %+v %v", c, err)
+	}
 	// the worker does not validate LDAP settings
 	m = ldapEnv()
 	m["SX_LDAP_URL"] = "http://x"

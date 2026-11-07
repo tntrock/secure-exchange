@@ -146,7 +146,7 @@ func load(getenv func(string) string, worker bool) (*Config, error) {
 			URL:          get("SX_LDAP_URL", ""),
 			CAFile:       get("SX_LDAP_CA", ""),
 			BindDN:       get("SX_LDAP_BIND_DN", ""),
-			BindPassword: get("SX_LDAP_BIND_PASSWORD", ""),
+			BindPassword: getenv("SX_LDAP_BIND_PASSWORD"), // untrimmed: spaces may be part of the password,
 			BaseDN:       get("SX_LDAP_BASE_DN", ""),
 			UserFilter:   get("SX_LDAP_USER_FILTER", "(&(objectClass=user)(|(sAMAccountName={username})(userPrincipalName={username})))"),
 			IDAttr:       get("SX_LDAP_ID_ATTR", "objectGUID"),

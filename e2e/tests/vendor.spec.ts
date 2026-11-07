@@ -37,6 +37,7 @@ test("vendor lifecycle: invite → approve → enrol → share → upload → di
   await vp.getByLabel("Confirm password").fill(vendorPassword);
   const success = vp.getByText(/Your account is active/);
   await expect(async () => {
+    if (await success.isVisible()) return; // an earlier attempt went through
     await vp.getByLabel("Code (6 digits)").fill(totp(secret));
     await vp.getByRole("button", { name: "Activate account" }).click();
     await expect(success).toBeVisible({ timeout: 5_000 });
@@ -48,6 +49,7 @@ test("vendor lifecycle: invite → approve → enrol → share → upload → di
   await vp.getByLabel("Password").fill(vendorPassword);
   await vp.getByRole("button", { name: "Log in" }).click();
   await expect(async () => {
+    if (/\/vendor\/shares$/.test(vp.url())) return; // an earlier attempt navigated
     await vp.getByLabel("Code (6 digits)").fill(totp(secret, Date.now() + 30_000));
     await vp.getByRole("button", { name: "Verify" }).click();
     await expect(vp).toHaveURL(/\/vendor\/shares$/, { timeout: 5_000 });
@@ -73,7 +75,8 @@ test("vendor lifecycle: invite → approve → enrol → share → upload → di
   await row(vp, pdf).getByRole("link", { name: "Download" }).click();
   const got = testInfo.outputPath(pdf);
   await (await dl).saveAs(got);
-  expect(readFileSync(got).length).toBeGreaterThan(0);
+  // recipient downloads are marked (pdf_meta writes the tracking code into the PDF), so bytes differ from the upload
+  expect(readFileSync(got).subarray(0, 5).toString()).toBe("%PDF-");
 
   // 5. vendor uploads to the staff who created the account; staff sees it after the scan
   const name = `from-vendor-${testInfo.testId}.txt`;

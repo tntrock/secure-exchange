@@ -1,12 +1,7 @@
 import { test as base, expect, type APIRequestContext, type BrowserContext, type BrowserContextOptions, type Page } from "@playwright/test";
-import { activate, activateInfo, BASE_URL, createUser, loginApi } from "./api";
+import { activate, activateInfo, BASE_URL, clientIp, createUser, loginApi } from "./api";
 import { extractLink, waitForMail } from "./mail";
 import { secretFromOtpauth, totp } from "./totp";
-
-// clientIp is a random private address sent as X-Forwarded-For (trusted by the e2e Caddyfile), so each
-// test, and the admin session, has its own per-IP rate-limit bucket.
-export const clientIp = () => `10.${rnd()}.${rnd()}.${rnd()}`;
-const rnd = () => Math.floor(Math.random() * 254) + 1;
 
 // English UI for every page unless a test picked a language itself (the language-switch test).
 const english = () => { if (!localStorage.getItem("sx_lang")) localStorage.setItem("sx_lang", "en"); };

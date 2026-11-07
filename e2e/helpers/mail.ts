@@ -15,16 +15,17 @@ export async function waitForMail(
     .poll(
       async () => {
         const r = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${to}"`)}`);
-        if (!r.ok) return undefined;
+        if (!r.ok) throw new Error(`mailpit search: ${r.status}`);
         const { messages } = (await r.json()) as { messages: Summary[] };
-        // mailpit stamps Created with ms precision; allow 1 s of clock skew between host and container
-        found = messages.find((m) => new Date(m.Created).getTime() >= opts.since.getTime() - 1000 && (!opts.subject || opts.subject.test(m.Subject)));
+        // mailpit stamps Created with ms precision; allow 5 s of clock skew between host and container
+        found = messages.find((m) => new Date(m.Created).getTime() >= opts.since.getTime() - 5000 && (!opts.subject || opts.subject.test(m.Subject)));
         return found?.ID;
       },
       { message: `mail to ${to}${opts.subject ? ` matching ${opts.subject}` : ""}`, timeout: opts.timeout ?? 30_000 },
     )
     .toBeTruthy();
   const r = await fetch(`${MAILPIT}/api/v1/message/${found!.ID}`);
+  if (!r.ok) throw new Error(`mailpit message ${found!.ID}: ${r.status}`);
   const m = (await r.json()) as { Subject: string; Text: string };
   return { subject: m.Subject, text: m.Text };
 }

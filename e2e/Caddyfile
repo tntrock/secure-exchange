@@ -1,3 +1,4 @@
+# Mirrors the root Caddyfile (same site block) plus the trusted_proxies option below; keep the two in sync.
 # e2e only. All tests reach the app from one host address, and the per-IP login limits would turn a
 # parallel run into 429s. Trusting private ranges makes Caddy append to the X-Forwarded-For the
 # tests send (a random 10.x address per test), which the app then sees as the client address.

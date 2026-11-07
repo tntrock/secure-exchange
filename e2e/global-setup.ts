@@ -1,6 +1,5 @@
 import { request } from "@playwright/test";
-import { BASE_URL, loginApi } from "./helpers/api";
-import { clientIp } from "./helpers/fixtures";
+import { BASE_URL, clientIp, loginApi } from "./helpers/api";
 
 // One admin login per run, shared by every worker through E2E_ADMIN_STATE: the server allows
 // 5 password attempts per email (then one per 12 s), so per-worker or per-test admin logins would 429.

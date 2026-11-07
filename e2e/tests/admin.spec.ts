@@ -6,7 +6,6 @@ import { makePdf } from "../helpers/files";
 import { extractCode, extractLink, waitForMail } from "../helpers/mail";
 
 // Runs in the "admin" Playwright project, after every other spec: the rules test changes site-wide rules.
-test.describe.configure({ mode: "serial" });
 
 const row = (page: Pick<Page, "getByRole">, text: string) => page.getByRole("row").filter({ hasText: text });
 
@@ -27,6 +26,7 @@ async function createShare(owner: Staff, recipient: string, tag: string, allowDo
 }
 
 test.describe("site rules", () => {
+  test.describe.configure({ mode: "serial" });
   let original: Record<string, unknown>;
   const admin = (playwright: PlaywrightWorkerArgs["playwright"]) =>
     playwright.request.newContext({ baseURL: BASE_URL, ignoreHTTPSErrors: true, storageState: JSON.parse(process.env.E2E_ADMIN_STATE!), extraHTTPHeaders: { "X-Forwarded-For": "10.1.2.3" } });

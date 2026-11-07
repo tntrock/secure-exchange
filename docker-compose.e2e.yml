@@ -6,7 +6,7 @@ services:
   mailpit:
     image: axllent/mailpit:v1.33
     ports:
-      - "59025:8025" # API / web UI on the host
+      - "127.0.0.1:59025:8025" # API / web UI on the host
     networks: [sx]
   # Issuer https://dex.localhost:59556/dex: the app resolves the alias on sx, the host browser
   # reaches the published port (Chromium maps *.localhost to loopback). e2e.sh writes .e2e-dex/.
@@ -19,7 +19,7 @@ services:
       - ./e2e/dex/config.yaml:/etc/dex/e2e.yaml:ro
       - ./.e2e-dex:/etc/dex/tls:ro
     ports:
-      - "59556:59556"
+      - "127.0.0.1:59556:59556"
     networks:
       sx:
         aliases: [dex.localhost]

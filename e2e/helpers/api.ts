@@ -41,3 +41,8 @@ export const activate = (request: APIRequestContext, token: string, password: st
 
 export const getRules = (request: APIRequestContext) => apiCall<Record<string, unknown>>(request, "GET", "/api/rules");
 export const saveRules = (admin: APIRequestContext, rules: Record<string, unknown>) => apiCall(admin, "PUT", "/api/admin/rules", rules);
+
+// clientIp is a random private address sent as X-Forwarded-For (trusted by the e2e Caddyfile), so each
+// test, and the admin session, has its own per-IP rate-limit bucket.
+export const clientIp = () => `10.${rnd()}.${rnd()}.${rnd()}`;
+const rnd = () => Math.floor(Math.random() * 254) + 1;

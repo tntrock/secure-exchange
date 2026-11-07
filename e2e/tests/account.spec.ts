@@ -13,6 +13,7 @@ test("enrol TOTP, sign out, sign back in with password + code", async ({ staff }
   await expect(page.getByRole("img", { name: "Two-factor authentication QR code" })).toBeVisible();
   // a code at a step boundary can be rejected: retry with a fresh one
   await expect(async () => {
+    if (await page.getByText("Two-factor authentication is enabled").isVisible()) return; // an earlier attempt went through
     await page.getByLabel("Code").fill(totp(secret));
     await page.getByRole("button", { name: "Enable" }).click();
     await expect(page.getByText("Two-factor authentication is enabled")).toBeVisible({ timeout: 5_000 });
@@ -25,6 +26,7 @@ test("enrol TOTP, sign out, sign back in with password + code", async ({ staff }
   await page.getByRole("button", { name: "Log in" }).click();
   // next step's code: the enrolment code's step cannot be reused
   await expect(async () => {
+    if (/\/files$/.test(page.url())) return; // an earlier attempt navigated
     await page.getByLabel("Code (6 digits)").fill(totp(secret, Date.now() + 30_000));
     await page.getByRole("button", { name: "Verify" }).click();
     await expect(page).toHaveURL(/\/files$/, { timeout: 5_000 });

@@ -5,7 +5,7 @@
 #   scripts/e2e.sh                         whole suite
 #   scripts/e2e.sh tests/auth.spec.ts      one file (playwright args work too, e.g. --repeat-each=3)
 #   E2E_KEEP=1 scripts/e2e.sh ...          leave the stack and .env up afterwards for debugging
-# Refuses to run if a ./.env already exists. On exit the app/worker logs go to
+# Refuses to run if a ./.env already exists. On exit all service logs go to
 # e2e/test-results/compose.log, then the stack (volumes included), its temporary .env and the
 # Dex cert dir .e2e-dex/ are removed.
 set -euo pipefail
@@ -21,7 +21,7 @@ dc() { docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml "
 cleanup() {
   cd "$ROOT" # the tests run from e2e/
   mkdir -p e2e/test-results
-  dc logs --no-color app worker dex >e2e/test-results/compose.log 2>&1 || true
+  dc logs --no-color >e2e/test-results/compose.log 2>&1 || true
   if [ "${E2E_KEEP:-}" = 1 ]; then
     echo "E2E_KEEP=1: stack left running; tear down with: docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml down -v && rm -r .env .e2e-dex"
     return

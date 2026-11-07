@@ -32,11 +32,11 @@ For usage instructions see the [user manual](docs/user-manual.en.md) and the [ad
 
 Requires Docker with Compose and a DNS name pointing at the host (ports 80/443 open). Caddy obtains a TLS certificate automatically. Images are pulled from `ghcr.io/tntrock/secure-exchange` (app and worker); no local build is needed.
 
-**Option A: download the deployment files from the Release** (works once v1.0.0 is published)
+**Option A: download the deployment files from the latest Release**
 
 ```sh
 mkdir secure-exchange && cd secure-exchange && mkdir certs
-B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
+B=https://github.com/tntrock/secure-exchange/releases/latest/download
 for f in docker-compose.yml env.example Caddyfile clamd.conf; do
   curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
 done
@@ -48,7 +48,7 @@ cp env.example .env
 
 ```sh
 git clone https://github.com/tntrock/secure-exchange.git && cd secure-exchange
-git checkout v1.0.0
+git checkout $(git describe --tags --abbrev=0)   # latest release tag
 mkdir -p certs
 cp .env.example .env
 ```

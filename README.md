@@ -32,11 +32,11 @@
 
 需要 Docker（含 Compose），以及指向本主機的網域名稱（開放 80/443 埠）。Caddy 會自動申請 TLS 憑證。映像檔取自 `ghcr.io/tntrock/secure-exchange`（app 與 worker），不需在本機建置。
 
-**方式 A：從 Release 下載部署檔**（v1.0.0 發布後才有效）
+**方式 A：從最新的 Release 下載部署檔**
 
 ```sh
 mkdir secure-exchange && cd secure-exchange && mkdir certs
-B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
+B=https://github.com/tntrock/secure-exchange/releases/latest/download
 for f in docker-compose.yml env.example Caddyfile clamd.conf; do
   curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
 done
@@ -48,7 +48,7 @@ cp env.example .env
 
 ```sh
 git clone https://github.com/tntrock/secure-exchange.git && cd secure-exchange
-git checkout v1.0.0
+git checkout $(git describe --tags --abbrev=0)   # 最新的版本標籤
 mkdir -p certs
 cp .env.example .env
 ```

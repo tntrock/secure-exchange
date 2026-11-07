@@ -64,13 +64,13 @@
 
 ### 3.1 準備設定檔
 
-映像檔取自 `ghcr.io/tntrock/secure-exchange` 與 `ghcr.io/tntrock/secure-exchange-worker`，不需在本機建置。取得部署檔有兩種方式（下載指令在 v1.0.0 發布後才有效）。
+映像檔取自 `ghcr.io/tntrock/secure-exchange` 與 `ghcr.io/tntrock/secure-exchange-worker`，不需在本機建置。取得部署檔有兩種方式。
 
 **方式 A：從 Release 下載**
 
 ```sh
 mkdir secure-exchange && cd secure-exchange && mkdir certs
-B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
+B=https://github.com/tntrock/secure-exchange/releases/latest/download
 for f in docker-compose.yml env.example Caddyfile clamd.conf; do
   curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
 done
@@ -83,7 +83,7 @@ cp env.example .env
 ```sh
 git clone https://github.com/tntrock/secure-exchange.git
 cd secure-exchange
-git checkout v1.0.0
+git checkout $(git describe --tags --abbrev=0)   # 最新的版本標籤
 mkdir -p certs
 cp .env.example .env
 ```

@@ -2,8 +2,11 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestUserActive(t *testing.T) {
@@ -47,5 +50,20 @@ func TestNotifyPrefsRoundTrip(t *testing.T) {
 	}
 	if p, err := us.NotifyPrefs(ctx, u.ID); err != nil || p != want {
 		t.Fatal(p, err)
+	}
+}
+
+func TestNotifyPrefsErrors(t *testing.T) {
+	us := newUsers(t)
+	ctx := context.Background()
+	if _, err := us.NotifyPrefs(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	if err := us.SetNotifyPrefs(ctx, uuid.New(), NotifyPrefs{}); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	us.pool.Close()
+	if err := us.SetNotifyPrefs(ctx, uuid.New(), NotifyPrefs{}); err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
 	}
 }

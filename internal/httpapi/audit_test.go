@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -139,5 +140,104 @@ func TestAuditExportAbortsOnFailure(t *testing.T) {
 	}()
 	if panicked != any(http.ErrAbortHandler) {
 		t.Fatalf("want abort, got %v", panicked)
+	}
+}
+
+func adminReq(method, target string) *http.Request {
+	r := httptest.NewRequest(method, target, nil)
+	return r.WithContext(auth.WithUser(r.Context(), &auth.User{ID: uuid.New()}))
+}
+
+func TestAuditBadParams(t *testing.T) {
+	e := newEnv(t)
+	e.admin(t)
+	e.loginAs(t, "adm@x.com", "")
+	wantStatus(t, e, "GET", "/api/admin/audit/export?until=garbage", nil, 400, "{\"error\":\"bad_time\"}\n")
+	wantStatus(t, e, "GET", "/api/admin/audit?before=x&limit=y", nil, 200, "")
+}
+
+func TestAuditEndpoints500WhenStorageFails(t *testing.T) {
+	e := newEnv(t)
+	e.admin(t)
+	o := e.user(t, "o@x.com")
+	f := e.putFile(t, o.ID, "doc.txt", []byte("x"))
+	e.loginAs(t, "o@x.com", "")
+	id := e.mkShare(t, []string{f.String()}, "r@y.com")["id"].(string)
+	e.loginAs(t, "adm@x.com", "")
+	e.breakTable(t, "syslog_cursor")
+	wantStatus(t, e, "GET", "/api/admin/audit/forwarding", nil, 500, "")
+	e.breakTable(t, "audit_log")
+	for _, p := range []string{"/api/admin/audit", "/api/admin/shares/" + id + "/audit"} {
+		wantStatus(t, e, "GET", p, nil, 500, "")
+	}
+	wantStatus(t, e, "POST", "/api/admin/audit/verify", nil, 500, "")
+	e.loginAs(t, "o@x.com", "")
+	wantStatus(t, e, "GET", "/api/shares/"+id+"/audit", nil, 500, "")
+
+	// export: headers already sent, so the failure must abort the response
+	var panicked any
+	func() {
+		defer func() { panicked = recover() }()
+		(&server{Deps: e.deps}).auditExport(httptest.NewRecorder(), adminReq("GET", "/api/admin/audit/export"))
+	}()
+	if panicked != any(http.ErrAbortHandler) {
+		t.Fatalf("want abort, got %v", panicked)
+	}
+}
+
+func TestAdminShareAuditNotFound(t *testing.T) {
+	e := newEnv(t)
+	e.admin(t)
+	e.loginAs(t, "adm@x.com", "")
+	wantStatus(t, e, "GET", "/api/admin/shares/"+uuid.NewString()+"/audit", nil, 404, "")
+}
+
+func TestNotifyPrefsUnknownUser(t *testing.T) {
+	e := newEnv(t)
+	s := &server{Deps: e.deps}
+	rec := httptest.NewRecorder()
+	s.getNotifyPrefs(rec, adminReq("GET", "/api/me/notify"))
+	if rec.Code != 500 {
+		t.Fatal(rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	r := adminReq("PUT", "/api/me/notify")
+	r.Body = io.NopCloser(strings.NewReader(`{"first_open":true,"download":true,"upload":true}`))
+	s.setNotifyPrefs(rec, r)
+	if rec.Code != 500 {
+		t.Fatal(rec.Code)
+	}
+}
+
+func TestAuditVerifyBrokenAndExportFlush(t *testing.T) {
+	e := newEnv(t)
+	e.admin(t)
+	ctx := context.Background()
+	for i := 0; i < 500; i++ { // export flushes every 500 rows
+		if err := e.audit.Append(ctx, audit.Event{ActorType: "user", Action: "test.bulk", Result: "ok"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.loginAs(t, "adm@x.com", "")
+	resp, b := e.do(t, "GET", "/api/admin/audit/export?action=test.bulk&since=2000-01-01T00:00:00Z&until=2999-01-01T00:00:00Z", nil)
+	if resp.StatusCode != 200 || strings.Count(string(b), "test.bulk") != 500 {
+		t.Fatal(resp.StatusCode, len(b))
+	}
+	wantStatus(t, e, "GET", "/api/admin/shares/not-a-uuid/audit", nil, 404, "")
+	// a client that is gone before the BOM is written
+	(&server{Deps: e.deps}).auditExport(&failAfter{h: http.Header{}}, adminReq("GET", "/api/admin/audit/export"))
+
+	if _, err := e.pool.Exec(ctx, `DROP RULE audit_no_update ON audit_log`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(ctx, `UPDATE audit_log SET result='x' WHERE id = (SELECT min(id) FROM audit_log)`); err != nil {
+		t.Fatal(err)
+	}
+	_, b = e.do(t, "POST", "/api/admin/audit/verify", nil)
+	var m struct {
+		BadID int64 `json:"bad_id"`
+	}
+	if err := json.Unmarshal(b, &m); err != nil || m.BadID == 0 {
+		t.Fatal(err, string(b))
 	}
 }

@@ -495,3 +495,43 @@ func TestGetStatusAlert(t *testing.T) {
 		t.Fatalf("json %s", b)
 	}
 }
+
+func TestAliveFalseOnClosedEOFAndData(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	pair := func() (cli, srv net.Conn) {
+		cli, err := net.Dial("tcp", l.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv, err = l.Accept()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cli, srv
+	}
+	cli, srv := pair()
+	if !alive(cli) {
+		t.Fatal("idle conn should be alive")
+	}
+	srv.Close()
+	time.Sleep(50 * time.Millisecond)
+	if alive(cli) {
+		t.Fatal("EOF should not be alive")
+	}
+	cli.Close()
+	if alive(cli) { // SetReadDeadline fails on a closed conn
+		t.Fatal("closed conn should not be alive")
+	}
+	cli, srv = pair()
+	defer cli.Close()
+	defer srv.Close()
+	_, _ = srv.Write([]byte("x"))
+	time.Sleep(50 * time.Millisecond)
+	if alive(cli) {
+		t.Fatal("unexpected data should not be alive")
+	}
+}

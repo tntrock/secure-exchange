@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -114,5 +115,20 @@ func TestAfter(t *testing.T) {
 	got, err := After(ctx, pool, first, 10)
 	if err != nil || len(got) != 2 || got[0].ID != all[1].ID || got[1].ID != all[0].ID {
 		t.Fatalf("got %+v %v", got, err)
+	}
+}
+
+func TestEachErrors(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	l := New(pool)
+	seed(t, l, ev(1), ev(2))
+	boom := errors.New("boom")
+	if err := l.Each(ctx, Filter{}, func(Entry) error { return boom }); !errors.Is(err, boom) {
+		t.Fatal(err)
+	}
+	pool.Close()
+	if err := l.Each(ctx, Filter{}, func(Entry) error { return nil }); err == nil {
+		t.Fatal("want query error")
 	}
 }

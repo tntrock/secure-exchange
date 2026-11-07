@@ -149,6 +149,18 @@ func TestFormat(t *testing.T) {
 	if out := string(Format(e, "")); !strings.HasPrefix(out, "<108>1 2026-11-07T01:02:03.000004Z - secure-exchange ") {
 		t.Fatalf("fail/empty host: %q", out)
 	}
+	e.Event.Result = "denied"
+	if out := string(Format(e, "h")); !strings.HasPrefix(out, "<108>1 ") {
+		t.Fatalf("denied: %q", out)
+	}
+	e.Event.Action = ""
+	if out := string(Format(e, "h")); !strings.HasPrefix(out, "<108>1 2026-11-07T01:02:03.000004Z h secure-exchange - - - {") {
+		t.Fatalf("empty action: %q", out)
+	}
+	e.Event.Action = strings.Repeat("x", 40)
+	if out := string(Format(e, "h")); !strings.Contains(out, " - "+strings.Repeat("x", 32)+" - {") {
+		t.Fatalf("long action: %q", out)
+	}
 }
 
 func TestForwarderTCPOctetCounting(t *testing.T) {
@@ -394,11 +406,68 @@ func TestRun(t *testing.T) {
 func TestRunRetriesOnError(t *testing.T) {
 	pool := testdb.New(t)
 	appendRows(t, pool, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	(&Forwarder{Pool: pool, Cfg: config.SyslogConfig{Addr: "127.0.0.1:1", Transport: "tcp"}, Retry: 10 * time.Millisecond}).Run(ctx)
-	if c := readCursor(t, pool); c.last != 0 || c.fail == nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		(&Forwarder{Pool: pool, Cfg: config.SyslogConfig{Addr: "127.0.0.1:1", Transport: "tcp"}, Retry: 10 * time.Millisecond}).Run(ctx)
+		close(done)
+	}()
+	// refused loopback connects can take seconds on Windows: poll instead of a fixed timeout
+	for i := 0; readCursor(t, pool).fail == nil && i < 500; i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if c := readCursor(t, pool); c.last != 0 || c.fail == nil || c.lastErr == "" {
 		t.Fatalf("cursor %+v", c)
+	}
+}
+
+func TestForwarderRedialsAfterPeerClose(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	first := make(chan []byte, 1)
+	go func() { // first conn: read one frame, then the "server restarts" and closes it
+		c, err := l.Accept()
+		if err != nil {
+			return
+		}
+		r := bufio.NewReader(c)
+		s, _ := r.ReadString(' ')
+		n, _ := strconv.Atoi(strings.TrimSpace(s))
+		b := make([]byte, n)
+		_, _ = io.ReadFull(r, b)
+		c.Close()
+		first <- b
+	}()
+	appendRows(t, pool, 1)
+	f := &Forwarder{Pool: pool, Cfg: config.SyslogConfig{Addr: l.Addr().String(), Transport: "tcp"}}
+	defer f.close()
+	if n, err := f.Step(ctx); n != 1 || err != nil {
+		t.Fatalf("step1: %d %v", n, err)
+	}
+	recv(t, first)
+	time.Sleep(100 * time.Millisecond) // let the FIN reach the client
+	ch := tcpReader(t, l)
+	appendRows(t, pool, 2)
+	n, err := f.Step(ctx)
+	if err != nil {
+		if c := readCursor(t, pool); c.last != maxID(t, pool)-2 {
+			t.Fatalf("cursor moved past unsent rows: %+v", c)
+		}
+		return
+	}
+	if n != 2 {
+		t.Fatalf("step2: %d", n)
+	}
+	a, b := parseMsg(t, recv(t, ch)), parseMsg(t, recv(t, ch))
+	if a.ID != maxID(t, pool)-1 || b.ID != maxID(t, pool) {
+		t.Fatalf("ids %d %d", a.ID, b.ID)
 	}
 }
 

@@ -34,7 +34,7 @@ func Format(e audit.Entry, host string) []byte {
 		host = "-"
 	}
 	pri := priOK
-	if e.Event.Result == "fail" {
+	if e.Event.Result != "ok" {
 		pri = priFail
 	}
 	ev := e.Event
@@ -58,7 +58,13 @@ func Format(e audit.Entry, host string) []byte {
 	b.WriteString("<" + strconv.Itoa(pri) + ">1 ")
 	// RFC 5424 allows at most 6 fractional digits; audit times are microsecond-truncated
 	b.WriteString(e.At.UTC().Format("2006-01-02T15:04:05.999999Z07:00"))
-	b.WriteString(" " + host + " secure-exchange - " + ev.Action + " - ")
+	msgID := ev.Action
+	if msgID == "" {
+		msgID = "-"
+	} else if len(msgID) > 32 { // RFC 5424 MSGID limit
+		msgID = msgID[:32]
+	}
+	b.WriteString(" " + host + " secure-exchange - " + msgID + " - ")
 	b.Write(body)
 	return b.Bytes()
 }
@@ -131,7 +137,8 @@ func (f *Forwarder) Step(ctx context.Context) (int, error) {
 	if err := f.send(ctx, rows); err != nil {
 		f.close()
 		_ = tx.Rollback(ctx)
-		_, dbErr := f.Pool.Exec(ctx, `UPDATE syslog_cursor SET failing_since = COALESCE(failing_since, now()), last_error = $1 WHERE id = 1`, err.Error())
+		// WithoutCancel: still record a failure caused by shutdown mid-dial
+		_, dbErr := f.Pool.Exec(context.WithoutCancel(ctx), `UPDATE syslog_cursor SET failing_since = COALESCE(failing_since, now()), last_error = $1 WHERE id = 1`, err.Error())
 		return 0, errors.Join(err, dbErr)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE syslog_cursor SET last_id = $1, last_ok_at = now(), failing_since = NULL, last_error = '' WHERE id = 1`,
@@ -142,6 +149,11 @@ func (f *Forwarder) Step(ctx context.Context) (int, error) {
 }
 
 func (f *Forwarder) send(ctx context.Context, rows []audit.Entry) error {
+	// A peer that closed (e.g. a restarted syslog server) still accepts writes into
+	// our send buffer, which would lose the batch silently; probe before reusing.
+	if f.conn != nil && f.Cfg.Transport != "udp" && !alive(f.conn) {
+		f.close()
+	}
 	if f.conn == nil {
 		c, err := f.dial(ctx)
 		if err != nil {
@@ -191,7 +203,7 @@ func (f *Forwarder) dial(ctx context.Context) (net.Conn, error) {
 
 func (f *Forwarder) close() {
 	if f.conn != nil {
-		f.conn.Close()
+		_ = f.conn.Close()
 		f.conn = nil
 	}
 }
@@ -213,4 +225,15 @@ func GetStatus(ctx context.Context, pool *pgxpool.Pool, enabled bool, now time.T
 		FROM syslog_cursor WHERE id = 1`).Scan(&s.Pending, &s.LastOKAt, &s.FailingSince, &s.LastError)
 	s.Alert = s.FailingSince != nil && now.Sub(*s.FailingSince) > 15*time.Minute
 	return s, err
+}
+
+// alive reports whether c is still open: a short read must time out, since the
+// server never sends; EOF, a reset or unexpected data all mean redial.
+func alive(c net.Conn) bool {
+	if c.SetReadDeadline(time.Now().Add(time.Millisecond)) != nil {
+		return false
+	}
+	_, err := c.Read(make([]byte, 1))
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout() && c.SetReadDeadline(time.Time{}) == nil
 }

@@ -69,7 +69,8 @@ func (s *server) ldapLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		slog.Error("ldap upsert", "err", err)
+		fail("", "db", http.StatusInternalServerError, "internal")
 		return
 	}
 	if !u.Active(time.Now()) { // disabled here by an admin, whatever AD says
@@ -77,7 +78,8 @@ func (s *server) ldapLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.finishExternalLogin(r, w, u, prevRole, detail); err != nil {
-		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		slog.Error("ldap session", "err", err)
+		fail(u.ID.String(), "db", http.StatusInternalServerError, "internal")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"mfa_required": false, "totp_setup_required": false})

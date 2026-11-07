@@ -30,16 +30,20 @@ func (s *server) recipientDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := fileRow{id: fid}
-	err := s.Pool.QueryRow(r.Context(), `SELECT f.name, f.size, f.sha256, f.wrapped_dek, f.key_id, f.storage_key
+	err := s.Pool.QueryRow(r.Context(), `SELECT f.name, f.size, f.sha256, f.wrapped_dek, f.key_id, f.storage_key, f.scan_status
 		FROM share_files sf JOIN files f ON f.id = sf.file_id
 		WHERE sf.share_id = $1 AND sf.file_id = $2 AND f.deleted_at IS NULL`, a.Share.ID, fid).
-		Scan(&f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key)
+		Scan(&f.name, &f.size, &f.sum, &f.wrappedDEK, &f.keyID, &f.key, &f.scan)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, errBody("not_found"))
 		return
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return
+	}
+	if code, msg := scanRefusal(f.scan); code != 0 {
+		writeJSON(w, code, errBody(msg))
 		return
 	}
 	if !a.Share.AllowDownload {
@@ -69,6 +73,9 @@ func (s *server) recipientDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev := audit.Event{ActorType: "recipient", ActorID: a.Recipient.ID.String(), Detail: map[string]any{"share_id": a.Share.ID.String()}}
+	if a.Recipient.VendorID != nil {
+		ev.ActorType, ev.ActorID = "vendor", a.Recipient.VendorID.String()
+	}
 	st := 0
 	if plan.Method != mark.None {
 		if r.Method == http.MethodHead {
@@ -172,6 +179,14 @@ func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow,
 	mr := &markedResponse{w: w, name: plan.OutName}
 	out := io.MultiWriter(mr, sum)
 	if err := s.writeMarked(ctx, out, w, f, rs, plan.Method, p, m); err != nil {
+		if errors.Is(err, errMarkBusy) { // no slot in time: nothing was sent or delivered
+			if _, err := s.Pool.Exec(context.WithoutCancel(ctx), `DELETE FROM download_traces WHERE code = $1`, code); err != nil {
+				slog.Error("drop unused download trace", "code", code, "err", err)
+			}
+			w.Header().Set("Retry-After", "30")
+			writeJSON(w, http.StatusServiceUnavailable, errBody("busy"))
+			return http.StatusServiceUnavailable
+		}
 		if mr.n == 0 && ctx.Err() != nil { // the client left before anything was sent (e.g. waiting for a slot)
 			if _, err := s.Pool.Exec(context.WithoutCancel(ctx), `DELETE FROM download_traces WHERE code = $1`, code); err != nil {
 				slog.Error("drop unused download trace", "code", code, "err", err)
@@ -202,6 +217,11 @@ func (s *server) serveMarked(w http.ResponseWriter, r *http.Request, f *fileRow,
 
 // markSlots bounds the in-memory marked builds (pdf_meta, image_*) running at once.
 var markSlots = make(chan struct{}, 2)
+
+// markWait is how long a marked download waits for a slot before answering 503 busy.
+var markWait = 2 * time.Minute
+
+var errMarkBusy = errors.New("mark slots busy")
 
 // writeMarked writes f marked with m to cw (the response). pdf_pages and the zip methods stream; the others are
 // built in memory first so they can carry a Content-Length.
@@ -251,6 +271,8 @@ func buildMarked(ctx context.Context, rs io.ReadSeeker, method mark.Method, m pr
 		defer func() { <-markSlots }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-time.After(markWait):
+		return nil, errMarkBusy
 	}
 	if _, err := rs.Seek(0, io.SeekStart); err != nil {
 		return nil, err

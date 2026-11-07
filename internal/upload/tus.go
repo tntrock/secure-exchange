@@ -176,6 +176,17 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !ok {
+			detail := map[string]any{"reason": "recipient_not_allowed"}
+			if err == nil { // never log raw client bytes
+				detail["recipient"] = rcpt.String()
+			} else {
+				detail["recipient_invalid"] = true
+			}
+			if err := h.audit.Append(r.Context(), audit.Event{ActorType: "vendor", ActorID: u.vendorID.String(),
+				IP: httpapi.ClientIP(r, h.trusted), UserAgent: httpapi.UserAgent(r), Action: audit.ActUpload, Result: "fail",
+				Detail: detail}); err != nil {
+				slog.Error("audit append", "action", audit.ActUpload, "err", err)
+			}
 			forbid(w, "recipient_not_allowed")
 			return
 		}

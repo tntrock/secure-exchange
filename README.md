@@ -81,7 +81,7 @@ SX_SMTP_TLS=starttls        # starttls（預設）、tls（隱式 TLS，通常�
 
 預覽由獨立的 **worker** 容器產生（`docker compose up -d` 會一併啟動）。它要以 LibreOffice、poppler 與 FFmpeg 處理不受信任的檔案，因此有以下隔離：
 
-- **無對外網路：** 只接內部網路 `backend`（與 PostgreSQL、app 相連），無法連上網際網路。
+- **無對外網路：** 只接內部網路 `backend`（與 PostgreSQL、app 相連）和 `scan`（與 clamav 相連），無法連上網際網路。
 - **根檔案系統唯讀；** 解密後的檔案與中間檔只放在 `/work` 的 tmpfs（`SX_WORKER_TMP`，4 GiB），每個工作結束即刪除。產生的頁面與片段在儲存前一律加密。
 - **不使用 swap：** `memswap_limit` 等於 `mem_limit`，tmpfs 上的解密資料不會被換出到磁碟。若 `/work` 不是 tmpfs，worker 會拒絕啟動（`SX_WORKER_ALLOW_NON_TMPFS=1` 可略過此檢查，僅限開發使用）。
 - **資源上限：** 記憶體 6 GiB（含 4 GiB tmpfs）、2 顆 CPU、512 個 process；移除所有 capabilities、`no-new-privileges`、以 uid 65532 執行。每個外部程式都有逾時。
@@ -91,7 +91,7 @@ SX_SMTP_TLS=starttls        # starttls（預設）、tls（隱式 TLS，通常�
 ```yaml
 services:
   worker:
-    networks: [backend, s3]
+    networks: [backend, scan, s3]
 networks:
   s3: {}
 ```

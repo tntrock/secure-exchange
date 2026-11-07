@@ -75,18 +75,22 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	if u.Role == "vendor" && !rl.IPAllowed(s.addr(r)) {
 		s.record(r, audit.Event{Action: audit.ActLoginFail, ActorID: u.ID.String(), Result: "fail",
 			Detail: map[string]any{"email": Truncate(email, maxEmailLen), "stage": "ip_denied", "reason": "ip_denied"}})
-		writeJSON(w, http.StatusForbidden, errBody("ip_denied"))
+		writeJSON(w, http.StatusUnauthorized, errBody("invalid_credentials")) // same as a bad password: no oracle
 		return
 	}
 	// site rules force local staff and admins to enrol TOTP before the session is usable
 	setup := !u.TOTPEnabled && u.Role != "vendor" && u.AuthSource == "local" && rl.ForceTOTP
 	full := !u.TOTPEnabled && !setup
-	token, err := s.Sessions.Create(r.Context(), u.ID, full, s.ip(r), UserAgent(r), s.SessionTTL)
+	ttl := s.SessionTTL
+	if !full {
+		ttl = auth.PendingMFATTL
+	}
+	token, err := s.Sessions.Create(r.Context(), u.ID, full, s.ip(r), UserAgent(r), ttl)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
 	}
-	s.setSessionCookie(w, token, int(s.SessionTTL.Seconds()))
+	s.setSessionCookie(w, token, int(ttl.Seconds()))
 	if full { // fully logged in; otherwise the OK event is written after the code / enrolment step
 		s.touchLogin(r, u.ID)
 		s.record(r, audit.Event{Action: audit.ActLoginOK, ActorID: u.ID.String(), Result: "ok"})
@@ -114,10 +118,11 @@ func (s *server) totp(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, errBody("invalid_code"))
 		return
 	}
-	if err := s.Sessions.MarkMFA(r.Context(), token); err != nil {
+	if err := s.Sessions.MarkMFA(r.Context(), token, s.SessionTTL); err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
 	}
+	s.setSessionCookie(w, token, int(s.SessionTTL.Seconds())) // the half-session cookie was short-lived
 	s.touchLogin(r, u.ID)
 	s.record(r, audit.Event{Action: audit.ActLoginOK, ActorID: u.ID.String(), Result: "ok", Detail: map[string]any{"stage": "totp"}})
 	writeJSON(w, http.StatusOK, map[string]bool{"mfa_required": false})

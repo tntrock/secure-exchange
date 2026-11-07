@@ -225,13 +225,14 @@ func (s *server) totpEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err == nil {
-		err = s.Sessions.MarkMFA(r.Context(), token)
+		err = s.Sessions.MarkMFA(r.Context(), token, s.SessionTTL)
 	}
 	if err != nil {
 		slog.Error("totp enrol", "err", err)
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
 	}
+	s.setSessionCookie(w, token, int(s.SessionTTL.Seconds()))
 	s.touchLogin(r, u.ID)
 	s.record(r, audit.Event{Action: audit.ActTOTPEnable, ActorID: u.ID.String(), Result: "ok"})
 	s.record(r, audit.Event{Action: audit.ActLoginOK, ActorID: u.ID.String(), Result: "ok", Detail: map[string]any{"stage": "totp_enrol"}})

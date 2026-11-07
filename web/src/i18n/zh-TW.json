@@ -7,7 +7,7 @@
     "directoryUnavailable": "網域伺服器暫時無法連線，請稍後再試或改用本機帳號",
     "emailConflict": "這個網域帳號的 email 已被另一個網域帳號使用，請聯絡管理員",
     "or": "或", "oidcDefault": "以 Microsoft 登入", "oidcDenied": "登入已取消", "oidcEmailConflict": "這個單一登入帳號的 email 已被另一個單一登入帳號使用，請聯絡管理員", "oidcInvalid": "單一登入失敗，請再試一次", "oidcUnavailable": "身分提供者暫時無法連線，請稍後再試或改用本機帳號",
-    "invalid": "帳號或密碼錯誤", "invalidCode": "驗證碼錯誤", "rateLimited": "嘗試次數過多，請稍後再試"
+    "invalid": "帳號或密碼錯誤", "invalidCode": "驗證碼錯誤", "sessionTimedOut": "登入逾時，請重新登入。", "rateLimited": "嘗試次數過多，請稍後再試"
   },
   "totp": {
     "title": "設定雙因素驗證", "scan": "請用驗證器 App 掃描 QR code，再輸入產生的 6 位數驗證碼。",

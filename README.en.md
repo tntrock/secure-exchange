@@ -81,7 +81,7 @@ Files can be viewed in the browser without downloading them. The browser only ev
 
 Previews are rendered by a separate **worker** container (`docker compose up -d` starts it). It runs LibreOffice, poppler and FFmpeg on untrusted files, so it is locked down:
 
-- **No outbound network:** it is attached only to the internal `backend` network (with PostgreSQL and the app); it cannot reach the internet.
+- **No outbound network:** it is attached only to the internal `backend` network (with PostgreSQL and the app) and the internal `scan` network (with clamav); it cannot reach the internet.
 - **Read-only root filesystem;** decrypted files and intermediates live only on a tmpfs at `/work` (`SX_WORKER_TMP`, 4 GiB) and are deleted after each job. Rendered pages and segments are encrypted before they are stored.
 - **No swap:** `memswap_limit` equals `mem_limit`, so decrypted pages on the tmpfs can never be swapped to disk. The worker refuses to start if `/work` is not a tmpfs (`SX_WORKER_ALLOW_NON_TMPFS=1` overrides this for development only).
 - **Resource limits:** 6 GiB memory (including the 4 GiB tmpfs), 2 CPUs, 512 processes; all capabilities dropped, `no-new-privileges`, runs as uid 65532. Every external program has a timeout.
@@ -91,7 +91,7 @@ Previews are rendered by a separate **worker** container (`docker compose up -d`
 ```yaml
 services:
   worker:
-    networks: [backend, s3]
+    networks: [backend, scan, s3]
 networks:
   s3: {}
 ```

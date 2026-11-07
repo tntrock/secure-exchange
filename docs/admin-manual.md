@@ -34,8 +34,8 @@
 |---|---|---|
 | `caddy` | 對外的 HTTPS 入口，自動申請與更新 TLS 憑證 | `sx`（可連外） |
 | `app` | 主程式：網頁介面、API、登入、分享、上傳、寄信 | `sx`、`backend` |
-| `worker` | 線上預覽轉檔、病毒掃描等背景工作 | 只有 `backend`（**無法連外**） |
-| `clamav` | 病毒掃描引擎 clamd | `backend`、`updates`（只為更新病毒碼而連外） |
+| `worker` | 線上預覽轉檔、病毒掃描等背景工作 | `backend`、`scan`（**無法連外**） |
+| `clamav` | 病毒掃描引擎 clamd | `scan`、`updates`（只為更新病毒碼而連外） |
 | `postgres` | 資料庫（中繼資料、稽核紀錄） | `backend` |
 
 資料存放：
@@ -130,7 +130,7 @@ docker compose up -d
 ```yaml
 services:
   worker:
-    networks: [backend, s3]
+    networks: [backend, scan, s3]
 networks:
   s3: {}
 ```
@@ -525,7 +525,7 @@ AD 帳號刪除後重建（`objectGUID` 改變、email 相同），或 email 轉
 
 ### 外部 IP 清單
 
-「允許外部使用者連線的網路」只限制**外部使用者**：分享收件人、上傳請求的上傳者、廠商（包含廠商登入與邀請啟用頁面）。員工與管理員不受影響。清單留空代表不限制。來源 IP 取決於 `SX_TRUSTED_PROXIES`（見[設定參考](#4-設定參考)），反向代理設定錯誤時可能把所有人都判成同一個 IP。被擋下的外部使用者會看到「您目前的網路位置不允許存取此分享」。請先確認自己的網路不會被誤擋再儲存；管理員本身不受此清單限制，不會因此被鎖在外面。
+「允許外部使用者連線的網路」只限制**外部使用者**：分享收件人、上傳請求的上傳者、廠商（包含廠商登入與邀請啟用頁面）。員工與管理員不受影響。清單留空代表不限制。來源 IP 取決於 `SX_TRUSTED_PROXIES`（見[設定參考](#4-設定參考)），反向代理設定錯誤時可能把所有人都判成同一個 IP。被擋下的外部使用者會看到「您目前的網路位置不允許存取此分享」。請先確認自己的網路不會被誤擋再儲存；管理員本身不受此清單限制，不會因此被鎖在外面。廠商從不允許的網路登入時，回應與密碼錯誤完全相同（HTTP 401 `invalid_credentials`），以免洩漏密碼是否正確；稽核 `auth.login.fail` 紀錄的 reason 為 `ip_denied`。另外，只輸入密碼、尚未完成 TOTP 的登入中途連線只有 10 分鐘有效，完成驗證後才會延長為正常的連線時間（`SX_SESSION_TTL`）；速率限制對 IPv6 以 /64 網段為單位計算。
 
 ### 外部上傳限制
 
@@ -543,6 +543,10 @@ AD 帳號刪除後重建（`objectGUID` 改變、email 相同），或 email 轉
 - 且**所有**引用它的分享與上傳請求都已結束（過期或撤銷）超過 N 天。
 
 從未分享過的檔案，以及廠商直接上傳、從未被分享過的檔案，**不會**被清除。清除會寫入稽核紀錄 `file.retention_delete`（`actor_type` 為 `system`）。清除後無法復原，調低保存天數前請先確認備份。
+
+### 過期資料清理
+
+系統每小時自動刪除已過期超過 24 小時的登入工作階段（員工、分享收件人、上傳請求對象）與一次性驗證碼、已過期超過 24 小時的分享其廠商瀏覽紀錄，以及已放棄重試（達重試上限）且建立超過 30 天的未寄出郵件。尚未過期的資料與仍在重試的郵件不會被刪除；清理不寫入稽核紀錄。
 
 ### 收緊規則的通知信
 
@@ -608,6 +612,19 @@ docker compose logs --tail=100 clamav
 docker compose exec postgres psql -U sx -d sx -c \
   "SELECT scan_status, count(*) FROM files WHERE deleted_at IS NULL GROUP BY scan_status;"
 ```
+
+### 容器資源限制與網路
+
+| 容器 | 記憶體（無 swap） | 其他 |
+|---|---|---|
+| app | 4 GiB | 程序數上限 512 |
+| worker | 6 GiB | 2 CPU、程序數上限 512 |
+| clamav | 4 GiB | — |
+
+- app 的 4 GiB 依據：「加標記」下載（PDF 中繼資料、圖片）會把整個檔案載入記憶體，最多同時 2 個；圖片在預設上限（`SX_MARK_MAX_BYTES` 256 MiB、`SX_MARK_MAX_PIXELS` 5,000 萬像素）下每個約需 1.5 GiB，故 2 × 1.5 GiB + 512 MiB，取整為 4 GiB。調高這兩項上限時請一併調高 `mem_limit`。
+- app 設有 `GOMEMLIMIT: 3584MiB`（略低於 4 GiB 上限的記憶體軟上限），讓 Go 在觸發 OOM 之前先回收記憶體；調高 `mem_limit` 時請一併調整。
+- 兩個加標記名額都被占滿時，其餘下載最多等待 2 分鐘，逾時回應 503（`busy`，`Retry-After: 30`），不會留下下載紀錄。
+- 網路：`scan`（內部網路，無對外路由）只連接 worker 與 clamav。clamav 不再位於 `backend`，無法連到 PostgreSQL 或 app；只有 worker 會連線 clamd，app 不需要。
 
 ## 10. 線上預覽 worker
 

@@ -268,6 +268,7 @@ func TestIdentityClaims(t *testing.T) {
 		{name: "preferred_username", claims: map[string]any{"email": nil, "preferred_username": "p@x.test"}, want: with(func(i *Identity) { i.Email = "p@x.test" })},
 		{name: "upn", claims: map[string]any{"email": nil, "upn": "u@x.test"}, want: with(func(i *Identity) { i.Email = "u@x.test" })},
 		{name: "no email", claims: map[string]any{"email": nil}, err: ErrNoEmail},
+		{name: "malformed email", claims: map[string]any{"email": "not-an-email@"}, err: ErrNoEmail},
 		{name: "upn after non-email preferred_username", claims: map[string]any{"email": nil, "preferred_username": "alice", "upn": "a@x.test"}, want: with(func(i *Identity) { i.Email = "a@x.test" })},
 		{name: "non-email preferred_username only", claims: map[string]any{"email": nil, "preferred_username": "alice"}, err: ErrNoEmail},
 		{name: "name falls back to email", claims: map[string]any{"name": nil}, want: with(func(i *Identity) { i.Name = i.Email })},

@@ -76,7 +76,7 @@ func NewServer(deps Deps) http.Handler {
 }
 
 func (s *server) routes() *http.ServeMux {
-	perIP := rateLimit(s.ip, rate.Every(6*time.Second), 10)
+	perIP := rateLimit(s.rateKey, rate.Every(6*time.Second), 10)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 
@@ -114,7 +114,7 @@ func (s *server) routes() *http.ServeMux {
 	mux.Handle("POST /api/shares/{id}/recipients/{rid}/revoke", s.requireUser(s.revokeRecipient))
 	// external recipients: no staff login
 	recipIP := func(h http.HandlerFunc) http.Handler {
-		return s.padded(rateLimit(s.ip, rate.Every(6*time.Second), 10)(h))
+		return s.padded(rateLimit(s.rateKey, rate.Every(6*time.Second), 10)(h))
 	}
 	mux.HandleFunc("GET /api/s/{token}", s.recipientLanding)
 	mux.Handle("POST /api/s/{token}/code", recipIP(s.requestCode))
@@ -172,7 +172,7 @@ func (s *server) routes() *http.ServeMux {
 		mux.Handle("/api/uploads/", s.requireUser(s.Uploads.ServeHTTP))
 		// only creating an upload is limited; HEAD/PATCH/DELETE/OPTIONS on an existing one are bounded by the
 		// uploader session and the per-upload lock, and a multi-file upload sends many of them
-		perIPUpload := rateLimit(s.ip, rate.Every(time.Second), 120)
+		perIPUpload := rateLimit(s.rateKey, rate.Every(time.Second), 120)
 		postLimited := func(h http.Handler) http.Handler {
 			limited := perIPUpload(h)
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -208,4 +208,15 @@ func readJSONMax(w http.ResponseWriter, r *http.Request, v any, max int64) bool 
 		return false
 	}
 	return true
+}
+
+// rateKey is the rate-limit bucket for a client: the IPv4 address, or the IPv6 /64 so one
+// subscriber cannot dodge limits by rotating addresses. Audit and logs keep the full address.
+func (s *server) rateKey(r *http.Request) string {
+	ip := s.ip(r)
+	a, err := netip.ParseAddr(ip)
+	if err != nil || !a.Is6() {
+		return ip
+	}
+	return netip.PrefixFrom(a, 64).Masked().String()
 }

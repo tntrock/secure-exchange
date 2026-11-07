@@ -32,7 +32,6 @@ func TokenHash(token string) []byte {
 }
 
 // Create returns a new 256-bit base64url token; only its hash is stored.
-// ponytail: expired rows are never purged; add a periodic DELETE when the table grows.
 func (s *Sessions) Create(ctx context.Context, userID uuid.UUID, mfaPassed bool, ip, ua string, ttl time.Duration) (string, error) {
 	b := make([]byte, 32)
 	rand.Read(b) // never fails (Go ≥ 1.24)
@@ -56,8 +55,12 @@ func (s *Sessions) Lookup(ctx context.Context, token string) (*Session, error) {
 	return se, err
 }
 
-func (s *Sessions) MarkMFA(ctx context.Context, token string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE sessions SET mfa_passed=true WHERE token_hash=$1`, TokenHash(token))
+// PendingMFATTL is how long a password-only (half-logged-in) session lives.
+const PendingMFATTL = 10 * time.Minute
+
+// MarkMFA completes the second factor and extends the session to the full ttl.
+func (s *Sessions) MarkMFA(ctx context.Context, token string, ttl time.Duration) error {
+	_, err := s.pool.Exec(ctx, `UPDATE sessions SET mfa_passed=true, expires_at=$2 WHERE token_hash=$1`, TokenHash(token), time.Now().Add(ttl))
 	return err
 }
 

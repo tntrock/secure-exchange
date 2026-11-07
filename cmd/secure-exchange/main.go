@@ -25,6 +25,7 @@ import (
 	"github.com/tntrock/secure-exchange/internal/mail"
 	"github.com/tntrock/secure-exchange/internal/oidcauth"
 	"github.com/tntrock/secure-exchange/internal/preview"
+	"github.com/tntrock/secure-exchange/internal/purge"
 	"github.com/tntrock/secure-exchange/internal/rules"
 	"github.com/tntrock/secure-exchange/internal/scan"
 	"github.com/tntrock/secure-exchange/internal/share"
@@ -96,6 +97,7 @@ func serve(ctx context.Context) error {
 	outbox := mail.NewOutbox(pool, keys, mail.NewSMTP(cfg.SMTP))
 	go outbox.Run(ctx)
 	go upload.RunJanitor(ctx, pool, store, cfg.StagingDir, 24*time.Hour)
+	go purge.Run(ctx, pool, slog.Default(), time.Hour)
 	sessions := auth.NewSessions(pool)
 	siteRules := rules.New(pool, cfg.MaxFileSize)
 	if err := siteRules.Seed(ctx, cfg.ShareMaxDays); err != nil {

@@ -20,6 +20,9 @@ type Querier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
+// MaxAttempts is how many failed sends before a message is given up on.
+const MaxAttempts = 10
+
 type Outbox struct {
 	pool   *pgxpool.Pool
 	keys   *sxcrypto.Keyring
@@ -79,8 +82,8 @@ func (o *Outbox) runOnce(ctx context.Context) (int, error) {
 	}
 	defer tx.Rollback(ctx)
 	rows, err := tx.Query(ctx, `SELECT id, to_addr, body_sealed, attempts FROM mail_outbox
-		WHERE sent_at IS NULL AND attempts < 10 AND next_attempt_at <= now()
-		ORDER BY next_attempt_at LIMIT 20 FOR UPDATE SKIP LOCKED`)
+		WHERE sent_at IS NULL AND attempts < $1 AND next_attempt_at <= now()
+		ORDER BY next_attempt_at LIMIT 20 FOR UPDATE SKIP LOCKED`, MaxAttempts)
 	if err != nil {
 		return 0, err
 	}

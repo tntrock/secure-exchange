@@ -28,7 +28,7 @@ func TestSessionsLifecycle(t *testing.T) {
 	if err != nil || s.UserID != u.ID || s.MFAPassed {
 		t.Fatal(s, err)
 	}
-	if err := ss.MarkMFA(ctx, tok); err != nil {
+	if err := ss.MarkMFA(ctx, tok, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	if s, _ := ss.Lookup(ctx, tok); !s.MFAPassed {

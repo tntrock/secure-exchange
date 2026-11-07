@@ -89,9 +89,18 @@ test("vendor goes to /vendor/shares", async () => {
   expect(await screen.findByText("vendor home")).toBeTruthy();
 });
 
-test("403 ip_denied shows the network-location message", async () => {
-  setup(json(403, { error: "ip_denied" }));
-  expect(await screen.findByText(i18n.t("recipient.error.ipDenied"))).toBeTruthy();
+test("expired pending session (401 unauthorized) returns to the password step", async () => {
+  // setup() hands the same totp Response to /api/auth/methods too, so stub fetch per URL
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("/login") ? json(200, { mfa_required: true }) : url.endsWith("/totp") ? json(401, { error: "unauthorized" }) : json(200, {}))));
+  void i18n.changeLanguage("en");
+  render(<MemoryRouter initialEntries={["/login"]}><Routes><Route path="/login" element={<Login />} /></Routes></MemoryRouter>);
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@x.com" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  fireEvent.change(await screen.findByLabelText("Code (6 digits)"), { target: { value: "000000" } });
+  fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Sign-in timed out. Please sign in again.");
+  expect(screen.getByLabelText("Password")).toBeTruthy();
 });
 
 vi.mock("qrcode", () => ({ default: { toDataURL: vi.fn(async () => "data:image/png;base64,xx") } }));

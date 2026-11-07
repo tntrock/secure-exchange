@@ -21,6 +21,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/tntrock/secure-exchange/internal/config"
+	"github.com/tntrock/secure-exchange/internal/mail"
 )
 
 var (
@@ -140,8 +141,9 @@ func (p *Provider) Exchange(ctx context.Context, code string, f Flow) (Identity,
 	}
 	id := Identity{ExternalID: idt.Issuer + " " + idt.Subject}
 	for _, k := range []string{"email", "preferred_username", "upn"} {
-		if s, _ := cl[k].(string); s != "" && (k == "email" || strings.Contains(s, "@")) {
-			id.Email = s
+		s, _ := cl[k].(string)
+		if v, ok := mail.ValidAddress(s); ok {
+			id.Email = v
 			break
 		}
 	}

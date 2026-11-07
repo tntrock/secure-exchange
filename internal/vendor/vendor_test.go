@@ -582,12 +582,17 @@ func TestCreateReopensRejected(t *testing.T) {
 	}
 	// an admin reopening gets the invitation at once
 	w := e.create(e.admin, "w@v.com")
-	if _, err := e.svc.pool.Exec(ctx, `UPDATE users SET approval = 'rejected' WHERE id = $1`, w.ID); err != nil {
+	if _, err := e.svc.pool.Exec(ctx, `UPDATE users SET approval = 'rejected', password_hash = 'old', totp_enabled = true, created_at = now() - interval '30 days' WHERE id = $1`, w.ID); err != nil {
 		t.Fatal(err)
 	}
 	w2, err := e.svc.Create(ctx, e.admin, e.input("w@v.com"))
 	if err != nil || w2.ID != w.ID || w2.Status != "invited" {
 		t.Fatal(w2, err)
+	}
+	// the old credentials are gone and the account age restarts
+	var stale bool
+	if err := e.svc.pool.QueryRow(ctx, `SELECT password_hash IS NOT NULL OR totp_enabled OR created_at < now() - interval '1 day' FROM users WHERE id = $1`, w.ID).Scan(&stale); err != nil || stale {
+		t.Fatal(stale, err)
 	}
 }
 

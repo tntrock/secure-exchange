@@ -566,7 +566,7 @@ AD 帳號刪除後重建（`objectGUID` 改變、email 相同），或 email 轉
 |---|---|---|
 | PDF | 重新產生為帶可見與不可見浮水印的 PDF，追蹤碼另寫入中繼資料與隱藏文字層 | 追蹤碼寫入 PDF 中繼資料 |
 | Office（doc/docx/xls/xlsx/ppt/pptx/odt/ods/odp/rtf） | 轉為帶浮水印的 PDF | docx/xlsx/pptx 與 odt/ods/odp 寫入文件屬性；doc/xls/ppt/rtf 不嵌入 |
-| JPEG／PNG | 可見加不可見浮水印 | 只加不可見浮水印 |
+| JPEG／PNG | 可見加不可見浮水印 | 只加不可見浮水印（任一邊小於 192 像素的圖片不嵌入） |
 | 其他（影片、壓縮檔等） | 只記錄下載者與檔案指紋 | 同左 |
 
 ### 查詢方式

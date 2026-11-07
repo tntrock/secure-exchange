@@ -131,6 +131,13 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// read first: a failure after Create would 500 on a share that already exists and was mailed
+	rl, err := s.Rules.Get(r.Context())
+	if err != nil {
+		slog.Error("rules", "err", err)
+		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
+		return
+	}
 	sh, err := s.Shares.Create(r.Context(), u, share.CreateInput{FileIDs: in.FileIDs, Emails: in.Emails, AllowDownload: in.AllowDownload,
 		Watermark: in.Watermark, ExpiresAt: in.ExpiresAt, MaxViews: in.MaxViews, IPAllow: in.IPAllow, Message: in.Message, VendorIDs: in.VendorIDs})
 	if err != nil {
@@ -138,12 +145,6 @@ func (s *server) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.record(r, s.shareEvent(u, audit.ActShareCreate, sh.ID, map[string]any{"recipient_count": len(sh.Recipients), "file_count": len(sh.Files)}))
-	rl, err := s.Rules.Get(r.Context())
-	if err != nil {
-		slog.Error("rules", "err", err)
-		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
-		return
-	}
 	writeJSON(w, http.StatusCreated, shareDetail(sh, rl))
 }
 

@@ -203,8 +203,12 @@ type fileMark struct {
 }
 
 // listPlan is mark.Decide for file lists, which decrypt nothing: the preview kind stands in for the
-// first bytes (Classify gives a .pdf kind pages only with the %PDF- magic) and the size comes from the preview,
-// so an image is degraded by MaxBytes or MaxPixels, and unmarked below mark.MinSide.
+// first bytes (Classify gives a .pdf kind pages only with the %PDF- magic). Width and height come from the
+// preview, i.e. the original scaled down by fit(4096), not the original's own dimensions; an image is degraded
+// by MaxBytes or MaxPixels, and unmarked below mark.MinSide.
+// ponytail: a very wide image (more than ~21:1) shrinks under fit(4096) so its short side falls below
+// mark.MinSide and it can be listed as unmarked although the download marks it. Store the original dimensions
+// on files if that ever matters.
 // ponytail: images are told jpeg/png by extension, so a gif named .png lists as markable; the
 // download re-decides from the real bytes. Store a sniffed type on files if that ever matters.
 func (s *server) listPlan(name string, size int64, p *preview.Preview, watermark bool) mark.Plan {

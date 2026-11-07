@@ -208,7 +208,7 @@ func (s *Service) Create(ctx context.Context, by *auth.User, in CreateInput) (*V
 	case err == nil:
 		reopened = true
 		_, err = tx.Exec(ctx, `UPDATE users SET display_name = $2, vendor_org_id = $3, created_by = $4, expires_at = $5, approval = $6,
-			disabled = false, totp_secret_sealed = NULL WHERE id = $1`, id, display, orgID, by.ID, in.ExpiresAt, approval)
+			disabled = false, totp_secret_sealed = NULL, password_hash = NULL, totp_enabled = false, created_at = now() WHERE id = $1`, id, display, orgID, by.ID, in.ExpiresAt, approval)
 	case errors.Is(err, pgx.ErrNoRows):
 		_, err = tx.Exec(ctx, `INSERT INTO users (id, email, display_name, role, vendor_org_id, created_by, expires_at, approval)
 			VALUES ($1,$2,$3,'vendor',$4,$5,$6,$7)`, id, email, display, orgID, by.ID, in.ExpiresAt, approval)
@@ -331,16 +331,17 @@ func (s *Service) manageable(ctx context.Context, by *auth.User, id uuid.UUID) (
 
 // SetDisabled turns the account off or on; disabling also ends every session of the vendor.
 func (s *Service) SetDisabled(ctx context.Context, by *auth.User, id uuid.UUID, disabled bool) error {
-	v, err := s.manageable(ctx, by, id)
+	if _, err := s.manageable(ctx, by, id); err != nil {
+		return err
+	}
+	// The status check lives in the UPDATE (no race with a concurrent decision): only an approved,
+	// enabled account can be disabled and only a disabled one enabled.
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET disabled = $2 WHERE id = $1 AND approval = 'approved' AND disabled = $3`, id, disabled, !disabled)
 	if err != nil {
 		return err
 	}
-	// Only a disabled account can be enabled; only one past approval can be disabled.
-	if disabled == (v.Status == "disabled") || v.Status == "pending" || v.Status == "rejected" {
+	if tag.RowsAffected() == 0 {
 		return ErrBadStatus
-	}
-	if _, err := s.pool.Exec(ctx, `UPDATE users SET disabled = $2 WHERE id = $1`, id, disabled); err != nil {
-		return err
 	}
 	if disabled {
 		return s.sessions.RevokeAllForUser(ctx, id)
@@ -349,17 +350,16 @@ func (s *Service) SetDisabled(ctx context.Context, by *auth.User, id uuid.UUID, 
 }
 
 func (s *Service) SetExpiry(ctx context.Context, by *auth.User, id uuid.UUID, at time.Time) error {
-	v, err := s.manageable(ctx, by, id)
-	if err != nil {
+	if _, err := s.manageable(ctx, by, id); err != nil {
 		return err
-	}
-	if v.Status == "pending" || v.Status == "rejected" {
-		return ErrBadStatus
 	}
 	if err := checkExpiry(at); err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `UPDATE users SET expires_at = $2 WHERE id = $1`, id, at)
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET expires_at = $2 WHERE id = $1 AND approval = 'approved'`, id, at)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrBadStatus
+	}
 	return err
 }
 

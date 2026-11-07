@@ -122,6 +122,7 @@ func (s *server) totp(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
 	}
+	s.setSessionCookie(w, token, int(s.SessionTTL.Seconds())) // the half-session cookie was short-lived
 	s.touchLogin(r, u.ID)
 	s.record(r, audit.Event{Action: audit.ActLoginOK, ActorID: u.ID.String(), Result: "ok", Detail: map[string]any{"stage": "totp"}})
 	writeJSON(w, http.StatusOK, map[string]bool{"mfa_required": false})

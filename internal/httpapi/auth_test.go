@@ -397,25 +397,31 @@ func TestPendingMFASessionShortTTL(t *testing.T) {
 	}
 	// TOTP-enabled user: half session is short, full session after the code is SessionTTL
 	secret := e.mkVendor(t, "v@v.com")
-	e.login(t, "v@v.com", pw)
+	resp, _ := e.login(t, "v@v.com", pw)
+	wantMaxAge(t, resp, int(auth.PendingMFATTL.Seconds()))
 	within(e.sessionTTLLeft(t, "v@v.com"), auth.PendingMFATTL)
 	code, _ := totp.GenerateCode(secret, time.Now())
-	if resp, b := e.do(t, "POST", "/api/auth/totp", map[string]string{"code": code}); resp.StatusCode != 200 {
-		t.Fatal(resp.StatusCode, string(b))
+	resp, b0 := e.do(t, "POST", "/api/auth/totp", map[string]string{"code": code})
+	if resp.StatusCode != 200 {
+		t.Fatal(resp.StatusCode, string(b0))
 	}
+	wantMaxAge(t, resp, 3600)
 	within(e.sessionTTLLeft(t, "v@v.com"), time.Hour)
 
 	// forced enrolment half session
 	e.user(t, "s@x.com")
 	e.forceTOTP(t, true)
 	e.c.Jar, _ = cookiejar.New(nil)
-	e.login(t, "s@x.com", pw)
+	resp, _ = e.login(t, "s@x.com", pw)
+	wantMaxAge(t, resp, int(auth.PendingMFATTL.Seconds()))
 	within(e.sessionTTLLeft(t, "s@x.com"), auth.PendingMFATTL)
 	_, b := e.do(t, "POST", "/api/auth/totp/setup", nil)
 	enrol, _ := totp.GenerateCode(otpSecret(t, otpURL(t, b)), time.Now())
-	if resp, b := e.do(t, "POST", "/api/auth/totp/enroll", map[string]string{"code": enrol}); resp.StatusCode != 200 {
+	resp, b = e.do(t, "POST", "/api/auth/totp/enroll", map[string]string{"code": enrol})
+	if resp.StatusCode != 200 {
 		t.Fatal(resp.StatusCode, string(b))
 	}
+	wantMaxAge(t, resp, 3600)
 	within(e.sessionTTLLeft(t, "s@x.com"), time.Hour)
 }
 
@@ -434,4 +440,17 @@ func TestRateKeyIPv6Slash64(t *testing.T) {
 			t.Errorf("%s: got %s want %s", c.ip, got, c.want)
 		}
 	}
+}
+
+func wantMaxAge(t *testing.T, resp *http.Response, want int) {
+	t.Helper()
+	for _, c := range resp.Cookies() {
+		if c.Name == cookieName {
+			if c.MaxAge != want {
+				t.Fatalf("cookie Max-Age %d, want %d", c.MaxAge, want)
+			}
+			return
+		}
+	}
+	t.Fatal("no session cookie in response")
 }

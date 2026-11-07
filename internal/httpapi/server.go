@@ -213,9 +213,10 @@ func readJSONMax(w http.ResponseWriter, r *http.Request, v any, max int64) bool 
 // rateKey is the rate-limit bucket for a client: the IPv4 address, or the IPv6 /64 so one
 // subscriber cannot dodge limits by rotating addresses. Audit and logs keep the full address.
 func (s *server) rateKey(r *http.Request) string {
-	a, err := netip.ParseAddr(s.ip(r))
+	ip := s.ip(r)
+	a, err := netip.ParseAddr(ip)
 	if err != nil || !a.Is6() {
-		return s.ip(r)
+		return ip
 	}
 	return netip.PrefixFrom(a, 64).Masked().String()
 }

@@ -232,6 +232,7 @@ func (s *server) totpEnroll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errBody("internal"))
 		return
 	}
+	s.setSessionCookie(w, token, int(s.SessionTTL.Seconds()))
 	s.touchLogin(r, u.ID)
 	s.record(r, audit.Event{Action: audit.ActTOTPEnable, ActorID: u.ID.String(), Result: "ok"})
 	s.record(r, audit.Event{Action: audit.ActLoginOK, ActorID: u.ID.String(), Result: "ok", Detail: map[string]any{"stage": "totp_enrol"}})

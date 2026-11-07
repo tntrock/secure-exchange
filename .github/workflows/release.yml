@@ -22,16 +22,18 @@ jobs:
       WORKER: ghcr.io/tntrock/secure-exchange-worker
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: {persist-credentials: false}
       - name: Check version
         run: |
           if [ "${GITHUB_REF_TYPE}" = tag ]; then
             sh scripts/check-version.sh "$GITHUB_REF_NAME"
+            test -f "docs/release-notes/$GITHUB_REF_NAME.md" || { echo "missing docs/release-notes/$GITHUB_REF_NAME.md" >&2; exit 1; }
           else
             sh scripts/check-version.sh
           fi
       - name: Build images
         run: |
-          V=$(cat VERSION)
+          V=$(tr -d '[:space:]' <VERSION)
           for t in "app:$APP" "worker:$WORKER"; do
             target=${t%%:*}
             img=${t#*:}
@@ -41,27 +43,29 @@ jobs:
               -t "$img:$V" -t "$img:${V%.*}" -t "$img:latest" .
           done
       - name: Check images
-        run: sh scripts/check-image.sh "$APP:$(cat VERSION)" "$WORKER:$(cat VERSION)"
+        run: sh scripts/check-image.sh "$APP:$(tr -d '[:space:]' <VERSION)" "$WORKER:$(tr -d '[:space:]' <VERSION)"
       - name: Smoke test
-        run: SMOKE_PREBUILT=1 scripts/smoke.sh
+        run: SMOKE_PREBUILT=1 bash scripts/smoke.sh
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push images
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
           docker push --all-tags "$APP"
           docker push --all-tags "$WORKER"
       - name: GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -- docker-compose.yml .env.example Caddyfile clamd.conf
+          # GitHub renames uploads whose names start with a dot, so ship .env.example as env.example
+          cp .env.example env.example
+          set -- docker-compose.yml env.example Caddyfile clamd.conf
           for f in "$@"; do sha256sum "$f" > "$f.sha256"; done
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
             --notes-file "docs/release-notes/$GITHUB_REF_NAME.md" \
-            "$@" docker-compose.yml.sha256 .env.example.sha256 Caddyfile.sha256 clamd.conf.sha256
+            "$@" docker-compose.yml.sha256 env.example.sha256 Caddyfile.sha256 clamd.conf.sha256

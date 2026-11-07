@@ -71,11 +71,11 @@ The images come from `ghcr.io/tntrock/secure-exchange` and `ghcr.io/tntrock/secu
 ```sh
 mkdir secure-exchange && cd secure-exchange && mkdir certs
 B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
-for f in docker-compose.yml .env.example Caddyfile clamd.conf; do
+for f in docker-compose.yml env.example Caddyfile clamd.conf; do
   curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
 done
 sha256sum -c *.sha256
-cp .env.example .env
+cp env.example .env
 ```
 
 **Option B: git clone and check out the version tag**
@@ -121,7 +121,7 @@ The first start pulls the images and ClamAV downloads its virus signatures (a fe
 
 ### 3.4 Trying it locally
 
-With `SX_DOMAIN=localhost`, Caddy uses a local CA, so the browser shows a certificate warning and `curl` needs `-k`. The bundled `scripts/smoke.sh` automatically runs a complete end-to-end test (upload, resume, sharing, online viewing, leak tracing, upload requests and virus scanning) in a throwaway environment, and can be used to validate the host environment. It needs Docker, and refuses to run if a `.env` already exists.
+With `SX_DOMAIN=localhost`, Caddy uses a local CA, so the browser shows a certificate warning and `curl` needs `-k`. `scripts/smoke.sh` in a source checkout automatically runs a complete end-to-end test (upload, resume, sharing, online viewing, leak tracing, upload requests and virus scanning) in a throwaway environment, and can be used to validate the host environment. It needs Docker, and refuses to run if a `.env` already exists.
 
 ### 3.5 Building from source
 

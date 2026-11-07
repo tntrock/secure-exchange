@@ -37,11 +37,11 @@
 ```sh
 mkdir secure-exchange && cd secure-exchange && mkdir certs
 B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
-for f in docker-compose.yml .env.example Caddyfile clamd.conf; do
+for f in docker-compose.yml env.example Caddyfile clamd.conf; do
   curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
 done
 sha256sum -c *.sha256
-cp .env.example .env
+cp env.example .env
 ```
 
 **方式 B：git clone 後切到版本標籤**
@@ -64,7 +64,7 @@ docker compose up -d
 
 要從原始碼建置（開發或自行修改）時，改用 overlay：`docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`。
 
-開啟 `https://<SX_DOMAIN>`，以 `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD` 登入。本機試用可設 `SX_DOMAIN=localhost`（使用 Caddy 本機 CA，`curl` 請加 `-k`）。`scripts/smoke.sh` 會在用完即丟的環境做上傳／續傳／下載／分享／線上檢視的端對端檢查（需 Docker；已有 `.env` 時拒絕執行）。
+開啟 `https://<SX_DOMAIN>`，以 `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD` 登入。本機試用可設 `SX_DOMAIN=localhost`（使用 Caddy 本機 CA，`curl` 請加 `-k`）。原始碼中的 `scripts/smoke.sh`（需 git clone）會在用完即丟的環境做上傳／續傳／下載／分享／線上檢視的端對端檢查（需 Docker；已有 `.env` 時拒絕執行）。
 
 主機 HTTPS 埠不是 443（`SX_HTTPS_PORT`）時，請在 `.env` 設定 `SX_BASE_URL=https://<網域>:<埠>`，否則信件連結與 OIDC 回呼網址會缺少埠號。
 

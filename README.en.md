@@ -37,11 +37,11 @@ Requires Docker with Compose and a DNS name pointing at the host (ports 80/443 o
 ```sh
 mkdir secure-exchange && cd secure-exchange && mkdir certs
 B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
-for f in docker-compose.yml .env.example Caddyfile clamd.conf; do
+for f in docker-compose.yml env.example Caddyfile clamd.conf; do
   curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
 done
 sha256sum -c *.sha256
-cp .env.example .env
+cp env.example .env
 ```
 
 **Option B: git clone and check out the version tag**
@@ -64,7 +64,7 @@ docker compose up -d
 
 To build from source (development or local changes), use the overlay: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 
-Open `https://<SX_DOMAIN>` and sign in with `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD`. For a local trial use `SX_DOMAIN=localhost` (Caddy's local CA; use `curl -k`). `scripts/smoke.sh` runs an end-to-end upload, resume, download, share and online-viewer check on a throwaway stack (needs Docker; refuses to run if a `.env` exists).
+Open `https://<SX_DOMAIN>` and sign in with `SX_INIT_ADMIN_EMAIL` / `SX_INIT_ADMIN_PASSWORD`. For a local trial use `SX_DOMAIN=localhost` (Caddy's local CA; use `curl -k`). `scripts/smoke.sh` (in a source checkout) runs an end-to-end upload, resume, download, share and online-viewer check on a throwaway stack (needs Docker; refuses to run if a `.env` exists).
 
 If the host's HTTPS port is not 443 (`SX_HTTPS_PORT`), set `SX_BASE_URL=https://<domain>:<port>` in `.env`; otherwise links in emails and the OIDC callback URL will lack the port.
 

@@ -71,11 +71,11 @@
 ```sh
 mkdir secure-exchange && cd secure-exchange && mkdir certs
 B=https://github.com/tntrock/secure-exchange/releases/download/v1.0.0
-for f in docker-compose.yml .env.example Caddyfile clamd.conf; do
+for f in docker-compose.yml env.example Caddyfile clamd.conf; do
   curl -fsSLO $B/$f && curl -fsSLO $B/$f.sha256
 done
 sha256sum -c *.sha256
-cp .env.example .env
+cp env.example .env
 ```
 
 **方式 B：git clone 後切到版本標籤**
@@ -121,7 +121,7 @@ docker compose up -d
 
 ### 3.4 本機試用
 
-`SX_DOMAIN=localhost` 時 Caddy 使用本機 CA，瀏覽器會出現憑證警告，`curl` 需加 `-k`。專案附的 `scripts/smoke.sh` 會在一個用完即丟的環境自動跑一次完整的端對端測試（上傳、續傳、分享、線上檢視、溯源、上傳請求與病毒掃描），可用來驗證主機環境。它需要 Docker，且在已有 `.env` 時會拒絕執行。
+`SX_DOMAIN=localhost` 時 Caddy 使用本機 CA，瀏覽器會出現憑證警告，`curl` 需加 `-k`。原始碼中的 `scripts/smoke.sh`（需 git clone） 會在一個用完即丟的環境自動跑一次完整的端對端測試（上傳、續傳、分享、線上檢視、溯源、上傳請求與病毒掃描），可用來驗證主機環境。它需要 Docker，且在已有 `.env` 時會拒絕執行。
 
 ### 3.5 從原始碼建置
 

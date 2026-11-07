@@ -1,6 +1,6 @@
 #!/bin/sh
 # Usage: sh scripts/check-image.sh IMAGE...
-# Each image must run as 65532:65532 and contain no .env, testdata/ or src/ paths.
+# Each image must run as 65532:65532 and contain no .env, testdata/, src/ or *.key paths.
 rc=0
 for img in "$@"; do
   ok=1
@@ -10,7 +10,7 @@ for img in "$@"; do
     ok=0
   fi
   c=$(docker create "$img") || { rc=1; continue; }
-  bad=$(docker export "$c" | tar -t | grep -E '(^|/)\.env$|/testdata/|^src/')
+  bad=$(docker export "$c" | tar -t | grep -E '(^|/)\.env$|(^|/)testdata/|^src/|(^|/)[^/]*\.key$')
   docker rm "$c" >/dev/null
   if [ -n "$bad" ]; then
     echo "$img: forbidden paths:" >&2

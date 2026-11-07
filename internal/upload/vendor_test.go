@@ -175,4 +175,11 @@ func TestVendorUploadRecipientNotAllowedAudited(t *testing.T) {
 	if n := e.count(`SELECT count(*) FROM audit_log WHERE action = 'file.upload' AND result = 'fail' AND actor_type = 'vendor' AND actor_id = $1 AND detail->>'reason' = 'recipient_not_allowed'`, v.ID.String()); n != 1 {
 		t.Fatal("denied audit rows", n)
 	}
+	// a non-UUID recipient is audited as invalid, never with the raw client bytes
+	if resp, body := e.vcreate("v", "bad\x00rcpt", 10); resp.StatusCode != 403 || body != "recipient_not_allowed" {
+		t.Fatal(resp.StatusCode, body)
+	}
+	if n := e.count(`SELECT count(*) FROM audit_log WHERE action = 'file.upload' AND actor_id = $1 AND detail->>'recipient_invalid' = 'true' AND NOT (detail ? 'recipient')`, v.ID.String()); n != 1 {
+		t.Fatal("invalid-recipient audit rows", n)
+	}
 }

@@ -34,8 +34,8 @@
 |---|---|---|
 | `caddy` | 對外的 HTTPS 入口，自動申請與更新 TLS 憑證 | `sx`（可連外） |
 | `app` | 主程式：網頁介面、API、登入、分享、上傳、寄信 | `sx`、`backend` |
-| `worker` | 線上預覽轉檔、病毒掃描等背景工作 | 只有 `backend`（**無法連外**） |
-| `clamav` | 病毒掃描引擎 clamd | `backend`、`updates`（只為更新病毒碼而連外） |
+| `worker` | 線上預覽轉檔、病毒掃描等背景工作 | `backend`、`scan`（**無法連外**） |
+| `clamav` | 病毒掃描引擎 clamd | `scan`、`updates`（只為更新病毒碼而連外） |
 | `postgres` | 資料庫（中繼資料、稽核紀錄） | `backend` |
 
 資料存放：
@@ -130,7 +130,7 @@ docker compose up -d
 ```yaml
 services:
   worker:
-    networks: [backend, s3]
+    networks: [backend, scan, s3]
 networks:
   s3: {}
 ```
@@ -622,6 +622,7 @@ docker compose exec postgres psql -U sx -d sx -c \
 | clamav | 4 GiB | — |
 
 - app 的 4 GiB 依據：「加標記」下載（PDF 中繼資料、圖片）會把整個檔案載入記憶體，最多同時 2 個；圖片在預設上限（`SX_MARK_MAX_BYTES` 256 MiB、`SX_MARK_MAX_PIXELS` 5,000 萬像素）下每個約需 1.5 GiB，故 2 × 1.5 GiB + 512 MiB，取整為 4 GiB。調高這兩項上限時請一併調高 `mem_limit`。
+- app 設有 `GOMEMLIMIT: 3584MiB`（略低於 4 GiB 上限的記憶體軟上限），讓 Go 在觸發 OOM 之前先回收記憶體；調高 `mem_limit` 時請一併調整。
 - 兩個加標記名額都被占滿時，其餘下載最多等待 2 分鐘，逾時回應 503（`busy`，`Retry-After: 30`），不會留下下載紀錄。
 - 網路：`scan`（內部網路，無對外路由）只連接 worker 與 clamav。clamav 不再位於 `backend`，無法連到 PostgreSQL 或 app；只有 worker 會連線 clamd，app 不需要。
 

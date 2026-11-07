@@ -353,7 +353,7 @@ func TestDisableRevokesSessions(t *testing.T) {
 	if s := e.status(v.ID); s != "active" {
 		t.Fatal(s)
 	}
-	if _, err := e.svc.pool.Exec(ctx, `UPDATE users SET expires_at = now() WHERE id = $1`, v.ID); err != nil {
+	if _, err := e.svc.pool.Exec(ctx, `UPDATE users SET expires_at = now() - interval '1 minute' WHERE id = $1`, v.ID); err != nil {
 		t.Fatal(err)
 	}
 	if s := e.status(v.ID); s != "expired" {

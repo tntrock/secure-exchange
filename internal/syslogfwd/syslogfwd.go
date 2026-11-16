@@ -24,6 +24,9 @@ import (
 const (
 	lockKey      = 7462 // audit.Append uses 7461
 	writeTimeout = 10 * time.Second
+	// probeTimeout must outlast a scheduling stall: a deadline that passes before Read
+	// reaches the socket reports a timeout even when EOF is waiting
+	probeTimeout = 20 * time.Millisecond
 	// facility 13 (log audit): severity 6 (info) or 4 (warning)
 	priOK, priFail = 13*8 + 6, 13*8 + 4
 )
@@ -230,7 +233,7 @@ func GetStatus(ctx context.Context, pool *pgxpool.Pool, enabled bool, now time.T
 // alive reports whether c is still open: a short read must time out, since the
 // server never sends; EOF, a reset or unexpected data all mean redial.
 func alive(c net.Conn) bool {
-	if c.SetReadDeadline(time.Now().Add(time.Millisecond)) != nil {
+	if c.SetReadDeadline(time.Now().Add(probeTimeout)) != nil {
 		return false
 	}
 	_, err := c.Read(make([]byte, 1))

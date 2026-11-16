@@ -9,7 +9,14 @@ updates:
     directory: /web
     schedule: {interval: weekly}
     groups:
+      # their majors are peer-coupled: each fails CI alone
+      i18n: {patterns: [i18next, react-i18next]}
       web-deps: {patterns: ["*"], update-types: [minor, patch]}
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule: {interval: weekly}
+    groups:
+      e2e-deps: {patterns: ["*"], update-types: [minor, patch]}
   - package-ecosystem: github-actions
     directory: /
     schedule: {interval: weekly}

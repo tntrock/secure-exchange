@@ -52,7 +52,8 @@ export default function RulesPage() {
     } catch (e) {
       const key = e instanceof ApiError && e.status === 422 ? `rules.error.${e.field}.${e.code}` : "";
       const known = key !== "" && i18n.exists(key);
-      setErr({ field: known ? (e as ApiError).field ?? "" : "", msg: t(known ? key : "rules.error.generic") });
+      const msgKey: string = known ? key : "rules.error.generic";
+      setErr({ field: known ? (e as ApiError).field ?? "" : "", msg: t(msgKey) });
     } finally {
       setBusy(false);
     }

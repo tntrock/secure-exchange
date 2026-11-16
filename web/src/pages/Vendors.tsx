@@ -48,7 +48,8 @@ export default function Vendors() {
   const fail = (e: unknown) => {
     const key = e instanceof ApiError ? (e.status === 422 ? `vendors.error.${e.field}.${e.code}` : `vendors.error.${e.message}`) : "";
     const known = key !== "" && i18n.exists(key);
-    setErr({ field: known && e instanceof ApiError && e.status === 422 ? (e.field ?? "") : "", msg: t(known ? key : "vendors.error.generic") });
+    const msgKey: string = known ? key : "vendors.error.generic";
+    setErr({ field: known && e instanceof ApiError && e.status === 422 ? (e.field ?? "") : "", msg: t(msgKey) });
   };
   const fieldErr = (f: string) => err?.field === f && <span className="error" role="alert">{err.msg}</span>;
 

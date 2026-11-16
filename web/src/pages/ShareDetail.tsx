@@ -27,7 +27,8 @@ export default function ShareDetail({ admin = false }: { admin?: boolean }) {
       refresh();
     } catch (e) {
       const key = e instanceof ApiError ? (e.status === 422 ? `share.error.${e.field}.${e.code}` : e.message === "expired" ? "share.error.expired" : "") : "";
-      setErr(t(key && i18n.exists(key) ? key : "app.error"));
+      const msgKey: string = key && i18n.exists(key) ? key : "app.error";
+      setErr(t(msgKey));
     }
   };
 

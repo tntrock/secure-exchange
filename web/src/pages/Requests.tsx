@@ -55,7 +55,8 @@ export default function Requests() {
     } catch (e) {
       const key = e instanceof ApiError && e.status === 422 ? `requests.error.${e.field}.${e.code}` : "";
       const known = key !== "" && i18n.exists(key);
-      setErr({ field: known ? ((e as ApiError).field ?? "") : "", msg: t(known ? key : "requests.error.generic") });
+      const msgKey: string = known ? key : "requests.error.generic";
+      setErr({ field: known ? ((e as ApiError).field ?? "") : "", msg: t(msgKey) });
       setBusy(false);
     }
   };

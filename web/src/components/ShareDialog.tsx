@@ -64,7 +64,8 @@ export default function ShareDialog({ fileIds, files = [], onClose, notReady = f
     }
     const key = e instanceof ApiError && e.status === 422 ? `share.error.${e.field}.${e.code}` : "";
     const known = key !== "" && i18n.exists(key);
-    setErr({ field: known ? ((e as ApiError).field ?? "") : "", msg: t(known ? key : "share.error.generic") });
+    const msgKey: string = known ? key : "share.error.generic";
+    setErr({ field: known ? ((e as ApiError).field ?? "") : "", msg: t(msgKey) });
   };
   const fieldErr = (f: string) => err?.field === f && <span className="error" role="alert">{err.msg}</span>;
 

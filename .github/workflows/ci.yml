@@ -1,6 +1,7 @@
 name: ci
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -27,7 +28,7 @@ jobs:
       SX_TEST_S3_ENDPOINT: localhost:59000
       SX_TEST_SMTP_ADDR: localhost:51025
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # A service container cannot take a command, so run minio by hand.
       - name: Start minio
         run: |
@@ -39,12 +40,12 @@ jobs:
         run: |
           docker run -d --name mailpit -p 51025:1025 -p 58025:8025 axllent/mailpit:v1.32
           curl --retry 30 --retry-delay 1 --retry-all-errors -fsS http://localhost:58025/livez
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Web tests and build
@@ -52,7 +53,7 @@ jobs:
         run: npm ci && npx vitest run --coverage && npm run build
       - run: go vet ./...
       - run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with: {name: cov-test, path: coverage.out}
       - name: Upload coverage to Codecov
         if: ${{ !cancelled() }}
@@ -65,8 +66,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
@@ -77,7 +78,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: sh scripts/check-version.sh
       - run: docker build --target app -t sxapp .
       - run: docker build --target worker -t sxworker .
@@ -100,7 +101,7 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U sx" --health-interval 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Start minio
         run: |
           docker run -d --name minio -p 59000:9000 \
@@ -121,7 +122,7 @@ jobs:
           use_oidc: true
           files: ./coverage-tools.out
           fail_ci_if_error: false
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with: {name: cov-tools, path: coverage-tools.out}
 
   # Hard 90% gate on the merged Go profiles (web enforces its own via vitest thresholds).
@@ -129,7 +130,7 @@ jobs:
     needs: [test, tools]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with: {pattern: cov-*, merge-multiple: true}
       - run: sh scripts/covergate.sh coverage.out coverage-tools.out

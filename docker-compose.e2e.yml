@@ -4,7 +4,7 @@
 #   docker compose -p sxe2e -f docker-compose.yml -f docker-compose.e2e.yml up
 services:
   mailpit:
-    image: axllent/mailpit:v1.33
+    image: axllent/mailpit:v1.34
     ports:
       - "127.0.0.1:59025:8025" # API / web UI on the host
     networks: [sx]
